@@ -1,0 +1,1 @@
+import Track from './Track';export default function Page(){return <main className="container section" style={{maxWidth:720}}><h1>Track Your Order</h1><p className="muted">Guest customers can track with Order ID + phone.</p><Track/></main>}

@@ -1,0 +1,1 @@
+import'./globals.css';export const metadata={title:'EMXIN Admin'};export default function L({children}:{children:React.ReactNode}){return<html><body>{children}</body></html>}

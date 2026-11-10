@@ -1,0 +1,1 @@
+export default function Page(){return <main className="container section"><h1>Your Cart</h1><div className="panel"><p>Cart is client-side ready for multi-product expansion; Buy Now currently demonstrates the complete backend checkout flow.</p></div></main>}

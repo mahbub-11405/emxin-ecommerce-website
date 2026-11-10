@@ -1,0 +1,1 @@
+import Sidebar from'./Sidebar';export default function Shell({children}:{children:React.ReactNode}){return <div className="shell"><Sidebar/><main className="main">{children}</main></div>}
