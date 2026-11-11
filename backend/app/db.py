@@ -23,6 +23,7 @@ def ensure_indexes():
     db.analytics_events.create_index([('session_id', ASCENDING), ('created_at', DESCENDING)])
     db.analytics_events.create_index([('customer_id', ASCENDING), ('created_at', DESCENDING)])
     db.coupons.create_index('code', unique=True)
+    db.wishlists.create_index('customer_id', unique=True)
 
     db.otp_challenges.create_index([('phone', ASCENDING), ('purpose', ASCENDING), ('created_at', DESCENDING)])
     db.otp_challenges.create_index('expires_at', expireAfterSeconds=0)

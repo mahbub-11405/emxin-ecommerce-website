@@ -477,3 +477,42 @@ def staff_status(staff_id:str,payload:dict,authorization: str|None=Header(None))
     if status not in ('active','disabled'): raise HTTPException(400,'Invalid status')
     db.staff.update_one({'_id':ObjectId(staff_id)},{'$set':{'status':status,'updated_at':now()}})
     db.audit_logs.insert_one({'actor_id':actor['sub'],'actor_role':'super_admin','action':'staff_status_changed','target_id':staff_id,'metadata':{'status':status},'created_at':now()}); return {'ok':True}
+
+
+# Customer-owned wishlist: never trust a customer_id supplied by the browser.
+def wishlist_customer(authorization):
+    identity=require_role(authorization,('customer',))
+    return identity['sub']
+
+@app.get('/api/v1/customers/wishlist')
+def get_wishlist(authorization: str|None=Header(None)):
+    customer_id=wishlist_customer(authorization)
+    saved=db.wishlists.find_one({'customer_id':customer_id}) or {}
+    ids=saved.get('product_ids',[])
+    products=list(db.products.find({'_id':{'$in':[ObjectId(x) for x in ids if ObjectId.is_valid(x)]},'status':'active'}))
+    by_id={str(p['_id']):p for p in products}
+    return serialize([by_id[x] for x in ids if x in by_id])
+
+@app.put('/api/v1/customers/wishlist/{product_id}')
+def add_wishlist(product_id:str,authorization: str|None=Header(None)):
+    customer_id=wishlist_customer(authorization)
+    if not ObjectId.is_valid(product_id): raise HTTPException(400,'Invalid product ID')
+    if not db.products.find_one({'_id':ObjectId(product_id),'status':'active'}): raise HTTPException(404,'Product not found')
+    db.wishlists.update_one({'customer_id':customer_id},{'$addToSet':{'product_ids':product_id},'$set':{'updated_at':now()}},upsert=True)
+    return {'ok':True}
+
+@app.delete('/api/v1/customers/wishlist/{product_id}')
+def remove_wishlist(product_id:str,authorization: str|None=Header(None)):
+    customer_id=wishlist_customer(authorization)
+    db.wishlists.update_one({'customer_id':customer_id},{'$pull':{'product_ids':product_id},'$set':{'updated_at':now()}})
+    return {'ok':True}
+
+@app.get('/api/v1/admin/payments')
+def admin_payments(authorization: str|None=Header(None),limit:int=100):
+    admin(authorization)
+    return serialize(list(db.payment_transactions.find().sort('created_at',-1).limit(min(max(limit,1),500))))
+
+@app.get('/api/v1/admin/categories')
+def admin_categories(authorization: str|None=Header(None)):
+    admin(authorization)
+    return serialize(list(db.categories.find().sort('order',1)))
