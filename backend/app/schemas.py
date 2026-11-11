@@ -26,7 +26,7 @@ class AnalyticsEvent(BaseModel):
 class ProductInput(BaseModel):
     name: str; name_bn: str=''; slug: Optional[str]=None; category_slug: str; brand_slug: str; price: float=Field(gt=0); sale_price: Optional[float]=None
     stock: int=Field(ge=0); weight_kg: float=Field(default=.3,gt=0); colors: list[str]=['Black']; features: list[str]=[]; features_bn: list[str]=[]
-    description: str=''; description_bn: str=''; images: list[str]=[]; video_url: str=''; status: Literal['active','draft','hidden']='active'; featured: bool=False; new_collection: bool=False
+    description: str=''; description_bn: str=''; specifications: list[str]=[]; box_contents: list[str]=[]; faq: list[dict]=[]; images: list[str]=[]; video_url: str=''; status: Literal['active','draft','hidden']='active'; featured: bool=False; new_collection: bool=False
 class CategoryInput(BaseModel):
     name: str; name_bn: str=''; slug: Optional[str]=None; order: int=0; visible: bool=True; thumbnail_url: str=''
 class BrandInput(BaseModel):
