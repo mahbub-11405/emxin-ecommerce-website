@@ -93,6 +93,8 @@ def s3_client():
 
 def media_public_url(key):
     base=(settings.aws_cdn_base_url or '').rstrip('/')
+    if not base and settings.aws_cloudfront_domain:
+        base='https://' + settings.aws_cloudfront_domain.strip().removeprefix('https://').removeprefix('http://').rstrip('/')
     return f'{base}/{key}' if base else f'https://{settings.aws_s3_bucket}.s3.{settings.aws_region}.amazonaws.com/{key}'
 
 # ---------- Public CMS / catalog ----------
@@ -253,7 +255,11 @@ def valid_coupon(code):
     return c
 
 @app.post('/api/v1/orders')
-async def create_order(body: OrderCreate):
+async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
+    identity=require_role(authorization,('customer',))
+    buyer=db.customers.find_one({'_id':ObjectId(identity['sub'])})
+    if not buyer or normalize_bd_phone(body.phone)!=normalize_bd_phone(buyer.get('phone','')):
+        raise HTTPException(403,'Checkout phone must match your verified account')
     ids=[]
     for i in body.items:
         try: ids.append(ObjectId(i.product_id))
@@ -289,7 +295,7 @@ async def create_order(body: OrderCreate):
     for i in body.items:
         p=pmap[i.product_id]
         items.append({'product_id':i.product_id,'name':p['name'],'slug':p['slug'],'quantity':i.quantity,'frame_color':i.frame_color,'unit_price':float(p.get('sale_price') or p['price'])})
-    customer=db.customers.find_one({'$or':[{'phone':body.phone},{'email':body.email.lower() if body.email else '__none__'}]})
+    customer=buyer
     doc={'order_id':order_id,'customer_name':body.customer_name,'phone':body.phone,'email':body.email,'customer_id':str(customer['_id']) if customer else None,'address':body.address,'district':body.district,'items':items,'pricing':pricing,'payment_method':body.payment_method,'payment_status':payment_status,'order_status':status,'coupon_code':coupon.get('code') if coupon else None,'dealer_opt_in':body.dealer_opt_in,'shop_name':body.shop_name,'dealer_id':str(dealer['_id']) if dealer else None,'dealer_discount_approved':bool(dealer and dealer.get('discount_approved')), 'courier':None,'courier_data':None,'courier_billing_mode':('deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill'),'created_at':now(),'updated_at':now()}
     # Reserve stock immediately for confirmed website intent; cancelled orders can release via admin action.
     for i in body.items: db.products.update_one({'_id':ObjectId(i.product_id)},{'$inc':{'stock':-i.quantity,'reserved':i.quantity}})
