@@ -29,3 +29,6 @@ def ensure_indexes():
     db.otp_challenges.create_index('expires_at', expireAfterSeconds=0)
     db.payment_transactions.create_index('trx_id', unique=True, sparse=True)
     db.staff.create_index('email', unique=True)
+
+    db.sms_outbox.create_index("event_key",unique=True)
+    db.media_versions.create_index([("entity_type",ASCENDING),("entity_id",ASCENDING),("created_at",DESCENDING)])
