@@ -1,2 +1,69 @@
-import Link from 'next/link';import {getJSON} from '@/lib/api';import ProductCard from '@/components/ProductCard';
-export default async function Home(){let d:any={};try{d=await getJSON('/home')}catch{}const h=d.homepage?.hero||{};const heroImg=typeof h.image==='string' && /^https?:\/\//i.test(h.image)?h.image:'';const cats=d.categories||[];return <main className="container"><section className="hero"><div className="hero-copy"><span className="eyebrow">SMART GADGETS</span><h1>{h.title||<>Smart Gadgets.<br/><span className="accent">Smarter Living.</span></>}</h1><p className="muted">{h.subtitle||'AI-powered smart glasses, stylish sunglasses and premium frames — designed for a smarter, more connected lifestyle.'}</p><div className="qtyrow"><Link className="btn" href="/shop">{h.cta||'Shop Now'} →</Link><Link className="btn secondary" href="/new-collection">New Collection</Link></div></div><div className="hero-media" data-fit={["contain","cover","seamless"].includes(h.fit_mode)?h.fit_mode:"contain"}>{heroImg?<img src={heroImg} alt="AIMB G2 Pro smart glasses" style={{width:"100%",height:"100%",objectFit:"contain"}}/>:<div className="fallback-glass"/>}</div></section><section className="trustbar"><Link href="/delivery"><span className="trust-icon">🚚</span><b>Fast Delivery</b><small>Regular & Express options</small></Link><Link href="/payments"><span className="trust-icon">🔒</span><b>Secure Payment</b><small>See accepted methods</small></Link><details><summary><span className="trust-icon">✦</span><b>Genuine Products</b><small>Quality commitment</small></summary><div className="trust-detail">EMXIN is committed to sourcing quality products directly from manufacturers and verified suppliers. Product-specific authorization and warranties are provided where applicable.</div></details><Link href="/contact"><span className="trust-icon">🎧</span><b>Customer Support</b><small>Connect with our team</small></Link><Link href="/dealer#benefits"><span className="trust-icon">🤝</span><b>Dealer Benefits</b><small>Conditional bulk discounts</small></Link></section><section className="section"><div className="section-head"><div><h2>Shop by Category</h2></div><Link href="/shop">View All →</Link></div><div className="categories">{cats.slice(0,3).map((c:any)=><Link className="cat" key={c.slug} href={`/shop?category=${c.slug}`}><span>{c.name}</span><small className="muted">Explore collection →</small></Link>)}</div></section><section className="section"><div className="section-head"><div><span className="eyebrow">NEW COLLECTION</span><h2>Featured Products</h2></div><Link href="/new-collection">View All →</Link></div><div className="grid">{(d.new_collection?.length?d.new_collection:d.featured||[]).slice(0,4).map((p:any)=><ProductCard key={p._id} p={p}/>)}</div></section><section className="section collection-banner"><div><h2>{d.homepage?.promo?.title||'Experience the Future with EMXIN'}</h2><p>{d.homepage?.promo?.subtitle||'Manage banners, promotional text, product priority and section ordering from Admin.'}</p></div><Link className="btn secondary" href="/new-collection">{d.homepage?.promo?.cta||'Explore Collection'}</Link></section><section className="section"><div className="section-head"><h2>More Smart Products</h2><Link href="/shop">Shop all →</Link></div><div className="grid">{(d.featured||[]).slice(0,8).map((p:any)=><ProductCard key={p._id} p={p}/>)}</div></section></main>}
+import Link from 'next/link';
+import {safeJSON,isHttp,firstImage} from '@/lib/api';
+import ProductCard from '@/components/ProductCard';
+import Icon from '@/components/Icon';
+import GlassesArt from '@/components/GlassesArt';
+import HeroVideo from '@/components/HeroVideo';
+
+const TRUST=[
+  {icon:'truck',title:'Fast Delivery',text:'Across Bangladesh',href:'/delivery'},
+  {icon:'shieldPlain',title:'Secure Payment',text:'bKash, Nagad, Card & Bank',href:'/payments'},
+  {icon:'badgeCheck',title:'Genuine Products',text:'100% Original',href:'/contact'},
+  {icon:'returnArrow',title:'7 Days Return',text:'Hassle Free',href:'/return-policy'},
+];
+// Legacy section keys from earlier Homepage Builder versions map onto the new blocks.
+const ALIAS:Record<string,string>={new_collection:'featured',best_sellers:'smart_products',hero:'',};
+const DEFAULT_ORDER=['trust','categories','featured','smart_products','promo'];
+
+export default async function Home(){
+  const d=await safeJSON<any>('/home',{});
+  const hp=d.homepage||{};const h=hp.hero||{};
+  const cats=(d.categories||[]).filter((c:any)=>c.show_on_home!==false);
+  const featured:any[]=(d.featured?.length?d.featured:d.new_collection)||[];
+  const all:any[]=d.products||featured;
+  const heroImg=isHttp(h.image)?h.image:'';
+  const heroProduct=all.find((p:any)=>p.slug===h.product_slug)||all[0];
+  let order:string[]=(Array.isArray(hp.sections)&&hp.sections.length?hp.sections:DEFAULT_ORDER).map((k:string)=>ALIAS[k]??k).filter(Boolean);
+  order=order.filter((k,i)=>order.indexOf(k)===i);
+  const hidden:string[]=hp.hidden_sections||[];
+  const trust=(hp.trust?.items?.length?hp.trust.items:TRUST);
+  const soon=hp.coming_soon||{};
+  const promo=hp.promo||{};
+
+  const blocks:Record<string,React.ReactNode>={
+    trust:<section className="trust wrap" key="trust" aria-label="Why shop with EMXIN">{trust.map((t:any)=><Link href={t.href||'#'} key={t.title}><span className="trust-ico"><Icon name={t.icon||'badgeCheck'} size={26} stroke={1.6}/></span><span><b>{t.title}</b><small>{t.text}</small></span></Link>)}</section>,
+    categories:cats.length?<section className="wrap block" key="categories"><div className="block-head"><h2 className="bar-title">{hp.category_section?.title||'Shop by Category'}</h2><Link className="view-all" href="/shop">View All <Icon name="arrowRight" size={18} stroke={2.2}/></Link></div>
+      <div className="cat-grid">{cats.slice(0,hp.category_section?.limit||3).map((c:any)=><Link className="cat-tile" key={c.slug} href={`/shop?category=${c.slug}`}>
+        <div className="cat-img">{isHttp(c.thumbnail_url)?<img src={c.thumbnail_url} alt="" loading="lazy"/>:<GlassesArt variant={c.slug.includes('sun')?'sun':c.slug.includes('frame')?'frame':'camera'}/>}</div>
+        <b>{c.name}</b><small>{c.subtitle||'Explore collection'}</small></Link>)}</div></section>:null,
+    featured:featured.length?<section className="wrap block" key="featured"><div className="block-head"><h2 className="bar-title">{hp.featured_section?.title||'Featured Products / New Collection'}</h2><Link className="view-all" href="/new-collection">View All <Icon name="arrowRight" size={18} stroke={2.2}/></Link></div>
+      <div className="pc-grid">{featured.slice(0,hp.featured_section?.limit||4).map((p:any)=><ProductCard key={p._id} p={p}/>)}</div></section>:null,
+    smart_products:all.length?<section className="wrap block" key="smart"><div className="block-head"><div><h2>{hp.smart_section?.title||'Our Smart Products'}</h2><p className="muted">{hp.smart_section?.subtitle||'Innovative gadgets for a smarter tomorrow.'}</p></div><Link className="view-all sm" href="/shop">View All <Icon name="arrowRight" size={16}/></Link></div>
+      <div className="smart-grid">{all.filter((p:any)=>p.category_slug==='smart-glasses'||p.has_camera!==undefined).slice(0,soon.enabled===false?3:2).map((p:any)=><ProductCard key={p._id} p={p} tag={p.has_camera?'With Camera':'Without Camera'}/>)}
+        {soon.enabled!==false&&<Link href={soon.href||'/new-collection'} className="soon-card" style={isHttp(soon.image)?{backgroundImage:`linear-gradient(180deg,rgba(6,16,43,.15),rgba(6,16,43,.85)),url(${soon.image})`}:undefined}>
+          <h3>{soon.title||'More Gadgets Coming Soon'}</h3><p>{soon.text||"Stay tuned. We're bringing more smart devices to make your life easier."}</p><span className="soon-btn">{soon.cta||'See Our Vision'} <Icon name="arrowRight" size={15}/></span>
+          {!isHttp(soon.image)&&<div className="soon-art" aria-hidden="true"><Icon name="watch" size={92} stroke={1.1}/><Icon name="earbuds" size={56} stroke={1.2}/></div>}
+        </Link>}</div></section>:null,
+    promo:<section className="wrap block" key="promo"><Link href={promo.href||'/new-collection'} className="promo" style={isHttp(promo.image)?{backgroundImage:`linear-gradient(90deg,rgba(4,12,36,.92) 0%,rgba(4,12,36,.55) 55%,rgba(4,12,36,.1)),url(${promo.image})`}:undefined}>
+      <div><h2>{promo.title&&promo.title!=='New Collection'?promo.title:<>Experience the Future<br/>with <span>EMXIN</span></>}</h2><p>{promo.subtitle&&promo.subtitle!=='Fresh arrivals from EMXIN'?promo.subtitle:'Innovation  |  Quality  |  Your Everyday Companion'}</p></div>
+      {!isHttp(promo.image)&&<div className="promo-art" aria-hidden="true"><GlassesArt variant="camera"/></div>}
+    </Link></section>,
+  };
+
+  return <main className="home">
+    <section className="hero-shell wrap"><div className="hero">
+      <div className="hero-copy">
+        <span className="pill">{h.eyebrow||'SMART GLASSES'}</span>
+        <h1>{h.title&&h.title!=='Smart Gadgets. Smarter Living.'?h.title:<>Smart Gadgets.<br/><span>Smarter Living.</span></>}</h1>
+        <p>{h.subtitle&&h.subtitle!=='Discover smart eyewear, sunglasses and frames.'?h.subtitle:'AI-powered smart glasses, earbuds, smart watch and more. Stay connected, productive and free — anywhere, anytime.'}</p>
+        <div className="hero-cta"><Link className="btn btn-lg" href={h.cta_href||'/shop'}>{h.cta||'Shop Now'} <Icon name="arrowRight" size={18} stroke={2.2}/></Link>{h.secondary_cta&&<Link className="btn btn-lg btn-ghost" href={h.secondary_href||'/new-collection'}>{h.secondary_cta}</Link>}</div>
+      </div>
+      <div className={'hero-media fit-'+(['contain','cover'].includes(h.fit_mode)?h.fit_mode:'contain')}>
+        {heroImg?<img src={heroImg} alt={h.image_alt||heroProduct?.name||'EMXIN smart glasses'} fetchPriority="high"/>:firstImage(heroProduct)?<img src={firstImage(heroProduct)} alt={heroProduct.name}/>:<GlassesArt variant="camera"/>}
+        {heroProduct&&h.show_tag!==false&&<Link href={`/product/${heroProduct.slug}`} className="hero-tag"><b>{h.tag_title||heroProduct.name}</b><small>{h.tag_text||(heroProduct.has_camera?'With Camera':heroProduct.subtitle||'')}</small></Link>}
+        {isHttp(h.video_url)&&<HeroVideo src={h.video_url}/>}
+      </div>
+    </div></section>
+    {order.filter(k=>!hidden.includes(k)).map(k=>blocks[k]??null)}
+  </main>;
+}

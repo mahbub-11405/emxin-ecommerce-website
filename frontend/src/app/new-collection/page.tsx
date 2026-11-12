@@ -1,1 +1,3 @@
-import {getJSON} from '@/lib/api';import ProductCard from '@/components/ProductCard';export default async function Page(){let d:any={};try{d=await getJSON('/home')}catch{}return <main className="container section"><div className="eyebrow">Just In</div><h1>New Collection</h1><p className="muted">Admin-selected fresh arrivals.</p><div className="grid">{(d.new_collection||[]).map((p:any)=><ProductCard p={p} key={p._id}/>)}</div></main>}
+import Shop from '../shop/page';
+export const metadata={title:'New Collection'};
+export default async function NewCollection({searchParams}:{searchParams:Promise<any>}){const sp=await searchParams;return Shop({searchParams:Promise.resolve({...sp,collection:'new'})})}

@@ -31,6 +31,7 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_CDN_URL: ${NEXT_PUBLIC_CDN_URL}
         NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME:-EMXIN Technologies}
+        NEXT_PUBLIC_STORE_URL: ${FRONTEND_URL}
     container_name: emxin-admin
     restart: unless-stopped
     ports:

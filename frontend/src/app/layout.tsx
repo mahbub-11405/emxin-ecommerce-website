@@ -1,10 +1,49 @@
 import './globals.css';
 import Link from 'next/link';
-import {getJSON} from '@/lib/api';
+import {safeJSON,isHttp} from '@/lib/api';
 import AnalyticsTracker from '@/components/AnalyticsTracker';
-import CategoryNavigation from '@/components/CategoryNavigation';
-export const metadata={title:'EMXIN Technologies',description:'Smart Gadgets. Smarter Living.'};
+import Icon from '@/components/Icon';
+import {CartBadge,AccountLink,NavLinks} from '@/components/HeaderClient';
+
+export async function generateMetadata(){
+  const site=await safeJSON<any>('/site-content',{});const seo=site.seo||{};
+  const title=seo.title||'EMXIN Technologies — Smart Gadgets. Smarter Living.';
+  const description=seo.description||'AI smart glasses, smart sunglasses and premium frames in Bangladesh. Fast delivery, secure payment and dealer pricing.';
+  return {title:{default:title,template:'%s | EMXIN Technologies'},description,openGraph:{title,description,images:isHttp(seo.image)?[seo.image]:[]},icons:isHttp(site.branding?.favicon_url)?{icon:site.branding.favicon_url}:undefined};
+}
+export const viewport={width:'device-width',initialScale:1,themeColor:'#1f5cff'};
+
 export default async function Layout({children}:{children:React.ReactNode}){
- let site:any={},cats:any[]=[];try{site=await getJSON('/site-content');cats=await getJSON('/categories')}catch{}
- const logo=site.branding?.logo_url;const support=site.links?.support_url;
- return <html lang="en"><body><AnalyticsTracker/><header className="header"><div className="container nav"><Link className="brand" href="/" aria-label="EMXIN Home">{logo?<img className="site-logo" src={logo} alt="EMXIN Technologies"/>:<img className="site-logo" src="/branding/emxin-logo-light.png" alt="EMXIN Technologies"/>}</Link><nav className="links"><Link href="/">Home</Link><Link href="/shop">Shop</Link><CategoryNavigation categories={cats}/><Link href="/new-collection">New Collection</Link><Link href="/shop">Offers</Link><Link className="dealer-link" href="/dealer">Become a Dealer</Link></nav><div className="nav-actions"><form action="/shop" className="search-form"><input className="search" name="q" placeholder="Search products..." aria-label="Search products"/></form><Link className="nav-utility" href="/track-order" aria-label="Track Order"><span aria-hidden="true">♧</span><small>Track Order</small></Link><Link className="nav-utility" href="/login" aria-label="Account"><span aria-hidden="true">♙</span><small>Account</small></Link><Link className="icon-link" href="/wishlist" aria-label="Wishlist" title="Wishlist">♡</Link><Link className="cart-icon" href="/cart" aria-label="Shopping cart" title="Shopping cart"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg></Link></div></div></header>{children}<footer className="footer"><div className="container footer-grid"><div><Link className="brand" href="/">{logo?<img className="site-logo footer-logo" src={logo} alt="EMXIN Technologies"/>:<img className="site-logo footer-logo" src="/branding/emxin-logo-dark.png" alt="EMXIN Technologies"/>}</Link><p>Smart Gadgets. Smarter Living.</p></div><div><h4>Shop</h4><Link href="/shop?category=smart-glasses">Smart Glasses</Link><Link href="/shop?category=sunglasses">Sunglasses</Link><Link href="/shop?category=frames">Frames</Link></div><div><h4>Support</h4><Link href="/track-order">Track Order</Link><Link href="/return-policy">Conditional Return</Link><Link href={support||'/contact'}>Contact Support</Link><Link href="/payments">Payment Options</Link></div><div><h4>Business</h4><Link href="/dealer">Become a Dealer</Link><Link href="/dealer#benefits">Dealer Benefits</Link><Link href="/account">Dealer Account</Link></div></div><div className="container footer-bottom">© {new Date().getFullYear()} EMXIN Technologies. All Rights Reserved. · <Link href="/privacy-policy">Privacy Policy</Link> · <Link href="/terms">Terms & Conditions</Link> · <Link href="/return-policy">Return Policy</Link></div></footer></body></html>}
+  const[site,cats]=await Promise.all([safeJSON<any>('/site-content',{}),safeJSON<any[]>('/categories',[])]);
+  const logo=isHttp(site.branding?.logo_url)?site.branding.logo_url:'/branding/emxin-logo-light.png';
+  const logoDark=isHttp(site.branding?.logo_dark_url)?site.branding.logo_dark_url:'/branding/emxin-logo-dark.png';
+  const links=site.links||{};
+  const year=new Date().getFullYear();
+  return <html lang="en"><head>
+    <link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin=""/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  </head><body>
+    <AnalyticsTracker/>
+    {site.announcement?.enabled&&site.announcement?.text&&<div className="announce">{site.announcement.href?<Link href={site.announcement.href}>{site.announcement.text}</Link>:site.announcement.text}</div>}
+    <header className="hdr"><div className="wrap hdr-row">
+      <Link className="hdr-logo" href="/" aria-label="EMXIN Technologies home"><img src={logo} alt="EMXIN Technologies"/></Link>
+      <NavLinks categories={cats}/>
+      <form action="/shop" className="hdr-search" role="search"><input name="q" placeholder="Search products..." aria-label="Search products"/><button aria-label="Search"><Icon name="search" size={17}/></button></form>
+      <div className="hdr-actions">
+        <Link className="hdr-util" href="/track-order"><Icon name="track" size={19}/><small>Track Order</small></Link>
+        <AccountLink/>
+        <Link className="hdr-icon" href="/wishlist" aria-label="Wishlist"><Icon name="heart" size={23}/></Link>
+        <CartBadge/>
+      </div>
+    </div></header>
+    {children}
+    <footer className="ftr"><div className="wrap ftr-grid">
+      <div className="ftr-brand"><Link href="/"><img src={logoDark} alt="EMXIN Technologies"/></Link><p>{site.footer?.tagline||'Smart Gadgets. Smarter Living.'}</p>
+        <div className="ftr-social">{links.facebook_url&&<a href={links.facebook_url} aria-label="Facebook" target="_blank" rel="noopener"><Icon name="facebook" size={18}/></a>}{links.support_phone&&<a href={'tel:'+links.support_phone} aria-label="Call support"><Icon name="phone" size={18}/></a>}{links.support_email&&<a href={'mailto:'+links.support_email} aria-label="Email support"><Icon name="mail" size={18}/></a>}</div>
+      </div>
+      <div><h4>Shop</h4>{(cats.length?cats:[{slug:'smart-glasses',name:'Smart Glasses'},{slug:'sunglasses',name:'Sunglasses'},{slug:'frames',name:'Frames'}]).slice(0,6).map((c:any)=><Link key={c.slug} href={`/shop?category=${c.slug}`}>{c.name}</Link>)}</div>
+      <div><h4>Support</h4><Link href="/track-order">Track Order</Link><Link href="/return-policy">Return Policy</Link><Link href={links.support_url||'/contact'}>Contact Support</Link><Link href="/payments">Payment Options</Link><Link href="/delivery">Delivery Information</Link></div>
+      <div><h4>Business</h4><Link href="/dealer">Become a Dealer</Link><Link href="/dealer#benefits">Dealer Benefits</Link><Link href="/account">Dealer Account</Link></div>
+    </div><div className="wrap ftr-bottom"><span>© {year} EMXIN Technologies. All Rights Reserved.</span><span><Link href="/privacy-policy">Privacy Policy</Link><Link href="/terms">Terms & Conditions</Link><Link href="/return-policy">Return Policy</Link></span></div></footer>
+  </body></html>;
+}

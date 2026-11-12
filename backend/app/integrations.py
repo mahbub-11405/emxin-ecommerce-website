@@ -12,19 +12,19 @@ class PayStationClient:
         if not settings.paystation_enabled: raise IntegrationNotConfigured('PayStation is disabled')
         if not settings.paystation_merchant_id or not settings.paystation_password: raise IntegrationNotConfigured('PayStation credentials are missing')
 
-    async def initiate(self, order, amount: float):
+    async def initiate(self, order, amount: float, invoice_number: str|None=None):
         self._check()
         payload={
             'merchantId':settings.paystation_merchant_id,
             'password':settings.paystation_password,
-            'invoice_number':order['order_id'],
+            'invoice_number':invoice_number or order['order_id'],
             'currency':'BDT',
-            'payment_amount':str(round(amount,2)),
+            'payment_amount':str(int(round(amount))),
             'pay_with_charge':str(settings.paystation_pay_with_charge),
             'reference':order['order_id'],
             'cust_name':order['customer_name'],
             'cust_phone':order['phone'],
-            'cust_email':order.get('email') or 'customer@emxin.local',
+            'cust_email':order.get('email') or 'customer@emxin.com.bd',
             'cust_address':order.get('address',''),
             'callback_url':settings.paystation_callback_url,
             'checkout_items':json.dumps(order.get('items',[]),ensure_ascii=False),

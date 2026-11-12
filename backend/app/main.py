@@ -12,10 +12,12 @@ from .security import hash_password, verify_password, create_token, require_role
 from .schemas import *
 from .pricing import calculate
 from .integrations import PayStationClient, NishchitClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
+from .admin_ext import router as v2_router, release_stock
 
 settings=get_settings()
 app=FastAPI(title='EMXIN REST API',version='1.0.0',openapi_url='/api/v1/openapi.json',docs_url='/docs')
 app.add_middleware(CORSMiddleware,allow_origins=settings.origins,allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
+app.include_router(v2_router)
 
 @app.on_event('startup')
 def startup():
@@ -48,6 +50,10 @@ def otp_hash(phone,purpose,code):
 @app.post('/api/v1/auth/otp/request')
 async def request_otp(body: OTPRequest):
     phone=normalize_bd_phone(body.phone); now_dt=now()
+    if body.purpose=='login' and not db.customers.find_one({'phone':phone},{'_id':1}):
+        raise HTTPException(404,'No account found for this number. Please register first.')
+    if body.purpose=='customer_register' and db.customers.find_one({'phone':phone},{'_id':1}):
+        raise HTTPException(409,'This number is already registered. Please log in.')
     previous=db.otp_challenges.find_one({'phone':phone,'purpose':body.purpose},sort=[('created_at',-1)])
     if previous and (now_dt-previous['created_at']).total_seconds()<settings.otp_resend_seconds: raise HTTPException(429,'Please wait before requesting another OTP')
     if settings.app_env == 'production' and not settings.nishchit_enabled:
@@ -100,12 +106,13 @@ def media_public_url(key):
 # ---------- Public CMS / catalog ----------
 @app.get('/api/v1/home')
 def home():
-    return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':serialize(db.settings.find_one({'key':'commerce'},{'_id':0})),'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),'featured':serialize(list(db.products.find({'status':'active','featured':True}).limit(8))),'new_collection':serialize(list(db.products.find({'status':'active','new_collection':True}).limit(8)))}
+    return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':serialize(db.settings.find_one({'key':'commerce'},{'_id':0})),'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),'featured':serialize(list(db.products.find({'status':'active','featured':True}).sort([('sort_order',1),('created_at',-1)]).limit(8))),'new_collection':serialize(list(db.products.find({'status':'active','new_collection':True}).sort([('sort_order',1),('created_at',-1)]).limit(8))),'products':serialize(list(db.products.find({'status':'active'}).sort([('sort_order',1),('created_at',-1)]).limit(12)))}
 
 @app.get('/api/v1/site-content')
 def site_content():
     home=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
-    return {'branding':home.get('branding',{}),'links':home.get('links',{}),'trust':home.get('trust',{}),'policies':home.get('policies',{}),'dealer_benefits':home.get('dealer_benefits',{})}
+    cfg=db.settings.find_one({'key':'commerce'},{'_id':0,'dealer_tiers':1,'bulk_threshold_qty':1,'digital_payment_discount_percent':1}) or {}
+    return {k:home.get(k,{}) for k in ('branding','links','trust','policies','dealer_benefits','announcement','footer','seo')}|{'dealer_tiers':cfg.get('dealer_tiers') or [5,8,12,15],'bulk_threshold_qty':cfg.get('bulk_threshold_qty',20),'digital_payment_discount_percent':cfg.get('digital_payment_discount_percent',2)}
 
 @app.get('/api/v1/categories')
 def categories(): return serialize(list(db.categories.find({'visible':True}).sort('order',1)))
@@ -118,17 +125,34 @@ def brands(category: str|None=None):
     return serialize(list(db.brands.find(q).sort('order',1)))
 
 @app.get('/api/v1/products')
-def products(category: str|None=None,brand: str|None=None,q: str|None=None,limit:int=50):
+def products(category: str|None=None,brand: str|None=None,q: str|None=None,limit:int=50,camera: str|None=None,availability: str|None=None,min_price: float|None=None,max_price: float|None=None,sort: str='featured',ids: str|None=None,collection: str|None=None):
     f={'status':'active'}
+    if ids:
+        f['_id']={'$in':[ObjectId(x) for x in ids.split(',') if ObjectId.is_valid(x)][:100]}
     if category:f['category_slug']=category
-    if brand:f['brand_slug']=brand
-    if q:f['$or']=[{'name':{'$regex':re.escape(q),'$options':'i'}},{'features':{'$elemMatch':{'$regex':re.escape(q),'$options':'i'}}}]
-    return serialize(list(db.products.find(f).sort([('stock',-1),('created_at',-1)]).limit(min(limit,100))))
+    if brand:f['brand_slug']={'$in':[b for b in brand.split(',') if b]}
+    if camera=='with':f['has_camera']=True
+    elif camera=='without':f['has_camera']={'$ne':True}
+    if availability=='in_stock':f['stock']={'$gt':0}
+    elif availability=='out_of_stock':f['stock']={'$lte':0}
+    if collection=='new':f['new_collection']=True
+    elif collection=='featured':f['featured']=True
+    elif collection=='offers':f['sale_price']={'$ne':None,'$gt':0}
+    if min_price is not None or max_price is not None:
+        rng={}
+        if min_price is not None: rng['$gte']=min_price
+        if max_price is not None: rng['$lte']=max_price
+        f['$and']=[{'$or':[{'sale_price':rng},{'sale_price':None,'price':rng}]}]
+    if q:f['$or']=[{'name':{'$regex':re.escape(q),'$options':'i'}},{'features':{'$elemMatch':{'$regex':re.escape(q),'$options':'i'}}},{'model':{'$regex':re.escape(q),'$options':'i'}}]
+    order={'price_asc':[('price',1)],'price_desc':[('price',-1)],'newest':[('created_at',-1)],'rating':[('rating',-1),('review_count',-1)],'popular':[('sold_count',-1)]}.get(sort,[('sort_order',1),('stock',-1),('created_at',-1)])
+    return serialize(list(db.products.find(f).sort(order).limit(min(limit,100))))
 
 @app.get('/api/v1/products/{slug}')
 def product(slug:str):
     p=db.products.find_one({'slug':slug,'status':'active'})
     if not p: raise HTTPException(404,'Product not found')
+    b=db.brands.find_one({'slug':p.get('brand_slug')},{'name':1}); c=db.categories.find_one({'slug':p.get('category_slug')},{'name':1})
+    p['brand_name']=(b or {}).get('name') or (p.get('brand_slug') or '').upper(); p['category_name']=(c or {}).get('name') or (p.get('category_slug') or '').replace('-',' ').title()
     return serialize(p)
 
 
@@ -171,20 +195,38 @@ class PhoneOTPLogin(BaseModel):
 def customer_phone_login(body: PhoneOTPLogin):
     """Passwordless customer login; requires a consumed, verified OTP."""
     phone=normalize_bd_phone(body.phone)
+    c=db.customers.find_one({'phone':phone})
+    if not c: raise HTTPException(404,'No account found for this number. Please register first.')
     if not consume_phone_verification(phone,'login',body.verification_id):
         raise HTTPException(401,'Valid phone OTP verification required')
-    c=db.customers.find_one({'phone':phone})
-    if not c:
-        doc={'phone':phone,'name':body.name.strip() or 'EMXIN Customer',
-             'account_type':'customer','lead_status':'New Lead','lead_priority':'Cold',
-             'total_orders':0,'total_purchase':0.0,'created_at':now(),
-             'last_login_at':now(),'last_active_at':now()}
-        r=db.customers.insert_one(doc)
-        c={**doc,'_id':r.inserted_id}
-    else:
-        db.customers.update_one({'_id':c['_id']},{'$set':{'last_login_at':now(),'last_active_at':now()}})
+    db.customers.update_one({'_id':c['_id']},{'$set':{'last_login_at':now(),'last_active_at':now()}})
     return {'access_token':create_token(str(c['_id']),'customer'),
             'customer':serialize({k:v for k,v in c.items() if k!='password_hash'})}
+
+@app.post('/api/v1/customers/register-phone')
+def customer_register_phone(body: PhoneRegister):
+    """Mobile-number-only registration, verified by OTP (purpose=customer_register)."""
+    phone=normalize_bd_phone(body.phone)
+    if db.customers.find_one({'phone':phone}): raise HTTPException(409,'This number is already registered. Please log in.')
+    email=body.email.lower().strip() if body.email else None
+    if email and db.customers.find_one({'email':email}): raise HTTPException(409,'This email is already used by another account.')
+    if not consume_phone_verification(phone,'customer_register',body.verification_id): raise HTTPException(401,'Valid phone OTP verification required')
+    doc={'name':body.name.strip(),'phone':phone,'phone_verified':True,'district':body.district,'address':body.address,'account_type':'customer','lead_status':'New Lead','lead_priority':'Cold','total_orders':0,'total_purchase':0.0,'created_at':now(),'last_login_at':now(),'last_active_at':now(),'assigned_sales_person':None,'sales_notes':[],'next_followup_at':None}
+    if email: doc['email']=email
+    r=db.customers.insert_one(doc)
+    return {'access_token':create_token(str(r.inserted_id),'customer'),'customer':serialize({**doc,'_id':r.inserted_id})}
+
+@app.put('/api/v1/customers/me')
+def customer_update_me(payload: dict, authorization: str|None=Header(None)):
+    auth=require_role(authorization,('customer',))
+    upd={k:str(v).strip()[:300] for k,v in payload.items() if k in ('name','address','district') and v is not None}
+    if payload.get('email'):
+        email=str(payload['email']).lower().strip()
+        if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',email): raise HTTPException(400,'Invalid email')
+        if db.customers.find_one({'email':email,'_id':{'$ne':ObjectId(auth['sub'])}}): raise HTTPException(409,'Email already in use')
+        upd['email']=email
+    if upd: db.customers.update_one({'_id':ObjectId(auth['sub'])},{'$set':upd})
+    return {'ok':True}
 
 @app.get('/api/v1/customers/me')
 def customer_me(authorization: str|None=Header(None)):
@@ -211,9 +253,14 @@ def analytics_event(body: AnalyticsEvent,authorization: str|None=Header(None)):
 # ---------- Quantity / dealer leads ----------
 @app.post('/api/v1/quantity-requests')
 def quantity_request(body: QuantityRequest):
+    if not ObjectId.is_valid(body.product_id): raise HTTPException(400,'Invalid product id')
     p=db.products.find_one({'_id':ObjectId(body.product_id)})
     if not p: raise HTTPException(404,'Product not found')
-    doc=body.model_dump(); doc.update({'product_name':p['name'],'status':'New','created_at':now()})
+    colors=set(p.get('colors') or ['Black'])
+    if any(k not in colors or v<0 for k,v in body.color_quantities.items()): raise HTTPException(400,'Invalid colour quantities')
+    color_total=sum(body.color_quantities.values()); total=max(body.total_quantity,color_total)
+    if total<1: raise HTTPException(400,'Required quantity must be at least 1')
+    doc=body.model_dump(); doc.update({'phone':normalize_bd_phone(body.phone),'total_quantity':total,'product_name':p['name'],'status':'New','created_at':now()})
     result=db.quantity_requests.insert_one(doc)
     if body.dealer_opt_in:
         db.dealer_leads.update_one({'phone':body.phone},{'$set':{'name':body.name,'shop_name':body.shop_name,'phone':body.phone,'email':body.email,'status':'Pending','source':'quantity_request','updated_at':now()}},upsert=True)
@@ -270,11 +317,15 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
     for i in body.items:
         if pmap[i.product_id].get('stock',0)<i.quantity: raise HTTPException(409,f"Insufficient stock for {pmap[i.product_id]['name']}")
     coupon=valid_coupon(body.coupon_code)
+    if body.coupon_code and not coupon: raise HTTPException(400,'Coupon is invalid or expired')
+    if coupon and coupon.get('usage_limit') and db.orders.count_documents({'coupon_code':coupon['code'],'order_status':{'$nin':['Cancelled','Returned']}})>=coupon['usage_limit']: raise HTTPException(409,'Coupon usage limit reached')
+    if coupon and coupon.get('min_order') and sum(float(pmap[i.product_id].get('sale_price') or pmap[i.product_id]['price'])*i.quantity for i in body.items)<float(coupon['min_order']): raise HTTPException(400,f"Minimum order ৳{coupon['min_order']} required for this coupon")
     dealer=db.dealers.find_one({'phone':normalize_bd_phone(body.phone),'status':'Active'}) if body.dealer_opt_in else None
     cfg=commerce_settings().copy()
     if dealer and sum(i.quantity for i in body.items)>=20:
         completed=db.orders.count_documents({'dealer_id':str(dealer['_id']),'order_status':{'$in':['Delivered','Completed']}})
-        tier=[5,8,12,15][min(completed,3)]
+        tiers=cfg.get('dealer_tiers') or [5,8,12,15]
+        tier=tiers[min(completed,len(tiers)-1)]
         cfg['bulk_discount_percent']=float(dealer.get('discount_override_percent') if dealer.get('discount_override_percent') is not None else tier) if dealer.get('discount_approved',False) else 0.0
     else:
         cfg['bulk_discount_percent']=0.0
@@ -288,7 +339,8 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
             db.dealer_leads.update_one({'phone':body.phone},{'$set':{'name':body.customer_name,'shop_name':body.shop_name,'phone':body.phone,'email':body.email,'status':'Pending','source':'checkout','updated_at':now()}},upsert=True)
     status='Pending Confirmation'
     if pricing['is_bulk']:
-        payment_status='Pending Advance Payment' if body.payment_method=='paystation' else ('Awaiting Advance Verification' if body.payment_method=='bank' else 'Advance Required')
+        if body.payment_method!='paystation': raise HTTPException(400,f"Bulk orders ({int(cfg.get('bulk_threshold_qty',settings.bulk_threshold_qty))}+ pcs) need an online advance payment via PayStation")
+        payment_status='Pending Advance Payment'
     else:
         payment_status='Unpaid' if body.payment_method in ('cod','bank') else 'Pending Payment'
     items=[]
@@ -296,34 +348,111 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
         p=pmap[i.product_id]
         items.append({'product_id':i.product_id,'name':p['name'],'slug':p['slug'],'quantity':i.quantity,'frame_color':i.frame_color,'unit_price':float(p.get('sale_price') or p['price'])})
     customer=buyer
-    doc={'order_id':order_id,'customer_name':body.customer_name,'phone':body.phone,'email':body.email,'customer_id':str(customer['_id']) if customer else None,'address':body.address,'district':body.district,'items':items,'pricing':pricing,'payment_method':body.payment_method,'payment_status':payment_status,'order_status':status,'coupon_code':coupon.get('code') if coupon else None,'dealer_opt_in':body.dealer_opt_in,'shop_name':body.shop_name,'dealer_id':str(dealer['_id']) if dealer else None,'dealer_discount_approved':bool(dealer and dealer.get('discount_approved')), 'courier':None,'courier_data':None,'courier_billing_mode':('deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill'),'created_at':now(),'updated_at':now()}
+    doc={'order_id':order_id,'customer_name':body.customer_name,'phone':normalize_bd_phone(body.phone),'timeline':[{'at':now(),'order_status':status,'payment_status':payment_status,'note':'Order placed on website','role':'customer'}],'email':body.email,'customer_id':str(customer['_id']) if customer else None,'address':body.address,'district':body.district,'items':items,'pricing':pricing,'payment_method':body.payment_method,'payment_status':payment_status,'order_status':status,'coupon_code':coupon.get('code') if coupon else None,'dealer_opt_in':body.dealer_opt_in,'shop_name':body.shop_name,'dealer_id':str(dealer['_id']) if dealer else None,'dealer_discount_approved':bool(dealer and dealer.get('discount_approved')), 'courier':None,'courier_data':None,'courier_billing_mode':('deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill'),'created_at':now(),'updated_at':now()}
     # Reserve stock immediately for confirmed website intent; cancelled orders can release via admin action.
     for i in body.items: db.products.update_one({'_id':ObjectId(i.product_id)},{'$inc':{'stock':-i.quantity,'reserved':i.quantity}})
     db.orders.insert_one(doc)
     if customer:
         db.customers.update_one({'_id':customer['_id']},{'$inc':{'total_orders':1,'total_purchase':pricing['grand_total']},'$set':{'lead_status':'Converted','lead_priority':'Hot','last_active_at':now()}})
+    db.customers.update_one({'_id':buyer['_id'],'address':{'$in':[None,'']}},{'$set':{'address':body.address,'district':body.district}})
     db.ledger.insert_one({'order_id':order_id,'type':'order_created','amount':pricing['grand_total'],'payment_method':body.payment_method,'created_at':now()})
     response={'order_id':order_id,'status':status,'payment_status':payment_status,'pricing':pricing}
     if body.payment_method=='paystation':
-        try:
-            amount=pricing['advance_required'] if pricing['is_bulk'] else pricing['grand_total']
-            pay=await PayStationClient().initiate(doc, amount)
-            db.orders.update_one({'order_id':order_id},{'$set':{'paystation_create_response':pay,'paystation_expected_amount':amount,'updated_at':now()}})
-            response['paystation']={'payment_url':pay.get('payment_url'),'status':pay.get('status'),'message':pay.get('message')}
-        except IntegrationNotConfigured as e: response['paystation']={'configured':False,'message':str(e)}
+        response['paystation']=await start_paystation(doc)
     return response
+
+def paystation_amount(o):
+    p=o.get('pricing') or {}
+    return int(round(p['advance_required'] if p.get('is_bulk') else p['grand_total']))
+
+async def start_paystation(o):
+    """Create a PayStation checkout. Each attempt needs a unique invoice number (PayStation rejects duplicates)."""
+    attempts=o.get('paystation_invoices') or []
+    invoice=o['order_id'] if not attempts else f"{o['order_id']}-{len(attempts)+1}"
+    amount=paystation_amount(o)
+    try:
+        pay=await PayStationClient().initiate(o,amount,invoice)
+    except IntegrationNotConfigured as e:
+        return {'configured':False,'message':'Online payment is not available right now. Our team will call you with payment options.'}
+    except Exception:
+        return {'configured':True,'payment_url':None,'message':'Could not reach the payment gateway. Please try again from your account.'}
+    ok=str(pay.get('status_code'))=='200' and pay.get('payment_url')
+    db.orders.update_one({'order_id':o['order_id']},{'$push':{'paystation_invoices':invoice},'$set':{'paystation_create_response':pay,'paystation_expected_amount':amount,'updated_at':now()}})
+    return {'configured':True,'payment_url':pay.get('payment_url') if ok else None,'invoice_number':invoice,'amount':amount,'message':pay.get('message')}
+
+PAID_STATES=('Paid','COD Collected','Advance Paid')
+async def verify_paystation(o):
+    """Server-to-server check with PayStation; never trusts browser/callback parameters."""
+    if o.get('payment_status') in PAID_STATES: return {'paid':True,'payment_status':o['payment_status'],'already':True}
+    expected=int(o.get('paystation_expected_amount') or paystation_amount(o))
+    last=None
+    for invoice in reversed(o.get('paystation_invoices') or [o['order_id']]):
+        try: res=await PayStationClient().status(invoice)
+        except IntegrationNotConfigured as e: raise HTTPException(503,str(e))
+        except Exception: continue
+        data=res.get('data') or {}
+        last=str(data.get('trx_status','')).lower()
+        try: paid_amount=float(data.get('payment_amount') or data.get('trx_amount') or 0)
+        except Exception: paid_amount=0
+        if str(res.get('status_code'))=='200' and last in ('success','successful') and paid_amount+0.5>=expected:
+            is_bulk=(o.get('pricing') or {}).get('is_bulk')
+            new_status='Advance Paid' if is_bulk else 'Paid'
+            channel=str(data.get('payment_method','')).lower().replace(' ','')
+            channel=channel if channel in ('bkash','nagad','rocket','upay') else ('card' if channel in ('visa','mastercard','amex','americanexpress') else 'paystation')
+            r=db.orders.update_one({'_id':o['_id'],'payment_status':{'$nin':list(PAID_STATES)}},{'$set':{'payment_status':new_status,'payment_channel':channel,'paystation_trx_id':data.get('trx_id'),'paid_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'payment_status':new_status,'note':f"PayStation {data.get('payment_method','')} {data.get('trx_id','')} verified",'role':'system'}}})
+            if r.modified_count:
+                db.ledger.insert_one({'order_id':o['order_id'],'type':'payment_received','amount':paid_amount,'payment_method':channel,'trx_id':data.get('trx_id'),'invoice_number':invoice,'note':'PayStation verified','created_at':now()})
+                db.payment_transactions.update_one({'trx_id':data.get('trx_id') or invoice},{'$setOnInsert':{'trx_id':data.get('trx_id') or invoice,'order_id':o['order_id'],'invoice_number':invoice,'amount':paid_amount,'method':data.get('payment_method'),'status':'success','payer':data.get('payer_mobile_no'),'created_at':now()}},upsert=True)
+            return {'paid':True,'payment_status':new_status,'trx_id':data.get('trx_id'),'method':data.get('payment_method')}
+    if last in ('failed','refund') and o.get('payment_status') in ('Pending Payment','Pending Advance Payment'):
+        db.orders.update_one({'_id':o['_id']},{'$push':{'timeline':{'at':now(),'note':f'PayStation attempt {last}','role':'system'}}})
+    return {'paid':False,'trx_status':last or 'not_found','payment_status':o.get('payment_status')}
+
+def order_from_invoice(invoice:str):
+    invoice=str(invoice or '')[:128]
+    return db.orders.find_one({'$or':[{'order_id':invoice},{'paystation_invoices':invoice}]})
+
+@app.post('/api/v1/payments/paystation/verify')
+async def paystation_verify(payload: dict):
+    """Called by the /payment-result page. Looks the order up by invoice, then asks PayStation directly."""
+    o=order_from_invoice(payload.get('invoice_number'))
+    if not o: raise HTTPException(404,'Order not found')
+    result=await verify_paystation(o)
+    p=o.get('pricing') or {}
+    return {**result,'order_id':o['order_id'],'grand_total':p.get('grand_total'),'amount':paystation_amount(o),'is_bulk':p.get('is_bulk'),'cod_due':p.get('cod_due')}
+
+@app.post('/api/v1/orders/{order_id}/pay')
+async def retry_payment(order_id:str, authorization: str|None=Header(None)):
+    ident=require_role(authorization,('customer',))
+    o=db.orders.find_one({'order_id':order_id,'customer_id':ident['sub']})
+    if not o: raise HTTPException(404,'Order not found')
+    if o.get('order_status') in ('Cancelled','Returned'): raise HTTPException(409,'This order was cancelled')
+    if o.get('payment_status') in PAID_STATES: raise HTTPException(409,'This order is already paid')
+    if o.get('payment_method')!='paystation':
+        # customer switches a COD order to digital: re-price with the 2% digital discount
+        cfg=commerce_settings()
+        items=[{'product_id':i['product_id'],'quantity':i['quantity']} for i in o['items']]
+        pmap={str(p['_id']):p for p in db.products.find({'_id':{'$in':[ObjectId(i['product_id']) for i in o['items']]}})}
+        prev=o.get('pricing') or {}
+        cfg['bulk_discount_percent']=(prev.get('bulk_discount',0)/prev['subtotal']*100) if prev.get('subtotal') else 0
+        coupon=db.coupons.find_one({'code':o.get('coupon_code')}) if o.get('coupon_code') else None
+        pricing=calculate(items,pmap,o.get('district',''),'paystation',coupon,cfg)
+        db.orders.update_one({'_id':o['_id']},{'$set':{'payment_method':'paystation','pricing':pricing,'payment_status':'Pending Advance Payment' if pricing['is_bulk'] else 'Pending Payment','updated_at':now()},'$push':{'timeline':{'at':now(),'note':'Customer switched to digital payment','role':'customer'}}})
+        o=db.orders.find_one({'_id':o['_id']})
+    return await start_paystation(o)
 
 @app.post('/api/v1/payments/paystation/ipn')
 async def paystation_ipn(payload: dict):
     """Quarantine unverified callbacks; never credit orders from caller-supplied fields."""
     invoice=str(payload.get('invoice_number',''))[:128]
-    if not invoice or not db.orders.find_one({'order_id':invoice}):
-        raise HTTPException(404,'Order not found')
-    db.payment_callbacks.insert_one({'provider':'paystation','order_id':invoice,
-                                     'status':'pending_verification','received_at':now(),
-                                     'payload':payload})
-    return {'status':'pending_verification',
-            'message':'Callback received; payment will not be credited without trusted gateway verification'}
+    o=order_from_invoice(invoice) if invoice else None
+    if not o: raise HTTPException(404,'Order not found')
+    db.payment_callbacks.insert_one({'provider':'paystation','order_id':o['order_id'],'invoice_number':invoice,
+                                     'status':'received','received_at':now(),'payload':payload})
+    # The payload is only a hint; credit happens only after PayStation's own status API confirms it.
+    try: result=await verify_paystation(o)
+    except HTTPException: result={'paid':False}
+    return {'status':'verified' if result.get('paid') else 'pending_verification'}
 
 @app.get('/api/v1/payments/paystation/status/{order_id}')
 async def paystation_status(order_id:str):
@@ -335,9 +464,13 @@ async def paystation_status(order_id:str):
 
 @app.get('/api/v1/orders/track')
 def track(order_id:str=Query(...),phone:str=Query(...)):
-    o=db.orders.find_one({'order_id':order_id,'phone':phone})
+    try: norm=normalize_bd_phone(phone)
+    except HTTPException: raise HTTPException(404,'Order not found')
+    o=db.orders.find_one({'order_id':order_id.strip().upper(),'phone':{'$in':[norm,phone]}})
     if not o: raise HTTPException(404,'Order not found')
-    keep={k:o.get(k) for k in ['order_id','order_status','payment_status','pricing','courier','courier_data','created_at','updated_at']}
+    keep={k:o.get(k) for k in ['order_id','order_status','payment_status','pricing','courier','created_at','updated_at','items','district']}
+    keep['tracking_code']=(o.get('courier_data') or {}).get('consignment',{}).get('tracking_code') if isinstance(o.get('courier_data'),dict) else None
+    keep['timeline']=[{k:v for k,v in t.items() if k in ('at','order_status','payment_status')} for t in o.get('timeline',[]) if t.get('order_status') or t.get('payment_status')]
     return serialize(keep)
 
 # ---------- Admin ----------
@@ -347,9 +480,11 @@ def admin_login(body: Login):
     if not a or not verify_password(body.password,a['password_hash']): raise HTTPException(401,'Invalid login')
     role=a.get('role','super_admin')
     db.audit_logs.insert_one({'actor_id':str(a['_id']),'actor_role':role,'action':'login','created_at':now()})
-    return {'access_token':create_token(str(a['_id']),role),'role':role,'name':a.get('name','')}
+    return {'access_token':create_token(str(a['_id']),role),'role':role,'name':a.get('name',''),'must_change_password':bool(a.get('must_change_password'))}
 
-def admin(authorization): return require_role(authorization,('admin','super_admin','sales','inventory','support'))
+def admin(authorization): return require_role(authorization,('admin','super_admin','sales','inventory','support','marketing'))
+CATALOG=('super_admin','admin','inventory'); ORDER_WRITE=('super_admin','admin','sales','support'); CRM=('super_admin','admin','sales','support','marketing')
+def manager(authorization,*extra): return require_role(authorization,('super_admin','admin')+extra)
 def super_admin(authorization): return require_role(authorization,('super_admin',))
 
 @app.get('/api/v1/admin/dashboard')
@@ -385,7 +520,7 @@ def admin_analytics_daily(days:int=7,authorization: str|None=Header(None)):
 
 @app.get('/api/v1/admin/customers')
 def admin_customers(authorization: str|None=Header(None),status:str|None=None,priority:str|None=None,no_order:bool=False):
-    admin(authorization); q={}
+    require_role(authorization,CRM); q={}
     if status:q['lead_status']=status
     if priority:q['lead_priority']=priority
     if no_order:q['total_orders']=0
@@ -396,7 +531,7 @@ def admin_customers(authorization: str|None=Header(None),status:str|None=None,pr
 
 @app.put('/api/v1/admin/customers/{customer_id}/crm')
 def update_customer_crm(customer_id:str,payload:dict,authorization: str|None=Header(None)):
-    admin(authorization)
+    require_role(authorization,CRM)
     allowed={k:v for k,v in payload.items() if k in {'lead_status','lead_priority','assigned_sales_person','next_followup_at','sales_notes'}}
     allowed['updated_at']=now(); db.customers.update_one({'_id':ObjectId(customer_id)},{'$set':allowed})
     return {'ok':True}
@@ -409,19 +544,19 @@ def admin_orders(authorization: str|None=Header(None),status:str|None=None):
 
 @app.post('/api/v1/admin/orders/{order_id}/confirm')
 async def confirm_order(order_id:str,authorization: str|None=Header(None)):
-    admin(authorization)
+    require_role(authorization,ORDER_WRITE)
     o=db.orders.find_one({'order_id':order_id})
     if not o: raise HTTPException(404,'Order not found')
     if o.get('order_status') in ('Sent to Courier','Delivered','Cancelled'):
         return serialize(o)
-    db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Confirmed','confirmed_at':now(),'updated_at':now()}})
+    db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Confirmed','confirmed_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Confirmed','note':'Customer confirmed by phone'}}})
     # Business rule: after EMXIN calls the customer and Admin confirms, create the default
     # Steadfast consignment automatically. Nothing is sent to courier before this click.
     if settings.courier_default=='steadfast' and settings.steadfast_enabled:
         refreshed=db.orders.find_one({'_id':o['_id']})
         try:
             data=await SteadfastClient().create_order(refreshed)
-            db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Sent to Courier','courier':'steadfast','courier_data':data,'courier_created_at':now(),'updated_at':now()}})
+            db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Sent to Courier','courier':'steadfast','courier_data':data,'courier_created_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Sent to Courier','note':'Steadfast consignment created'}}})
             db.ledger.insert_one({'order_id':order_id,'type':'courier_created','amount':0,'payment_method':refreshed.get('payment_method'),'courier':'steadfast','cod_amount':refreshed.get('pricing',{}).get('cod_due',0),'courier_billing_mode':refreshed.get('courier_billing_mode'),'created_at':now()})
         except IntegrationNotConfigured:
             pass
@@ -429,16 +564,17 @@ async def confirm_order(order_id:str,authorization: str|None=Header(None)):
 
 @app.post('/api/v1/admin/orders/{order_id}/cancel')
 def cancel_order(order_id:str,authorization: str|None=Header(None)):
-    admin(authorization); o=db.orders.find_one({'order_id':order_id})
+    require_role(authorization,ORDER_WRITE); o=db.orders.find_one({'order_id':order_id})
     if not o: raise HTTPException(404,'Order not found')
-    if o.get('order_status') not in ('Cancelled','Delivered'):
-        for i in o['items']: db.products.update_one({'_id':ObjectId(i['product_id'])},{'$inc':{'stock':i['quantity'],'reserved':-i['quantity']}})
-    db.orders.update_one({'order_id':order_id},{'$set':{'order_status':'Cancelled','updated_at':now()}})
+    if o.get('order_status') in ('Delivered','Completed'): raise HTTPException(409,'Delivered orders must be marked Returned, not cancelled')
+    if o.get('order_status')!='Cancelled':
+        release_stock(o)
+        db.orders.update_one({'order_id':order_id},{'$set':{'order_status':'Cancelled','updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Cancelled','note':'Cancelled by admin'}}})
     return {'ok':True}
 
 @app.post('/api/v1/admin/orders/{order_id}/send-courier')
 async def send_courier(order_id:str,courier:str='steadfast',authorization: str|None=Header(None)):
-    admin(authorization); o=db.orders.find_one({'order_id':order_id})
+    require_role(authorization,ORDER_WRITE); o=db.orders.find_one({'order_id':order_id})
     if not o: raise HTTPException(404,'Order not found')
     if o['order_status'] not in ('Confirmed','Approved'): raise HTTPException(409,'Confirm the customer/order first')
     try:
@@ -446,12 +582,12 @@ async def send_courier(order_id:str,courier:str='steadfast',authorization: str|N
         elif courier=='pathao': data=await PathaoClient().create_order(o)
         else: raise HTTPException(400,'Unsupported courier')
     except IntegrationNotConfigured as e: raise HTTPException(503,str(e))
-    db.orders.update_one({'order_id':order_id},{'$set':{'order_status':'Sent to Courier','courier':courier,'courier_data':data,'updated_at':now()}})
+    db.orders.update_one({'order_id':order_id},{'$set':{'order_status':'Sent to Courier','courier':courier,'courier_data':data,'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Sent to Courier','note':f'{courier.title()} consignment created'}}})
     return {'ok':True,'courier':courier,'data':data}
 
 @app.get('/api/v1/admin/quantity-requests')
 def admin_requests(authorization: str|None=Header(None)):
-    admin(authorization); order={'Urgent':0,'Priority':1,'Normal':2}
+    require_role(authorization,CRM); order={'Urgent':0,'Priority':1,'Normal':2}
     docs=list(db.quantity_requests.find().sort('created_at',-1).limit(200)); docs.sort(key=lambda x:(order.get(x.get('urgency'),9),-x['created_at'].timestamp()))
     return serialize(docs)
 
@@ -461,7 +597,7 @@ def admin_dealers(authorization: str|None=Header(None)):
 
 @app.post('/api/v1/admin/dealers/{dealer_id}/approve')
 def approve_dealer(dealer_id:str,authorization: str|None=Header(None)):
-    super_admin(authorization)
+    manager(authorization)
     try: oid=ObjectId(dealer_id)
     except Exception: raise HTTPException(400,'Invalid dealer id')
     d=db.dealers.find_one({'_id':oid})
@@ -478,19 +614,24 @@ def admin_products(authorization: str|None=Header(None)):
 
 @app.post('/api/v1/admin/products')
 def create_product(body:ProductInput,authorization: str|None=Header(None)):
-    admin(authorization); d=body.model_dump(); d['slug']=d.get('slug') or slugify(d['name']); d.update({'reserved':0,'created_at':now(),'updated_at':now()}); r=db.products.insert_one(d); return {'id':str(r.inserted_id),'slug':d['slug']}
+    require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=slugify(d.get('slug') or d['name'])
+    if db.products.find_one({'slug':d['slug']}): raise HTTPException(409,'A product with this slug already exists')
+    d.update({'reserved':0,'sold_count':0,'rating':0,'review_count':0,'created_at':now(),'updated_at':now()}); r=db.products.insert_one(d); return {'id':str(r.inserted_id),'slug':d['slug']}
 
 @app.put('/api/v1/admin/products/{product_id}')
 def update_product(product_id:str,body:ProductInput,authorization: str|None=Header(None)):
-    admin(authorization); d=body.model_dump(); d['slug']=d.get('slug') or slugify(d['name']); d['updated_at']=now(); db.products.update_one({'_id':ObjectId(product_id)},{'$set':d}); return {'ok':True}
+    require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=slugify(d.get('slug') or d['name']); d['updated_at']=now()
+    if not ObjectId.is_valid(product_id): raise HTTPException(400,'Invalid product id')
+    if db.products.find_one({'slug':d['slug'],'_id':{'$ne':ObjectId(product_id)}}): raise HTTPException(409,'Another product already uses this slug')
+    db.products.update_one({'_id':ObjectId(product_id)},{'$set':d}); return {'ok':True}
 
 @app.post('/api/v1/admin/categories')
 def create_category(body:CategoryInput,authorization: str|None=Header(None)):
-    admin(authorization); d=body.model_dump(); d['slug']=d.get('slug') or slugify(d['name']); db.categories.update_one({'slug':d['slug']},{'$set':d},upsert=True); return {'ok':True}
+    require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=d.get('slug') or slugify(d['name']); db.categories.update_one({'slug':d['slug']},{'$set':d},upsert=True); return {'ok':True}
 
 @app.post('/api/v1/admin/brands')
 def create_brand(body:BrandInput,authorization: str|None=Header(None)):
-    admin(authorization); d=body.model_dump(); d['slug']=d.get('slug') or slugify(d['name']); db.brands.update_one({'slug':d['slug']},{'$set':d},upsert=True); return {'ok':True}
+    require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=d.get('slug') or slugify(d['name']); db.brands.update_one({'slug':d['slug']},{'$set':d},upsert=True); return {'ok':True}
 
 @app.get('/api/v1/admin/cms')
 def get_cms(authorization: str|None=Header(None)):
@@ -503,7 +644,7 @@ def cms_versions(authorization: str|None=Header(None)):
 
 @app.post('/api/v1/admin/cms/restore/{version_id}')
 def restore_cms(version_id:str,authorization: str|None=Header(None)):
-    super_admin(authorization)
+    manager(authorization,'marketing')
     try: version=db.cms_versions.find_one({'_id':ObjectId(version_id)})
     except Exception: raise HTTPException(400,'Invalid version ID')
     if not version: raise HTTPException(404,'Version not found')
@@ -516,8 +657,8 @@ def restore_cms(version_id:str,authorization: str|None=Header(None)):
 
 @app.put('/api/v1/admin/cms/homepage')
 def update_homepage(payload:dict,authorization: str|None=Header(None)):
-    super_admin(authorization)
-    allowed={'hero','promo','sections','branding','links','policies','trust','dealer_benefits','footer'}
+    manager(authorization,'marketing')
+    allowed={'hero','promo','sections','branding','links','policies','trust','dealer_benefits','footer','coming_soon','announcement','banner','category_section','featured_section','seo','hidden_sections','smart_section'}
     if set(payload)-allowed-{'key','updated_at','_id'}: raise HTTPException(400,'Unexpected homepage fields')
     if 'sections' in payload and (not isinstance(payload['sections'],list) or len(payload['sections'])>30 or any(not isinstance(x,str) for x in payload['sections'])):
         raise HTTPException(400,'Invalid homepage sections')
@@ -531,8 +672,8 @@ def update_homepage(payload:dict,authorization: str|None=Header(None)):
 
 @app.put('/api/v1/admin/settings/commerce')
 def update_commerce(payload:dict,authorization: str|None=Header(None)):
-    super_admin(authorization)
-    permitted={'dhaka_delivery_charge','outside_dhaka_delivery_charge','estimated_shipping_from_qty','extra_shipping_per_kg','bulk_threshold_qty','bulk_discount_percent','bulk_advance_percent','digital_payment_discount_percent','payment_accounts','return_label','express_surcharge_by_district'}
+    manager(authorization)
+    permitted={'dhaka_delivery_charge','outside_dhaka_delivery_charge','estimated_shipping_from_qty','extra_shipping_per_kg','bulk_threshold_qty','bulk_discount_percent','bulk_advance_percent','digital_payment_discount_percent','payment_accounts','return_label','express_surcharge_by_district','dealer_tiers'}
     cleaned={k:v for k,v in payload.items() if k in permitted}
     for key in permitted & cleaned.keys():
         if key.endswith('_percent') and (not isinstance(cleaned[key],(int,float)) or not 0<=cleaned[key]<=100): raise HTTPException(400,f'Invalid {key}')
@@ -542,6 +683,9 @@ def update_commerce(payload:dict,authorization: str|None=Header(None)):
         rates=cleaned['express_surcharge_by_district']
         if not isinstance(rates,dict) or len(rates)>100 or any(not isinstance(k,str) or not isinstance(v,(int,float)) or v<0 for k,v in rates.items()):
             raise HTTPException(400,'Invalid express surcharge rates')
+    if 'dealer_tiers' in cleaned:
+        t=cleaned['dealer_tiers']
+        if not isinstance(t,list) or not 1<=len(t)<=6 or any(not isinstance(x,(int,float)) or not 0<=x<=50 for x in t): raise HTTPException(400,'Dealer tiers must be 1-6 percentages between 0 and 50')
     cleaned['updated_at']=now()
     db.settings.update_one({'key':'commerce'},{'$set':cleaned},upsert=True)
     return {'ok':True}
@@ -555,12 +699,49 @@ def ledger(authorization: str|None=Header(None)):
 @app.post('/api/v1/admin/media/presign')
 def admin_media_presign(body: MediaPresign,authorization: str|None=Header(None)):
     admin(authorization)
+    if not re.fullmatch(r'(image/(png|jpe?g|webp|gif|svg\+xml|avif|x-icon|vnd\.microsoft\.icon)|video/(mp4|webm|quicktime))',body.content_type):
+        raise HTTPException(400,'Only images (PNG, JPG, WebP, GIF, SVG, AVIF, ICO) and videos (MP4, WebM, MOV) are allowed')
+    limit=(300 if body.content_type.startswith('video/') else 15)*1024*1024
+    if body.size and body.size>limit: raise HTTPException(400,f'File too large (max {limit//1024//1024} MB)')
     ext=(body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else 'bin')
     safe=re.sub(r'[^a-zA-Z0-9_-]','-',body.filename.rsplit('.',1)[0])[:80]
     key=f"{settings.aws_s3_prefix.strip('/')}/{body.folder}/{now().strftime('%Y/%m')}/{safe}-{secrets.token_hex(4)}.{ext}"
     client=s3_client()
-    post=client.generate_presigned_post(Bucket=settings.aws_s3_bucket,Key=key,Fields={'Content-Type':body.content_type},Conditions=[{'Content-Type':body.content_type}],ExpiresIn=settings.s3_presigned_upload_expire_seconds)
+    post=client.generate_presigned_post(Bucket=settings.aws_s3_bucket,Key=key,Fields={'Content-Type':body.content_type},Conditions=[{'Content-Type':body.content_type},['content-length-range',1,limit]],ExpiresIn=settings.s3_presigned_upload_expire_seconds)
     return {'upload':post,'key':key,'public_url':media_public_url(key),'expires_in':settings.s3_presigned_upload_expire_seconds}
+
+@app.post('/api/v1/admin/media/library')
+def media_library_add(body: MediaRecord,authorization: str|None=Header(None)):
+    actor=admin(authorization)
+    if not body.key.startswith(settings.aws_s3_prefix.strip('/')+'/'): raise HTTPException(400,'Key outside media prefix')
+    doc={**body.model_dump(),'url':media_public_url(body.key),'uploaded_by':actor['sub'],'created_at':now()}
+    db.media_library.update_one({'key':body.key},{'$setOnInsert':doc},upsert=True)
+    return serialize(db.media_library.find_one({'key':body.key}))
+
+@app.get('/api/v1/admin/media/library')
+def media_library_list(type: str|None=None,q: str|None=None,page:int=1,authorization: str|None=Header(None)):
+    admin(authorization); f={}
+    if type in ('image','video'): f['type']=type
+    if q: f['name']={'$regex':re.escape(q),'$options':'i'}
+    page=max(1,page); total=db.media_library.count_documents(f)
+    return {'total':total,'page':page,'rows':serialize(list(db.media_library.find(f).sort('created_at',-1).skip((page-1)*60).limit(60)))}
+
+@app.delete('/api/v1/admin/media/library/{media_id}')
+def media_library_delete(media_id:str,authorization: str|None=Header(None)):
+    actor=admin(authorization)
+    if not ObjectId.is_valid(media_id): raise HTTPException(400,'Invalid id')
+    m=db.media_library.find_one({'_id':ObjectId(media_id)})
+    if not m: raise HTTPException(404,'Not found')
+    in_use=db.products.find_one({'$or':[{'images':m['url']},{'media.url':m['url']},{'video_url':m['url']},{'promo_image_url':m['url']}]},{'name':1}) or db.categories.find_one({'thumbnail_url':m['url']},{'name':1})
+    if in_use: raise HTTPException(409,f"In use by {in_use.get('name','an item')}. Remove it there first.")
+    hp=db.homepage.find_one({'key':'home'}) or {}
+    if m['url'] in str(hp): raise HTTPException(409,'In use on the homepage. Replace it in CMS / Homepage first.')
+    try: s3_client().delete_object(Bucket=settings.aws_s3_bucket,Key=m['key'])
+    except HTTPException: pass
+    except Exception as e: raise HTTPException(502,f'S3 delete failed: {str(e)[:120]}')
+    db.media_library.delete_one({'_id':m['_id']})
+    db.audit_logs.insert_one({'actor_id':actor['sub'],'actor_role':actor.get('role'),'action':'media_deleted','target_id':m['key'],'created_at':now()})
+    return {'ok':True}
 
 @app.get('/api/v1/admin/staff')
 def list_staff(authorization: str|None=Header(None)):
@@ -581,6 +762,47 @@ def staff_status(staff_id:str,payload:dict,authorization: str|None=Header(None))
     db.staff.update_one({'_id':ObjectId(staff_id)},{'$set':{'status':status,'updated_at':now()}})
     db.audit_logs.insert_one({'actor_id':actor['sub'],'actor_role':'super_admin','action':'staff_status_changed','target_id':staff_id,'metadata':{'status':status},'created_at':now()}); return {'ok':True}
 
+
+STAFF_ROLE_SET=('admin','sales','marketing','inventory','support')
+@app.put('/api/v1/admin/staff/{staff_id}')
+def update_staff(staff_id:str,payload:dict,authorization: str|None=Header(None)):
+    actor=super_admin(authorization)
+    if not ObjectId.is_valid(staff_id): raise HTTPException(400,'Invalid staff id')
+    upd={}
+    if 'role' in payload:
+        if payload['role'] not in STAFF_ROLE_SET: raise HTTPException(400,'Invalid role')
+        upd['role']=payload['role']
+    for k in ('name','phone'):
+        if isinstance(payload.get(k),str): upd[k]=payload[k].strip()[:120]
+    if not upd: raise HTTPException(400,'Nothing to update')
+    upd['updated_at']=now()
+    r=db.staff.update_one({'_id':ObjectId(staff_id)},{'$set':upd})
+    if not r.matched_count: raise HTTPException(404,'Staff not found')
+    db.audit_logs.insert_one({'actor_id':actor['sub'],'actor_role':'super_admin','action':'staff_updated','target_id':staff_id,'metadata':{k:v for k,v in upd.items() if k!='updated_at'},'created_at':now()})
+    return {'ok':True}
+
+@app.post('/api/v1/admin/staff/{staff_id}/reset-password')
+def reset_staff_password(staff_id:str,payload:dict,authorization: str|None=Header(None)):
+    actor=super_admin(authorization)
+    pw=str(payload.get('password',''))
+    if len(pw)<8: raise HTTPException(400,'Temporary password must be at least 8 characters')
+    if not ObjectId.is_valid(staff_id): raise HTTPException(400,'Invalid staff id')
+    r=db.staff.update_one({'_id':ObjectId(staff_id)},{'$set':{'password_hash':hash_password(pw),'must_change_password':True,'updated_at':now()}})
+    if not r.matched_count: raise HTTPException(404,'Staff not found')
+    db.audit_logs.insert_one({'actor_id':actor['sub'],'actor_role':'super_admin','action':'staff_password_reset','target_id':staff_id,'created_at':now()})
+    return {'ok':True}
+
+@app.post('/api/v1/admin/me/password')
+def change_my_password(payload:dict,authorization: str|None=Header(None)):
+    ident=admin(authorization)
+    cur=str(payload.get('current_password','')); new=str(payload.get('new_password',''))
+    if len(new)<10 or not re.search(r'[A-Za-z]',new) or not re.search(r'\d',new): raise HTTPException(400,'New password needs at least 10 characters with letters and numbers')
+    coll=db.admins if ident['role']=='super_admin' else db.staff
+    me=coll.find_one({'_id':ObjectId(ident['sub'])})
+    if not me or not verify_password(cur,me['password_hash']): raise HTTPException(401,'Current password is incorrect')
+    coll.update_one({'_id':me['_id']},{'$set':{'password_hash':hash_password(new),'must_change_password':False,'password_changed_at':now()}})
+    db.audit_logs.insert_one({'actor_id':ident['sub'],'actor_role':ident['role'],'action':'password_changed','created_at':now()})
+    return {'ok':True}
 
 # Customer-owned wishlist: never trust a customer_id supplied by the browser.
 def wishlist_customer(authorization):
@@ -618,7 +840,10 @@ def admin_payments(authorization: str|None=Header(None),limit:int=100):
 @app.get('/api/v1/admin/categories')
 def admin_categories(authorization: str|None=Header(None)):
     admin(authorization)
-    return serialize(list(db.categories.find().sort('order',1)))
+    rows=list(db.categories.find().sort('order',1))
+    counts={x['_id']:x['n'] for x in db.products.aggregate([{'$group':{'_id':'$category_slug','n':{'$sum':1}}}])}
+    for c in rows: c['product_count']=counts.get(c['slug'],0)
+    return serialize(rows)
 
 
 @app.get('/api/v1/delivery/quote')
@@ -633,7 +858,7 @@ def delivery_quote(district:str, service:str='regular'):
 
 @app.put('/api/v1/admin/dealers/{dealer_id}/discount')
 def set_dealer_discount(dealer_id:str,payload:dict,authorization:str|None=Header(None)):
-    super_admin(authorization)
+    manager(authorization)
     try: oid=ObjectId(dealer_id)
     except Exception: raise HTTPException(400,'Invalid dealer id')
     if not db.dealers.find_one({'_id':oid}): raise HTTPException(404,'Dealer not found')
@@ -650,12 +875,12 @@ def set_dealer_discount(dealer_id:str,payload:dict,authorization:str|None=Header
 
 @app.get('/api/v1/admin/sms/outbox')
 def sms_outbox(authorization:str|None=Header(None)):
-    super_admin(authorization)
+    manager(authorization,'marketing')
     return serialize(list(db.sms_outbox.find().sort('created_at',-1).limit(100)))
 
 @app.post('/api/v1/admin/sms/dispatch')
 async def dispatch_sms(authorization:str|None=Header(None)):
-    super_admin(authorization)
+    manager(authorization,'marketing')
     if not settings.nishchit_enabled: raise HTTPException(503,'SMS provider is not enabled')
     sent=0; failed=0
     for _ in range(20):
@@ -670,7 +895,7 @@ async def dispatch_sms(authorization:str|None=Header(None)):
 
 @app.post('/api/v1/admin/sms/{event_key}/retry')
 def retry_sms(event_key:str,authorization:str|None=Header(None)):
-    super_admin(authorization)
+    manager(authorization,'marketing')
     r=db.sms_outbox.update_one({'event_key':event_key,'status':'failed'},{'$set':{'status':'retry'}})
     if not r.modified_count: raise HTTPException(404,'Failed message not found')
     return {'ok':True}
@@ -682,7 +907,7 @@ def media_versions(entity_type:str,entity_id:str,authorization:str|None=Header(N
 
 @app.post('/api/v1/admin/media/version')
 def record_media_version(payload:dict,authorization:str|None=Header(None)):
-    actor=super_admin(authorization)
+    actor=admin(authorization)
     entity_type=payload.get('entity_type'); entity_id=payload.get('entity_id'); key=payload.get('key')
     if entity_type not in ('logo','hero','category','product','banner') or not all(isinstance(x,str) and 0<len(x)<300 for x in (entity_id,key)):
         raise HTTPException(400,'Invalid media version')
