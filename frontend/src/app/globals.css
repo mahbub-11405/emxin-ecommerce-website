@@ -541,3 +541,22 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
   .pa-orbit.o1{width:220px;height:220px}.pa-orbit.o2{width:150px;height:150px}
   .pa-glasses{max-width:260px}
 }
+
+/* v2.1b: trust strip aligned to page width, compact category tiles, card footer with stars */
+.trust{margin-top:18px}
+.pc .pc-stock{margin:6px 0 0;font-size:12.5px;color:var(--amber);font-weight:700}
+.pc .pc-stock.out{color:var(--red)}
+.pc-foot .stars{display:inline-flex;align-items:center;gap:1px}
+.pc-foot .star-count{margin-left:6px;font-size:13px;color:var(--muted)}
+.cat-tile{padding:18px 18px 16px;border-radius:20px;overflow:hidden}
+.cat-img{height:110px;margin-bottom:8px}
+.cat-img img{max-height:110px;transition:transform .35s ease}
+.cat-img .glasses-art{width:56%;transition:transform .35s ease}
+.cat-tile:hover .cat-img img,.cat-tile:hover .cat-img .glasses-art{transform:scale(1.07) rotate(-2deg)}
+.cat-tile b{font-size:clamp(18px,1.6vw,21px)}
+.cat-tile small{font-size:14px;color:var(--muted)}
+@media (max-width:620px){
+  .cat-img{width:96px;height:72px;margin:0}
+  .cat-img img{max-height:72px}
+  .cat-img .glasses-art{width:100%}
+}

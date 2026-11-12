@@ -8,11 +8,11 @@ const DEFAULT_TRUST=[{icon:'truck',title:'Fast Delivery',text:'Across Bangladesh
 const ICONS=['truck','shieldPlain','badgeCheck','returnArrow','headset','handshake','lockCard','secure','bolt','percent'];
 
 export function SectionsEditor({data,setData}:{data:any;setData:(f:(v:any)=>any)=>void}){
-  const order=normalizeSections(data.sections).filter(k=>k!=='trust');const hidden:string[]=data.hidden_sections||[];
+  const order=normalizeSections(data.sections).filter(k=>k!=='trust'&&k!=='categories');const hidden:string[]=data.hidden_sections||[];
   const mv=(i:number,d:number)=>{const a=[...order];[a[i],a[i+d]]=[a[i+d],a[i]];setData((v:any)=>({...v,sections:a}))};
   const sub=(k:string,f:string,val:any)=>setData((v:any)=>({...v,[k]:{...(v[k]||{}),[f]:val}}));
-  return <section className="panel"><h2>Homepage sections</h2><p className="muted">Hero is always first, with the trust row directly under it. Reorder or hide the blocks below, then Publish.</p>
-    <div className="em-section"><strong>Fixed · {LABEL.trust} — always under the hero</strong><Toggle checked={!hidden.includes('trust')} onChange={on=>setData((v:any)=>({...v,hidden_sections:on?(v.hidden_sections||[]).filter((x:string)=>x!=='trust'):[...(v.hidden_sections||[]),'trust']}))} label="Visible"/></div>
+  return <section className="panel"><h2>Homepage sections</h2><p className="muted">The top of the page is fixed: Hero → Trust row → Shop by Category. Reorder or hide the blocks below them, then Publish.</p>
+    {(['trust','categories'] as const).map(k=><div className="em-section" key={k}><strong>Fixed · {LABEL[k]}</strong><Toggle checked={!hidden.includes(k)} onChange={on=>setData((v:any)=>({...v,hidden_sections:on?(v.hidden_sections||[]).filter((x:string)=>x!==k):[...(v.hidden_sections||[]),k]}))} label="Visible"/></div>)}
     {order.map((k,i)=><div className="em-section" key={k}><strong>{i+1}. {LABEL[k]}</strong><Toggle checked={!hidden.includes(k)} onChange={on=>setData((v:any)=>({...v,sections:order,hidden_sections:on?(v.hidden_sections||[]).filter((x:string)=>x!==k):[...(v.hidden_sections||[]),k]}))} label="Visible"/><button disabled={i===0} onClick={()=>mv(i,-1)}>↑</button><button disabled={i===order.length-1} onClick={()=>mv(i,1)}>↓</button></div>)}
     <h3 style={{marginTop:22}}>Section titles</h3><div className="fgrid">
       <Field label="Category section title"><input value={data.category_section?.title||''} placeholder="Shop by Category" onChange={e=>sub('category_section','title',e.target.value)}/></Field>

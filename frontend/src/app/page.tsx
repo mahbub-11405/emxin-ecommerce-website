@@ -27,14 +27,15 @@ export default async function Home(){
   const heroImg=isHttp(h.image)?h.image:'';
   const heroProduct=all.find((p:any)=>p.slug===h.product_slug)||all[0];
   let order:string[]=(Array.isArray(hp.sections)&&hp.sections.length?hp.sections:DEFAULT_ORDER).map((k:string)=>ALIAS[k]??k).filter(Boolean);
-  order=order.filter((k,i)=>k!=='trust'&&order.indexOf(k)===i); // trust row is always directly under the hero
+  // Fixed top of the page: hero → trust row → Shop by Category. The rest follows the Homepage Builder order.
+  order=['categories',...order.filter((k,i)=>k!=='trust'&&k!=='categories'&&order.indexOf(k)===i)];
   const hidden:string[]=hp.hidden_sections||[];
   const trust=(hp.trust?.items?.length?hp.trust.items:TRUST).map(fixTrust);
   const soon=hp.coming_soon||{};
   const promo=hp.promo||{};
 
   const blocks:Record<string,React.ReactNode>={
-    trust:<section className="trust wrap" key="trust" aria-label="Why shop with EMXIN">{trust.map((t:any)=><Link href={t.href||'#'} key={t.title}><span className="trust-ico"><Icon name={t.icon||'badgeCheck'} size={26} stroke={1.6}/></span><span><b>{t.title}</b><small>{t.text}</small></span></Link>)}</section>,
+    trust:<div className="wrap" key="trust"><section className="trust" aria-label="Why shop with EMXIN">{trust.map((t:any)=><Link href={t.href||'#'} key={t.title}><span className="trust-ico"><Icon name={t.icon||'badgeCheck'} size={24} stroke={1.7}/></span><span><b>{t.title}</b><small>{t.text}</small></span></Link>)}</section></div>,
     categories:cats.length?<section className="wrap block" key="categories"><div className="block-head"><h2 className="bar-title">{hp.category_section?.title||'Shop by Category'}</h2><Link className="view-all" href="/shop">View All <Icon name="arrowRight" size={18} stroke={2.2}/></Link></div>
       <div className="cat-grid">{cats.slice(0,hp.category_section?.limit||3).map((c:any)=><Link className="cat-tile" key={c.slug} href={`/shop?category=${c.slug}`}>
         <div className="cat-img">{isHttp(c.thumbnail_url)?<img src={c.thumbnail_url} alt="" loading="lazy"/>:<GlassesArt variant={c.slug.includes('sun')?'sun':c.slug.includes('frame')?'frame':'camera'}/>}</div>

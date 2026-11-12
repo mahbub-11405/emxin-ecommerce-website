@@ -13,7 +13,8 @@ export default function ProductCard({p,tag}:{p:any;tag?:string}){
   const off=discountPct(p);const save=off?Number(p.price)-priceOf(p):0;
   const cat=(p.category_name||p.category_slug||'').replaceAll('-',' ');
   const sub=p.subtitle||(sameText(cat,p.name)?'':cat); // don't repeat the product name in small letters
-  const badge=tag||p.badge||(p.stock<=0?'':p.featured?'':p.new_collection?'New':'');
+  const badge=tag||p.badge||(p.stock<=0?'':p.featured?'Featured':p.new_collection?'New':'');
+  const low=p.stock>0&&p.stock<=(p.low_stock_threshold??5);
   return <article className="pc">
     <Link href={`/product/${p.slug}`} className="pc-link" aria-label={p.name}>
       <div className="pc-media">
@@ -26,7 +27,8 @@ export default function ProductCard({p,tag}:{p:any;tag?:string}){
       {sub&&<p className="pc-sub">{sub}</p>}
       <div className="pc-price">৳ {priceOf(p).toLocaleString('en-IN')}/-{off>0&&<><del>৳ {Number(p.price).toLocaleString('en-IN')}</del><span className="pc-off"><Icon name="flame" size={13} stroke={2.4}/>{off}% OFF</span></>}</div>
     </Link>
-    <div className="pc-foot">{Number(p.review_count)>0?<Stars value={p.rating} count={p.review_count}/>:<span className="pc-stock">{p.stock>0?`In stock · ${p.stock} pcs`:'Restocking soon'}</span>}<AddButton p={p}/></div>
+    {(low||p.stock<=0)&&<p className={'pc-stock'+(p.stock<=0?' out':'')}>{p.stock<=0?'Restocking soon':`Only ${p.stock} left`}</p>}
+    <div className="pc-foot"><Stars value={p.rating} count={Number(p.review_count)||0}/><AddButton p={p}/></div>
     <div className="pc-heart"><WishlistHeart productId={p._id}/></div>
   </article>;
 }
