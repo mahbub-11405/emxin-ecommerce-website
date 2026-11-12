@@ -13,7 +13,7 @@ export function Loading(){return <div className="empty"><span className="spin"/>
 export function Drawer({open,title,onClose,children,width=560,footer}:{open:boolean;title:React.ReactNode;onClose:()=>void;children:React.ReactNode;width?:number;footer?:React.ReactNode}){
   useEffect(()=>{if(!open)return;const k=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose()};addEventListener('keydown',k);return()=>removeEventListener('keydown',k)},[open,onClose]);
   if(!open)return null;
-  return <div className="drw" role="dialog" aria-modal="true"><div className="drw-bg" onClick={onClose}/><aside className="drw-panel" style={{width:`min(${width}px,100%)`}}><header><h2>{title}</h2><button className="ib" onClick={onClose} aria-label="Close"><Icon name="close"/></button></header><div className="drw-body">{children}</div>{footer&&<footer>{footer}</footer>}</aside></div>;
+  return <div className="drw" role="dialog" aria-modal="true"><div className="drw-bg" onClick={onClose}/><aside className="drw-panel" style={{width:`min(${width}px,100%)`}}><header><h2>{title}</h2><button type="button" className="ib" onClick={onClose} aria-label="Close"><Icon name="close"/></button></header><div className="drw-body">{children}</div>{footer&&<footer>{footer}</footer>}</aside></div>;
 }
 
 type ToastT={id:number;kind:'ok'|'err';text:string};
@@ -35,4 +35,4 @@ export function ImageInput({value,onChange,folder,label='Image',kind='image'}:{v
     {err&&<small className="err">{err}</small>}</div><MediaPicker open={pick} onClose={()=>setPick(false)} multiple={false} type={kind} onPick={i=>onChange(i[0].url)}/></div>;
 }
 export function Confirm({text,onYes,children,cls='btn btn-sm btn-ghost danger'}:{text:string;onYes:()=>void;children:React.ReactNode;cls?:string}){return <button type="button" className={cls} onClick={()=>{if(window.confirm(text))onYes()}}>{children}</button>}
-export function Tabs({tabs,value,onChange}:{tabs:{key:string;label:string;count?:number}[];value:string;onChange:(k:string)=>void}){return <div className="tabs">{tabs.map(t=><button key={t.key} className={value===t.key?'on':''} onClick={()=>onChange(t.key)}>{t.label}{t.count!==undefined&&<em>{t.count}</em>}</button>)}</div>}
+export function Tabs({tabs,value,onChange}:{tabs:{key:string;label:string;count?:number}[];value:string;onChange:(k:string)=>void}){return <div className="tabs">{tabs.map(t=><button type="button" key={t.key} className={value===t.key?'on':''} onClick={()=>onChange(t.key)}>{t.label}{t.count!==undefined&&<em>{t.count}</em>}</button>)}</div>}

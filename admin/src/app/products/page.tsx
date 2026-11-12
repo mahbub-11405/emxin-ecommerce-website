@@ -14,6 +14,7 @@ const lines=(a:string[])=>(a||[]).join('\n');const toLines=(s:string)=>s.split('
 function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brands:any[];onSaved:()=>void}){
   const[f,setF]=useState<any>(()=>{const media=initial.media?.length?initial.media:[...(initial.images||[]).map((url:string)=>({url,type:'image'})),...(initial.video_url?[{url:initial.video_url,type:'video'}]:[])];return {...BLANK,...initial,media}});
   const[tab,setTab]=useState('basic');const[busy,setBusy]=useState(false);const[pick,setPick]=useState(false);
+  const[pid,setPid]=useState<string>(initial._id||''); // set after the first create, so later saves update the same product
   const set=(k:string,v:any)=>setF((o:any)=>({...o,[k]:v}));
   const setMedia=(m:any[])=>setF((o:any)=>({...o,media:m,images:m.filter(x=>x.type==='image').map(x=>x.url),video_url:m.find(x=>x.type==='video')?.url||''}));
   const addMedia=(items:any[])=>{setF((o:any)=>{const seen=new Set(o.media.map((m:any)=>m.url));const m=[...o.media,...items.filter(x=>!seen.has(x.url))];return {...o,media:m,images:m.filter((x:any)=>x.type==='image').map((x:any)=>x.url),video_url:m.find((x:any)=>x.type==='video')?.url||''}});toast.ok(`${items.length} file(s) added — save the product to publish`)};
@@ -22,8 +23,9 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
     const body={...f,price:Number(f.price),sale_price:f.sale_price?Number(f.sale_price):null,stock:Number(f.stock),weight_kg:Number(f.weight_kg)||.3,sort_order:Number(f.sort_order)||0,low_stock_threshold:Number(f.low_stock_threshold)||0,faq:(f.faq||[]).filter((x:any)=>x.question&&x.answer)};
     ['_id','created_at','updated_at','reserved','sold_count','rating','review_count','brand_name','category_name'].forEach(k=>delete body[k]);
     if(body.sale_price&&body.sale_price>=body.price)throw new Error('Sale price must be lower than the regular price');
-    if(initial._id)await put(`/admin/products/${initial._id}`,body);else await postJSON('/admin/products',body);
-    toast.ok('Product saved');onSaved()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
+    if(pid)await put(`/admin/products/${pid}`,body);
+    else{const r=await postJSON('/admin/products',body);setPid(r.id);if(r.slug)set('slug',r.slug)}
+    toast.ok(pid?'Changes saved':'Product created — you can keep editing');onSaved()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
   const off=f.sale_price&&Number(f.price)>Number(f.sale_price)?Math.round((1-f.sale_price/f.price)*100):0;
   return <form onSubmit={save} className="pform">
     <Tabs value={tab} onChange={setTab} tabs={[{key:'basic',label:'Basics'},{key:'media',label:`Media (${f.media.length})`},{key:'content',label:'Content'},{key:'display',label:'Display & Variants'}]}/>
@@ -67,7 +69,7 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
       <div className="fld"><span>Placement</span><Toggle checked={f.featured} onChange={v=>set('featured',v)} label="Featured on homepage"/><Toggle checked={f.new_collection} onChange={v=>set('new_collection',v)} label="New Collection"/><Toggle checked={f.has_camera} onChange={v=>set('has_camera',v)} label="Has camera (shop filter)"/></div>
       <Field label="Frame colours" span hint="Each colour appears as a swatch and in the Quantity Request drawer"><div className="colors-ed">{f.colors.map((c:string,i:number)=><div key={i} className="row"><input type="color" value={f.color_hex?.[c]||'#111111'} onChange={e=>set('color_hex',{...f.color_hex,[c]:e.target.value})}/><input value={c} onChange={e=>{const n=e.target.value;const hex={...f.color_hex};hex[n]=hex[c];delete hex[c];set('colors',f.colors.map((x:string,j:number)=>j===i?n:x));set('color_hex',hex)}}/>{f.colors.length>1&&<button type="button" className="ib" onClick={()=>set('colors',f.colors.filter((_:any,j:number)=>j!==i))}><Icon name="trash" size={16}/></button>}</div>)}<button type="button" className="btn btn-sm btn-soft" onClick={()=>set('colors',[...f.colors,'White'])}><Icon name="plus" size={15}/>Add colour</button></div></Field>
     </div>}
-    <div className="pform-foot"><button className="btn" disabled={busy}>{busy?'Saving…':initial._id?'Save changes':'Create product'}</button>{initial._id&&f.status==='active'&&<a className="btn btn-ghost" target="_blank" rel="noopener" href={`${process.env.NEXT_PUBLIC_STORE_URL||'https://emxin-dev.duckdns.org'}/product/${f.slug}`}><Icon name="eyeView" size={16}/>View on store</a>}</div>
+    <div className="pform-foot"><button type="submit" className="btn" disabled={busy}>{busy?'Saving…':pid?'Save changes':'Create product'}</button>{pid&&f.status==='active'&&<a className="btn btn-ghost" target="_blank" rel="noopener" href={`${process.env.NEXT_PUBLIC_STORE_URL||'https://emxin-dev.duckdns.org'}/product/${f.slug}`}><Icon name="eyeView" size={16}/>View on store</a>}</div>
   </form>;
 }
 
@@ -92,6 +94,6 @@ export default function Products(){
       <td><button className={'stock-chip'+(p.stock<=0?' out':p.stock<=(p.low_stock_threshold??5)?' low':'')} onClick={()=>stock(p)} title="Adjust stock">{p.stock}</button>{p.reserved>0&&<small className="muted"> ({p.reserved} reserved)</small>}</td>
       <td>{p.sold_count||0}</td><td>{p.review_count?`${p.rating}★ (${p.review_count})`:'—'}</td><td><Status s={p.status}/></td>
       <td className="r nowrap"><button className="btn btn-sm btn-soft" onClick={()=>setEdit(p)}><Icon name="edit" size={15}/>Edit</button> <button className="ib" title="Duplicate" onClick={async()=>{try{await postJSON(`/admin/products/${p._id}/duplicate`,{});toast.ok('Duplicated as draft');load()}catch(e:any){toast.err(e.message)}}}><Icon name="copy" size={16}/></button><Confirm cls="ib danger" text={`Delete ${p.name}? Products with orders are hidden instead.`} onYes={async()=>{try{const r=await del(`/admin/products/${p._id}`);toast.ok(r.message||'Deleted');load()}catch(e:any){toast.err(e.message)}}}><Icon name="trash" size={16}/></Confirm></td></tr>})}</tbody></table></div>:<Empty text="No products yet. Add your first product." icon="products"/>}</div>
-    <Drawer open={!!edit} width={760} title={edit?._id?`Edit · ${edit.name}`:'Add product'} onClose={()=>{setEdit(null);history.replaceState(null,'','/products')}}>{edit&&<ProductForm key={edit._id||'new'} initial={edit} cats={cats} brands={brands} onSaved={()=>{setEdit(null);load()}}/>}</Drawer>
+    <Drawer open={!!edit} width={760} title={edit?._id?`Edit · ${edit.name}`:'Add product'} onClose={()=>{setEdit(null);history.replaceState(null,'','/products')}}>{edit&&<ProductForm key={edit._id||'new'} initial={edit} cats={cats} brands={brands} onSaved={load}/>}</Drawer>
   </Shell>;
 }
