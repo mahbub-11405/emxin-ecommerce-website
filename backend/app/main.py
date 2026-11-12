@@ -7,7 +7,7 @@ import secrets, re, hashlib, hmac, uuid, mimetypes
 from zoneinfo import ZoneInfo
 from .config import get_settings
 from .db import db, client, ensure_indexes
-from .helpers import serialize, now, slugify
+from .helpers import serialize, now, slugify, next_product_codes
 from .security import hash_password, verify_password, create_token, require_role, decode_token
 from .schemas import *
 from .pricing import calculate
@@ -27,7 +27,7 @@ def startup():
     if not db.settings.find_one({'key':'commerce'}):
         db.settings.insert_one({'key':'commerce','dhaka_delivery_charge':settings.dhaka_delivery_charge,'outside_dhaka_delivery_charge':settings.outside_dhaka_delivery_charge,'estimated_shipping_from_qty':settings.estimated_shipping_from_qty,'extra_shipping_per_kg':settings.extra_shipping_per_kg,'bulk_threshold_qty':settings.bulk_threshold_qty,'bulk_discount_percent':settings.bulk_discount_percent,'bulk_advance_percent':settings.bulk_advance_percent,'digital_payment_discount_percent':settings.digital_payment_discount_percent,'payment_accounts':{'bkash':{'enabled':bool(settings.payment_bkash_number),'number':settings.payment_bkash_number,'account_type':settings.payment_bkash_account_type},'nagad':{'enabled':bool(settings.payment_nagad_number),'number':settings.payment_nagad_number,'account_type':settings.payment_nagad_account_type},'bank':{'enabled':bool(settings.payment_bank_account_number),'bank_name':settings.payment_bank_name,'account_name':settings.payment_bank_account_name,'account_number':settings.payment_bank_account_number,'branch':settings.payment_bank_branch,'routing_number':settings.payment_bank_routing_number}},'return_label':'Conditional Return','updated_at':now()})
     if not db.homepage.find_one({'key':'home'}):
-        db.homepage.insert_one({'key':'home','hero':{'title':'Smart Gadgets. Smarter Living.','title_bn':'স্মার্ট গ্যাজেটস। স্মার্টার লিভিং।','subtitle':'Discover smart eyewear, sunglasses and frames.','subtitle_bn':'স্মার্ট গ্লাস, সানগ্লাস ও ফ্রেম এক জায়গায়।','cta':'Shop Now','cta_bn':'শপ করুন','image':''},'sections':['new_collection','categories','featured','promo','best_sellers','trust'],'promo':{'title':'New Collection','subtitle':'Fresh arrivals from EMXIN','image':'','cta':'Explore Collection'},'updated_at':now()})
+        db.homepage.insert_one({'key':'home','hero':{'title':'Smart Gadgets. Smarter Living.','title_bn':'স্মার্ট গ্যাজেটস। স্মার্টার লিভিং।','subtitle':'Discover smart eyewear, sunglasses and frames.','subtitle_bn':'স্মার্ট গ্লাস, সানগ্লাস ও ফ্রেম এক জায়গায়।','cta':'Shop Now','cta_bn':'শপ করুন','image':''},'sections':['trust','featured','categories','promo','best_sellers'],'promo':{'title':'New Collection','subtitle':'Fresh arrivals from EMXIN','image':'','cta':'Explore Collection'},'updated_at':now()})
 
 @app.get('/health')
 def health():
@@ -612,10 +612,17 @@ def approve_dealer(dealer_id:str,authorization: str|None=Header(None)):
 def admin_products(authorization: str|None=Header(None)):
     admin(authorization); return serialize(list(db.products.find().sort('created_at',-1)))
 
+@app.get('/api/v1/admin/product-next-codes')
+def product_next_codes(authorization: str|None=Header(None)):
+    require_role(authorization,CATALOG); return next_product_codes(db)
+
 @app.post('/api/v1/admin/products')
 def create_product(body:ProductInput,authorization: str|None=Header(None)):
     require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=slugify(d.get('slug') or d['name'])
     if db.products.find_one({'slug':d['slug']}): raise HTTPException(409,'A product with this slug already exists')
+    codes=next_product_codes(db)
+    if not d.get('sku'): d['sku']=codes['sku']
+    if not d.get('compare_note'): d['compare_note']=codes['compare_note']
     d.update({'reserved':0,'sold_count':0,'rating':0,'review_count':0,'created_at':now(),'updated_at':now()}); r=db.products.insert_one(d); return {'id':str(r.inserted_id),'slug':d['slug']}
 
 @app.put('/api/v1/admin/products/{product_id}')

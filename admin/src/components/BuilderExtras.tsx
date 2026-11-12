@@ -1,17 +1,18 @@
 'use client';
 import {Field,Toggle,ImageInput} from './ui';
 export const SECTION_KEYS=['trust','categories','featured','smart_products','promo'];
-const LABEL:Record<string,string>={trust:'Trust row (delivery, payment, genuine, return)',categories:'Shop by Category tiles',featured:'Featured Products / New Collection',smart_products:'Our Smart Products + Coming Soon card',promo:'“Experience the Future” promo banner'};
+const LABEL:Record<string,string>={trust:'Trust row (delivery, payment, genuine, COD)',categories:'Shop by Category tiles',featured:'Featured Products / New Collection',smart_products:'Our Smart Products + Coming Soon card',promo:'“Experience the Future” promo banner'};
 const ALIAS:Record<string,string>={new_collection:'featured',best_sellers:'smart_products'};
 export function normalizeSections(s:any):string[]{const a=(Array.isArray(s)?s:[]).map((k:string)=>ALIAS[k]||k).filter((k:string)=>SECTION_KEYS.includes(k));const u=a.filter((k:string,i:number)=>a.indexOf(k)===i);return [...u,...SECTION_KEYS.filter(k=>!u.includes(k))]}
-const DEFAULT_TRUST=[{icon:'truck',title:'Fast Delivery',text:'Across Bangladesh',href:'/delivery'},{icon:'shieldPlain',title:'Secure Payment',text:'bKash, Nagad, Card & Bank',href:'/payments'},{icon:'badgeCheck',title:'Genuine Products',text:'100% Original',href:'/contact'},{icon:'returnArrow',title:'7 Days Return',text:'Hassle Free',href:'/return-policy'}];
+const DEFAULT_TRUST=[{icon:'truck',title:'Fast Delivery',text:'Across Bangladesh',href:'/delivery'},{icon:'shieldPlain',title:'Secure Payment',text:'bKash, Nagad, Card & Bank',href:'/payments'},{icon:'badgeCheck',title:'Genuine Products',text:'100% Original',href:'/contact'},{icon:'handshake',title:'Cash on Delivery',text:'Pay when you receive',href:'/payments'}];
 const ICONS=['truck','shieldPlain','badgeCheck','returnArrow','headset','handshake','lockCard','secure','bolt','percent'];
 
 export function SectionsEditor({data,setData}:{data:any;setData:(f:(v:any)=>any)=>void}){
-  const order=normalizeSections(data.sections);const hidden:string[]=data.hidden_sections||[];
+  const order=normalizeSections(data.sections).filter(k=>k!=='trust');const hidden:string[]=data.hidden_sections||[];
   const mv=(i:number,d:number)=>{const a=[...order];[a[i],a[i+d]]=[a[i+d],a[i]];setData((v:any)=>({...v,sections:a}))};
   const sub=(k:string,f:string,val:any)=>setData((v:any)=>({...v,[k]:{...(v[k]||{}),[f]:val}}));
-  return <section className="panel"><h2>Homepage sections</h2><p className="muted">Hero is always first. Reorder or hide the blocks below it, then Publish.</p>
+  return <section className="panel"><h2>Homepage sections</h2><p className="muted">Hero is always first, with the trust row directly under it. Reorder or hide the blocks below, then Publish.</p>
+    <div className="em-section"><strong>Fixed · {LABEL.trust} — always under the hero</strong><Toggle checked={!hidden.includes('trust')} onChange={on=>setData((v:any)=>({...v,hidden_sections:on?(v.hidden_sections||[]).filter((x:string)=>x!=='trust'):[...(v.hidden_sections||[]),'trust']}))} label="Visible"/></div>
     {order.map((k,i)=><div className="em-section" key={k}><strong>{i+1}. {LABEL[k]}</strong><Toggle checked={!hidden.includes(k)} onChange={on=>setData((v:any)=>({...v,sections:order,hidden_sections:on?(v.hidden_sections||[]).filter((x:string)=>x!==k):[...(v.hidden_sections||[]),k]}))} label="Visible"/><button disabled={i===0} onClick={()=>mv(i,-1)}>↑</button><button disabled={i===order.length-1} onClick={()=>mv(i,1)}>↓</button></div>)}
     <h3 style={{marginTop:22}}>Section titles</h3><div className="fgrid">
       <Field label="Category section title"><input value={data.category_section?.title||''} placeholder="Shop by Category" onChange={e=>sub('category_section','title',e.target.value)}/></Field>
@@ -24,7 +25,7 @@ export function SectionsEditor({data,setData}:{data:any;setData:(f:(v:any)=>any)
 }
 
 export function ExtrasEditor({data,setData}:{data:any;setData:(f:(v:any)=>any)=>void}){
-  const trust=data.trust?.items?.length?data.trust.items:DEFAULT_TRUST;
+  const trust=(data.trust?.items?.length?data.trust.items:DEFAULT_TRUST).map((t:any)=>/\d+\s*days?\s*return/i.test(t?.title||'')?DEFAULT_TRUST[3]:t);
   const setTrust=(i:number,f:string,val:string)=>setData((v:any)=>({...v,trust:{...(v.trust||{}),items:trust.map((t:any,j:number)=>j===i?{...t,[f]:val}:t)}}));
   const sub=(k:string,f:string,val:any)=>setData((v:any)=>({...v,[k]:{...(v[k]||{}),[f]:val}}));
   const cs=data.coming_soon||{};const an=data.announcement||{};const h=data.hero||{};
@@ -39,7 +40,7 @@ export function ExtrasEditor({data,setData}:{data:any;setData:(f:(v:any)=>any)=>
       <Field label="Tag title"><input value={h.tag_title||''} placeholder="AIMB G2 Pro" onChange={e=>sub('hero','tag_title',e.target.value)}/></Field>
       <Field label="Tag text"><input value={h.tag_text||''} placeholder="With Camera" onChange={e=>sub('hero','tag_text',e.target.value)}/></Field>
       <div className="span"><Toggle checked={h.show_tag!==false} onChange={v=>sub('hero','show_tag',v)} label="Show floating product tag"/></div></div></section>
-    <section className="panel"><h2>Trust row</h2><p className="em-hint">Make sure the return promise matches your Return Policy page.</p>{trust.map((t:any,i:number)=><div className="fgrid" key={i} style={{marginBottom:10}}>
+    <section className="panel"><h2>Trust row</h2><p className="em-hint">Shown directly under the hero. Avoid promises you can't always keep (e.g. unconditional returns).</p>{trust.map((t:any,i:number)=><div className="fgrid" key={i} style={{marginBottom:10}}>
       <Field label={`Item ${i+1} title`}><input value={t.title} onChange={e=>setTrust(i,'title',e.target.value)}/></Field><Field label="Subtitle"><input value={t.text} onChange={e=>setTrust(i,'text',e.target.value)}/></Field>
       <Field label="Icon"><select value={t.icon} onChange={e=>setTrust(i,'icon',e.target.value)}>{ICONS.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Link"><input value={t.href} onChange={e=>setTrust(i,'href',e.target.value)}/></Field></div>)}</section>
     <section className="panel"><h2>“More Gadgets Coming Soon” card</h2><Toggle checked={cs.enabled!==false} onChange={v=>sub('coming_soon','enabled',v)} label="Show card"/><div className="fgrid" style={{marginTop:12}}>

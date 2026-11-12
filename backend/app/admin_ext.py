@@ -15,7 +15,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from pymongo.errors import DuplicateKeyError
 
 from .db import db
-from .helpers import now, serialize, slugify
+from .helpers import now, serialize, slugify, next_product_codes
 from .security import require_role, decode_token
 from .schemas import (CategoryInput, BrandInput, CouponInput, OrderStatusUpdate,
                       ReviewInput, QuestionInput)
@@ -462,6 +462,8 @@ def duplicate_product(product_id: str, authorization: str | None = Header(None))
     while db.products.find_one({'slug': slug}):
         slug = f'{base}-{n}'
         n += 1
+    codes = next_product_codes(db)  # a copy gets its own SKU / stock code, not the original's
+    p.update({'sku': codes['sku'], 'compare_note': codes['compare_note'] or p.get('compare_note', '')})
     p.update({'slug': slug, 'name': p['name'] + ' (Copy)', 'status': 'draft', 'reserved': 0, 'sold_count': 0,
               'rating': 0, 'review_count': 0, 'created_at': now(), 'updated_at': now()})
     r = db.products.insert_one(p)

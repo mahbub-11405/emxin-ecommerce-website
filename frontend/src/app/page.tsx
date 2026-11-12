@@ -4,16 +4,19 @@ import ProductCard from '@/components/ProductCard';
 import Icon from '@/components/Icon';
 import GlassesArt from '@/components/GlassesArt';
 import HeroVideo from '@/components/HeroVideo';
+import PromoArt from '@/components/PromoArt';
 
 const TRUST=[
   {icon:'truck',title:'Fast Delivery',text:'Across Bangladesh',href:'/delivery'},
   {icon:'shieldPlain',title:'Secure Payment',text:'bKash, Nagad, Card & Bank',href:'/payments'},
   {icon:'badgeCheck',title:'Genuine Products',text:'100% Original',href:'/contact'},
-  {icon:'returnArrow',title:'7 Days Return',text:'Hassle Free',href:'/return-policy'},
+  {icon:'handshake',title:'Cash on Delivery',text:'Pay when you receive',href:'/payments'},
 ];
 // Legacy section keys from earlier Homepage Builder versions map onto the new blocks.
 const ALIAS:Record<string,string>={new_collection:'featured',best_sellers:'smart_products',hero:'',};
-const DEFAULT_ORDER=['trust','categories','featured','smart_products','promo'];
+const DEFAULT_ORDER=['categories','featured','smart_products','promo'];
+// Older saved trust rows promised "7 Days Return"; returns are conditional, so that item is swapped for COD.
+const fixTrust=(t:any)=>/\d+\s*days?\s*return/i.test(t?.title||'')?TRUST[3]:t;
 
 export default async function Home(){
   const d=await safeJSON<any>('/home',{});
@@ -24,9 +27,9 @@ export default async function Home(){
   const heroImg=isHttp(h.image)?h.image:'';
   const heroProduct=all.find((p:any)=>p.slug===h.product_slug)||all[0];
   let order:string[]=(Array.isArray(hp.sections)&&hp.sections.length?hp.sections:DEFAULT_ORDER).map((k:string)=>ALIAS[k]??k).filter(Boolean);
-  order=order.filter((k,i)=>order.indexOf(k)===i);
+  order=order.filter((k,i)=>k!=='trust'&&order.indexOf(k)===i); // trust row is always directly under the hero
   const hidden:string[]=hp.hidden_sections||[];
-  const trust=(hp.trust?.items?.length?hp.trust.items:TRUST);
+  const trust=(hp.trust?.items?.length?hp.trust.items:TRUST).map(fixTrust);
   const soon=hp.coming_soon||{};
   const promo=hp.promo||{};
 
@@ -46,7 +49,7 @@ export default async function Home(){
         </Link>}</div></section>:null,
     promo:<section className="wrap block" key="promo"><Link href={promo.href||'/new-collection'} className="promo" style={isHttp(promo.image)?{backgroundImage:`linear-gradient(90deg,rgba(4,12,36,.92) 0%,rgba(4,12,36,.55) 55%,rgba(4,12,36,.1)),url(${promo.image})`}:undefined}>
       <div><h2>{promo.title&&promo.title!=='New Collection'?promo.title:<>Experience the Future<br/>with <span>EMXIN</span></>}</h2><p>{promo.subtitle&&promo.subtitle!=='Fresh arrivals from EMXIN'?promo.subtitle:'Innovation  |  Quality  |  Your Everyday Companion'}</p></div>
-      {!isHttp(promo.image)&&<div className="promo-art" aria-hidden="true"><GlassesArt variant="camera"/></div>}
+      {!isHttp(promo.image)&&<PromoArt/>}
     </Link></section>,
   };
 
@@ -64,6 +67,7 @@ export default async function Home(){
         {isHttp(h.video_url)&&<HeroVideo src={h.video_url}/>}
       </div>
     </div></section>
+    {!hidden.includes('trust')&&blocks.trust}
     {order.filter(k=>!hidden.includes(k)).map(k=>blocks[k]??null)}
   </main>;
 }

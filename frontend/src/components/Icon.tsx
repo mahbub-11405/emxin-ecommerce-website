@@ -67,6 +67,7 @@ export default function Icon({name,size=20,stroke=1.8,fill='none',className='',t
 /** Pick a feature icon from free text the admin types ("8MP Camera" → camera). */
 export function featureIcon(text:string):string{
   const t=(text||'').toLowerCase();
+  if(/translat|language/.test(t))return 'translate';
   if(/camera|photo|video|mp\b/.test(t))return 'camera';
   if(/\bai\b|assistant|recogni|smart/.test(t))return 'ai';
   if(/wi-?fi|wireless|connect/.test(t))return 'wifi';
@@ -74,7 +75,6 @@ export function featureIcon(text:string):string{
   if(/batter|hour|charg/.test(t))return 'battery';
   if(/bluetooth|audio|music|speaker/.test(t))return 'bluetooth';
   if(/uv|polari|sun|lens/.test(t))return 'sun';
-  if(/translat|language/.test(t))return 'translate';
   if(/light|weight|comfort|tr90|hinge/.test(t))return 'feather';
   if(/prescription|optical|vision/.test(t))return 'eye';
   return 'badgeCheck';

@@ -460,3 +460,84 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .acc-order{display:grid;grid-template-columns:1.2fr 1.2fr .8fr auto;gap:12px;align-items:center;padding:14px 0;border-top:1px solid var(--line)}.acc-order>div{display:flex;flex-direction:column;gap:3px}.acc-act{flex-direction:row!important;gap:8px!important}
 .stack-form{display:flex;flex-direction:column;gap:12px;margin-top:12px}
 @media (max-width:980px){.auth,.acc{grid-template-columns:1fr}.auth-side{display:none}.acc-order{grid-template-columns:1fr 1fr}}
+
+/* ===== v2.1 storefront polish: trust strip, discounts, interactive features, specs, promo art ===== */
+/* trust strip — sits directly under the hero */
+.trust{margin-top:18px;padding:0;background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden}
+.trust a{padding:16px 20px!important;transition:background .2s}
+.trust a:hover{background:var(--blue-50)}
+.trust-ico{width:46px;height:46px;flex:none;border-radius:14px;display:grid;place-items:center;background:var(--blue-50);color:var(--blue);transition:transform .25s,background .25s,color .25s}
+.trust a:hover .trust-ico{transform:translateY(-2px) rotate(-6deg);background:var(--blue);color:#fff}
+
+/* product card */
+.pc:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+.pc-media img{transition:transform .35s ease}
+.pc:hover .pc-media img{transform:scale(1.06)}
+.pc-save{position:absolute;left:-2px;bottom:-4px;z-index:1;background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff;font-size:12px;font-weight:800;padding:4px 10px;border-radius:8px;box-shadow:0 6px 14px rgba(22,163,74,.3)}
+.pc-off{display:inline-flex;align-items:center;gap:3px;background:linear-gradient(135deg,#ff3d3d,#ff7a18);color:#fff;font-size:12px;font-weight:800;padding:3px 9px;border-radius:999px;letter-spacing:.01em;box-shadow:0 4px 12px rgba(255,61,61,.3)}
+
+/* product page price */
+.pd-price .off{display:inline-flex;align-items:center;gap:5px;position:relative;overflow:hidden;background:linear-gradient(135deg,#ff2d55,#ff7a18);font-size:16px;padding:7px 16px;box-shadow:0 8px 20px rgba(255,61,61,.35);animation:pd-pop .5s cubic-bezier(.2,1.6,.4,1) both}
+.pd-price .off::after{content:'';position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.55) 50%,transparent 70%);transform:translateX(-120%);animation:pd-shine 3s ease-in-out 1s infinite}
+.pd-save{display:inline-flex;align-items:center;gap:7px;margin:-4px 0 14px;padding:6px 12px;border-radius:10px;background:#fff6e5;color:#9a5b00;font-size:14px;border:1px dashed #f5b14a}
+.pd-save b{color:#c2410c}
+@keyframes pd-pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes pd-shine{0%,60%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+
+/* interactive key features */
+.pd-feats-wrap{margin-bottom:16px}
+.pd-feats{margin-bottom:0}
+.pd-feats button{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 6px;font-size:12.5px;color:var(--navy);font-weight:600;line-height:1.25;transition:border-color .2s,box-shadow .2s,transform .2s,background .2s}
+.pd-feats button i{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--soft);color:var(--navy);transition:background .2s,color .2s}
+.pd-feats button:hover{transform:translateY(-2px)}
+.pd-feats button.on{border-color:var(--blue);background:var(--blue-50);box-shadow:0 8px 20px rgba(31,92,255,.15)}
+.pd-feats button.on i{background:var(--blue);color:#fff}
+.pd-feat-detail{display:flex;gap:10px;align-items:flex-start;margin-top:8px;padding:12px 14px;border-radius:12px;background:linear-gradient(135deg,var(--blue-50),#fff);border:1px solid var(--blue-100);color:var(--blue);animation:pd-fade .25s ease both}
+.pd-feat-detail p{margin:0;color:var(--text);font-size:14px}
+.pd-feat-detail b{display:block;color:var(--navy);margin-bottom:1px}
+@keyframes pd-fade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+/* specifications */
+.spec{background:#fff;box-shadow:var(--shadow)}
+.spec div{align-items:center;transition:background .15s}
+.spec div:hover{background:var(--blue-50)}
+.spec div.full{grid-column:1/-1}
+.spec dt{display:flex;align-items:center;gap:10px;min-width:170px;color:var(--muted);font-weight:600}
+.spec dt i{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;background:var(--blue-50);color:var(--blue)}
+.spec dd{color:var(--navy);font-weight:600}
+
+/* promo banner art */
+.promo-art{position:relative;height:200px;display:flex;align-items:center;justify-content:center}
+.pa-glasses{width:100%;max-width:380px;position:relative;z-index:1;animation:pa-float 5s ease-in-out infinite;filter:drop-shadow(0 18px 30px rgba(56,225,255,.25))}
+.pa-scan{animation:pa-scan 3.2s ease-in-out infinite}
+.pa-cam{animation:pa-pulse 2s ease-in-out infinite;transform-origin:50px 58px}
+.pa-orbit{position:absolute;border-radius:50%;border:1px dashed rgba(122,162,255,.35)}
+.pa-orbit.o1{width:300px;height:300px;animation:pa-spin 30s linear infinite}
+.pa-orbit.o2{width:200px;height:200px;border-style:solid;border-color:rgba(56,225,255,.18);animation:pa-spin 18s linear infinite reverse}
+.pa-chip{position:absolute;z-index:2;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12.5px;font-weight:700;color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 8px 20px rgba(0,0,0,.25);animation:pa-float 4s ease-in-out infinite}
+.pa-chip svg{color:#38e1ff}
+.pa-chip.c1{top:6px;left:2%}.pa-chip.c2{bottom:6px;left:12%;animation-delay:-1.3s}.pa-chip.c3{top:22px;right:0;animation-delay:-2.6s}
+.promo:hover .pa-glasses{animation-duration:2.5s}
+@keyframes pa-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes pa-scan{0%{transform:translateY(0)}50%{transform:translateY(96px)}100%{transform:translateY(0)}}
+@keyframes pa-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+@keyframes pa-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.pa-glasses,.pa-scan,.pa-cam,.pa-orbit,.pa-chip,.pd-price .off,.pd-price .off::after{animation:none}}
+
+@media (max-width:980px){
+  .pd-feats{grid-template-columns:repeat(3,1fr)}
+  .promo-art{display:flex;width:42%}
+  .pa-chip{display:none}
+}
+@media (max-width:620px){
+  .trust{border-radius:14px}
+  .trust a{padding:12px!important}
+  .trust-ico{width:38px;height:38px;border-radius:11px}
+  .pc-save{font-size:10.5px;padding:3px 7px}
+  .pc-off{font-size:10.5px;padding:2px 7px}
+  .spec dt{min-width:130px}
+  .promo{flex-direction:column;align-items:flex-start;gap:6px}
+  .promo-art{display:flex;width:100%;height:140px}
+  .pa-orbit.o1{width:220px;height:220px}.pa-orbit.o2{width:150px;height:150px}
+  .pa-glasses{max-width:260px}
+}
