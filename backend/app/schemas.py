@@ -36,7 +36,7 @@ class ProductInput(BaseModel):
     color_hex: dict[str,str]={}; sort_order: int=0; low_stock_threshold: int=Field(default=5,ge=0)
     compare_note: str=''; promo_image_url: str=''; highlights: list[str]=[]
 class CategoryInput(BaseModel):
-    name: str; name_bn: str=''; slug: Optional[str]=None; order: int=0; visible: bool=True; thumbnail_url: str=''; subtitle: str=''; icon: str=''; show_on_home: bool=True
+    name: str; name_bn: str=''; slug: Optional[str]=None; order: int=0; visible: bool=True; thumbnail_url: str=''; image_fit: Literal['','contain','cover']=''; subtitle: str=''; icon: str=''; show_on_home: bool=True
 class BrandInput(BaseModel):
     name: str; slug: Optional[str]=None; order: int=0; visible: bool=True; logo_url: str=''
 class StaffCreate(BaseModel):
