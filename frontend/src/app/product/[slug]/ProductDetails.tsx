@@ -63,7 +63,7 @@ export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent
           <span><b>Order {bulkThreshold}+ pcs?</b><small>Become a Dealer & Get Extra {dealerPercent}% Discount</small></span>
           <Icon name="chevronRight" size={22} stroke={2.2}/>
         </button>
-        <div className="pd-assure"><span><Icon name="shieldPlain" size={22} stroke={1.6}/><b>Product<br/>Support</b></span><Link href="/return-policy"><Icon name="returnArrow" size={22} stroke={1.6}/><b>Easy<br/>Return*</b></Link><Link href="/delivery"><Icon name="truck" size={22} stroke={1.6}/><b>Fast<br/>Delivery</b></Link><Link href="/payments"><Icon name="secure" size={22} stroke={1.6}/><b>Secure<br/>Payment</b></Link></div>
+        <div className="pd-assure"><span><Icon name="shieldPlain" size={22} stroke={1.6}/><b>Product<br/>Support</b></span><span><Icon name="badgeCheck" size={22} stroke={1.6}/><b>100%<br/>Genuine</b></span><Link href="/delivery"><Icon name="truck" size={22} stroke={1.6}/><b>Fast<br/>Delivery</b></Link><Link href="/payments"><Icon name="secure" size={22} stroke={1.6}/><b>Secure<br/>Payment</b></Link></div>
       </section>
     </div>
     <div className="pd-tabs" role="tablist">{TABS.map(t=><button key={t} role="tab" aria-selected={tab===t} className={tab===t?'on':''} onClick={()=>setTab(t)}>{t}{t==='Reviews'?` (${Number(p.review_count)||0})`:''}</button>)}</div>

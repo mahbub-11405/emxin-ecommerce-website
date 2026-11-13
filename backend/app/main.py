@@ -122,7 +122,8 @@ def sort_products(rows:list,mode:str|None=None)->list:
 def home():
     mode=(db.homepage.find_one({'key':'home'},{'product_sort':1}) or {}).get('product_sort') or 'price_asc'
     pick=lambda f,n: serialize(with_names(sort_products(list(db.products.find({'status':'active',**f}).limit(500)),mode)[:n]))
-    return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':serialize(db.settings.find_one({'key':'commerce'},{'_id':0})),'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),
+    cs=serialize(db.settings.find_one({'key':'commerce'},{'_id':0})) or {}; cs['paystation_enabled']=bool(settings.paystation_enabled)
+    return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':cs,'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),
             'featured':pick({'featured':True},8),'new_collection':pick({'new_collection':True},8),'products':pick({},12)}
 
 @app.get('/api/v1/site-content')
@@ -328,6 +329,97 @@ def valid_coupon(code):
     if c.get('ends_at') and n>c['ends_at']: return None
     return c
 
+def order_pricing_cfg(phone,dealer_opt_in,qty):
+    """Settings used to price an order (dealer tier discount only for approved, active dealers)."""
+    dealer=db.dealers.find_one({'phone':normalize_bd_phone(phone),'status':'Active'}) if dealer_opt_in and phone else None
+    cfg=commerce_settings().copy()
+    if dealer and qty>=20:
+        completed=db.orders.count_documents({'dealer_id':str(dealer['_id']),'order_status':{'$in':['Delivered','Completed']}})
+        tiers=cfg.get('dealer_tiers') or [5,8,12,15]
+        tier=tiers[min(completed,len(tiers)-1)]
+        cfg['bulk_discount_percent']=float(dealer.get('discount_override_percent') if dealer.get('discount_override_percent') is not None else tier) if dealer.get('discount_approved',False) else 0.0
+    else:
+        cfg['bulk_discount_percent']=0.0
+    return dealer,cfg
+
+@app.post('/api/v1/orders/quote')
+def order_quote(body: OrderQuote, authorization: str|None=Header(None)):
+    """Exact server price for the checkout page (so a Send Money customer sends the right amount)."""
+    phone=None
+    if authorization:
+        try:
+            ident=decode_token(authorization.split(' ',1)[-1]); c=db.customers.find_one({'_id':ObjectId(ident['sub'])},{'phone':1}); phone=(c or {}).get('phone')
+        except Exception: phone=None
+    ids=[ObjectId(i.product_id) for i in body.items if ObjectId.is_valid(i.product_id)]
+    pmap={str(p['_id']):p for p in db.products.find({'_id':{'$in':ids},'status':'active'})}
+    items=[i.model_dump() for i in body.items if i.product_id in pmap]
+    if not items: raise HTTPException(400,'No available products')
+    coupon=valid_coupon(body.coupon_code)
+    _,cfg=order_pricing_cfg(phone,body.dealer_opt_in,sum(i['quantity'] for i in items))
+    return calculate(items,pmap,body.district,body.payment_method,coupon,cfg)
+
+# ---------- Manual bKash / Nagad "Send Money" payments ----------
+CHANNEL_LABEL={'bkash':'bKash','nagad':'Nagad'}
+def clean_trx(t:str|None)->str:
+    t=re.sub(r'[^A-Za-z0-9]','',t or '').upper()
+    if not re.fullmatch(r'[A-Z0-9]{6,20}',t): raise HTTPException(400,'Enter the Transaction ID (TrxID) exactly as shown in your bKash/Nagad message')
+    return t
+def trx_used(trx:str,exclude_order:str|None=None)->bool:
+    q={'manual_payment.trx_id':trx,'manual_payment.status':{'$ne':'rejected'}}
+    if exclude_order: q['order_id']={'$ne':exclude_order}
+    return bool(db.orders.find_one(q,{'_id':1})) or bool(db.payment_transactions.find_one({'trx_id':trx},{'_id':1}))
+def manual_payment_doc(channel,trx,sender,pricing,order_id=None)->dict:
+    acc=(commerce_settings().get('payment_accounts') or {}).get(channel or '') or {}
+    if not channel or not acc.get('enabled') or not acc.get('number'): raise HTTPException(400,'Choose bKash or Nagad — that payment number is not available right now')
+    trx=clean_trx(trx)
+    if trx_used(trx,order_id): raise HTTPException(409,'This Transaction ID was already used for another order')
+    try: sender_n=normalize_bd_phone(sender or '')
+    except HTTPException: raise HTTPException(400,'Enter the mobile number you sent the money from (01XXXXXXXXX)')
+    expected=float(pricing['advance_required'] if pricing.get('is_bulk') else pricing['grand_total'])
+    return {'channel':channel,'channel_label':CHANNEL_LABEL[channel],'to_number':acc.get('number'),'to_account_type':acc.get('account_type','personal'),'trx_id':trx,'sender':sender_n,
+            'amount_expected':expected,'is_advance':bool(pricing.get('is_bulk')),'status':'pending','submitted_at':now()}
+
+@app.post('/api/v1/orders/{order_id}/manual-payment')
+def resubmit_manual_payment(order_id:str,body:ManualPaymentSubmit,authorization: str|None=Header(None)):
+    """Customer re-sends the TrxID (e.g. after EMXIN rejected a wrong one)."""
+    identity=require_role(authorization,('customer',))
+    o=db.orders.find_one({'order_id':order_id,'customer_id':identity['sub']})
+    if not o: raise HTTPException(404,'Order not found')
+    if o.get('order_status') in ('Cancelled','Returned','Delivered','Completed'): raise HTTPException(409,'This order is closed')
+    if (o.get('manual_payment') or {}).get('status')=='verified': raise HTTPException(409,'Payment is already verified')
+    if o.get('payment_method')!='manual': raise HTTPException(409,'Send Money can be chosen at checkout. Contact EMXIN to change the payment method.')
+    pricing=o['pricing']; mp=manual_payment_doc(body.channel,body.trx_id,body.sender_number,pricing,order_id)
+    st='Awaiting Advance Verification' if pricing.get('is_bulk') else 'Awaiting Verification'
+    db.orders.update_one({'_id':o['_id']},{'$set':{'manual_payment':mp,'payment_channel':mp['channel'],'payment_status':st,'updated_at':now()},
+        '$push':{'timeline':{'at':now(),'payment_status':st,'note':f"Customer re-sent {mp['channel_label']} TrxID {mp['trx_id']}",'role':'customer'}}})
+    return {'ok':True,'payment_status':st}
+
+@app.post('/api/v1/admin/orders/{order_id}/manual-payment')
+async def review_manual_payment(order_id:str,body:ManualPaymentReview,authorization: str|None=Header(None)):
+    """Admin checks the TrxID in the bKash/Nagad app, then Verify (optionally confirms the order → Steadfast) or Reject."""
+    actor=require_role(authorization,ORDER_WRITE)
+    o=db.orders.find_one({'order_id':order_id})
+    if not o or not o.get('manual_payment'): raise HTTPException(404,'No Send Money payment on this order')
+    mp=o['manual_payment']
+    if body.action=='reject':
+        st='Payment Rejected'
+        db.orders.update_one({'_id':o['_id']},{'$set':{'manual_payment.status':'rejected','manual_payment.note':body.note,'manual_payment.reviewed_at':now(),'manual_payment.reviewed_by':actor['sub'],'payment_status':st,'updated_at':now()},
+            '$push':{'timeline':{'at':now(),'payment_status':st,'note':'Payment not found / wrong: '+(body.note or 'please re-send the TrxID'),'role':'admin'}}})
+        return serialize(db.orders.find_one({'_id':o['_id']}))
+    if mp.get('status')!='verified':
+        amount=float(body.amount_received if body.amount_received is not None else mp.get('amount_expected',0))
+        st='Advance Paid' if mp.get('is_advance') else 'Paid'
+        db.orders.update_one({'_id':o['_id']},{'$set':{'manual_payment.status':'verified','manual_payment.amount_received':amount,'manual_payment.note':body.note,'manual_payment.reviewed_at':now(),'manual_payment.reviewed_by':actor['sub'],
+            'payment_status':st,'paid_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'payment_status':st,'note':f"{mp.get('channel_label')} TrxID {mp.get('trx_id')} verified · ৳{amount:,.0f}",'role':'admin'}}})
+        db.ledger.insert_one({'order_id':order_id,'type':'payment_received','amount':amount,'payment_method':mp.get('channel'),'trx_id':mp.get('trx_id'),'source':'manual_send_money','created_at':now()})
+        db.payment_transactions.update_one({'trx_id':mp.get('trx_id')},{'$setOnInsert':{'trx_id':mp.get('trx_id'),'order_id':order_id,'amount':amount,'method':mp.get('channel'),'source':'manual_send_money','created_at':now()}},upsert=True)
+    if body.confirm and o.get('order_status')=='Pending Confirmation':
+        return await confirm_order(order_id,authorization)
+    return serialize(db.orders.find_one({'_id':o['_id']}))
+
+def manual_unverified(o)->bool:
+    return o.get('payment_method')=='manual' and (o.get('manual_payment') or {}).get('status')!='verified'
+
 @app.post('/api/v1/orders')
 async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
     identity=require_role(authorization,('customer',))
@@ -347,15 +439,7 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
     if body.coupon_code and not coupon: raise HTTPException(400,'Coupon is invalid or expired')
     if coupon and coupon.get('usage_limit') and db.orders.count_documents({'coupon_code':coupon['code'],'order_status':{'$nin':['Cancelled','Returned']}})>=coupon['usage_limit']: raise HTTPException(409,'Coupon usage limit reached')
     if coupon and coupon.get('min_order') and sum(float(pmap[i.product_id].get('sale_price') or pmap[i.product_id]['price'])*i.quantity for i in body.items)<float(coupon['min_order']): raise HTTPException(400,f"Minimum order ৳{coupon['min_order']} required for this coupon")
-    dealer=db.dealers.find_one({'phone':normalize_bd_phone(body.phone),'status':'Active'}) if body.dealer_opt_in else None
-    cfg=commerce_settings().copy()
-    if dealer and sum(i.quantity for i in body.items)>=20:
-        completed=db.orders.count_documents({'dealer_id':str(dealer['_id']),'order_status':{'$in':['Delivered','Completed']}})
-        tiers=cfg.get('dealer_tiers') or [5,8,12,15]
-        tier=tiers[min(completed,len(tiers)-1)]
-        cfg['bulk_discount_percent']=float(dealer.get('discount_override_percent') if dealer.get('discount_override_percent') is not None else tier) if dealer.get('discount_approved',False) else 0.0
-    else:
-        cfg['bulk_discount_percent']=0.0
+    dealer,cfg=order_pricing_cfg(body.phone,body.dealer_opt_in,sum(i.quantity for i in body.items))
     pricing=calculate([x.model_dump() for x in body.items],pmap,body.district,body.payment_method,coupon,cfg)
     pricing['dealer_discount_requires_approval']=bool(dealer and not dealer.get('discount_approved',False))
     if (pricing['is_bulk'] or body.dealer_opt_in) and not body.shop_name:
@@ -366,16 +450,18 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
             db.dealer_leads.update_one({'phone':body.phone},{'$set':{'name':body.customer_name,'shop_name':body.shop_name,'phone':body.phone,'email':body.email,'status':'Pending','source':'checkout','updated_at':now()}},upsert=True)
     status='Pending Confirmation'
     if pricing['is_bulk']:
-        if body.payment_method!='paystation': raise HTTPException(400,f"Bulk orders ({int(cfg.get('bulk_threshold_qty',settings.bulk_threshold_qty))}+ pcs) need an online advance payment via PayStation")
-        payment_status='Pending Advance Payment'
+        if body.payment_method not in ('paystation','manual'): raise HTTPException(400,f"Bulk orders ({int(cfg.get('bulk_threshold_qty',settings.bulk_threshold_qty))}+ pcs) need a {int(cfg.get('bulk_advance_percent',50))}% advance payment (bKash / Nagad)")
+        payment_status='Awaiting Advance Verification' if body.payment_method=='manual' else 'Pending Advance Payment'
     else:
-        payment_status='Unpaid' if body.payment_method in ('cod','bank') else 'Pending Payment'
+        payment_status='Unpaid' if body.payment_method in ('cod','bank') else 'Awaiting Verification' if body.payment_method=='manual' else 'Pending Payment'
+    manual=manual_payment_doc(body.manual_channel,body.trx_id,body.sender_number,pricing) if body.payment_method=='manual' else None
     items=[]
     for i in body.items:
         p=pmap[i.product_id]
         items.append({'product_id':i.product_id,'name':p['name'],'slug':p['slug'],'quantity':i.quantity,'frame_color':i.frame_color,'unit_price':float(p.get('sale_price') or p['price'])})
     customer=buyer
     doc={'order_id':order_id,'customer_name':body.customer_name,'phone':normalize_bd_phone(body.phone),'timeline':[{'at':now(),'order_status':status,'payment_status':payment_status,'note':'Order placed on website','role':'customer'}],'email':body.email,'customer_id':str(customer['_id']) if customer else None,'address':body.address,'district':body.district,'items':items,'pricing':pricing,'payment_method':body.payment_method,'payment_status':payment_status,'order_status':status,'coupon_code':coupon.get('code') if coupon else None,'dealer_opt_in':body.dealer_opt_in,'shop_name':body.shop_name,'dealer_id':str(dealer['_id']) if dealer else None,'dealer_discount_approved':bool(dealer and dealer.get('discount_approved')), 'courier':None,'courier_data':None,'courier_billing_mode':('deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill'),'created_at':now(),'updated_at':now()}
+    if manual: doc['manual_payment']=manual; doc['payment_channel']=manual['channel']; doc['timeline'][0]['note']=f"Order placed · {manual['channel_label']} Send Money TrxID {manual['trx_id']} (to verify)"
     # Reserve stock immediately for confirmed website intent; cancelled orders can release via admin action.
     for i in body.items: db.products.update_one({'_id':ObjectId(i.product_id)},{'$inc':{'stock':-i.quantity,'reserved':i.quantity}})
     db.orders.insert_one(doc)
@@ -383,7 +469,7 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
         db.customers.update_one({'_id':customer['_id']},{'$inc':{'total_orders':1,'total_purchase':pricing['grand_total']},'$set':{'lead_status':'Converted','lead_priority':'Hot','last_active_at':now()}})
     db.customers.update_one({'_id':buyer['_id'],'address':{'$in':[None,'']}},{'$set':{'address':body.address,'district':body.district}})
     db.ledger.insert_one({'order_id':order_id,'type':'order_created','amount':pricing['grand_total'],'payment_method':body.payment_method,'created_at':now()})
-    response={'order_id':order_id,'status':status,'payment_status':payment_status,'pricing':pricing}
+    response={'order_id':order_id,'status':status,'payment_status':payment_status,'pricing':pricing,'manual_payment':manual}
     if body.payment_method=='paystation':
         response['paystation']=await start_paystation(doc)
     return response
@@ -576,6 +662,7 @@ async def confirm_order(order_id:str,authorization: str|None=Header(None)):
     if not o: raise HTTPException(404,'Order not found')
     if o.get('order_status') in ('Sent to Courier','Delivered','Cancelled'):
         return serialize(o)
+    if manual_unverified(o): raise HTTPException(409,'Verify the bKash/Nagad payment first')
     db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Confirmed','confirmed_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Confirmed','note':'Customer confirmed by phone'}}})
     # Business rule: after EMXIN calls the customer and Admin confirms, create the default
     # Steadfast consignment automatically. Nothing is sent to courier before this click.
@@ -604,6 +691,7 @@ async def send_courier(order_id:str,courier:str='steadfast',authorization: str|N
     require_role(authorization,ORDER_WRITE); o=db.orders.find_one({'order_id':order_id})
     if not o: raise HTTPException(404,'Order not found')
     if o['order_status'] not in ('Confirmed','Approved'): raise HTTPException(409,'Confirm the customer/order first')
+    if manual_unverified(o): raise HTTPException(409,'Verify the bKash/Nagad payment first')
     try:
         if courier=='steadfast': data=await SteadfastClient().create_order(o)
         elif courier=='pathao': data=await PathaoClient().create_order(o)

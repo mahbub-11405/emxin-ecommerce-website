@@ -311,7 +311,9 @@ def orders_search(status: str | None = None, payment: str | None = None, method:
     f = {}
     if status:
         f['order_status'] = status
-    if payment:
+    if payment == 'to_verify':  # bKash/Nagad Send Money waiting for Admin to check the TrxID
+        f['manual_payment.status'] = 'pending'
+    elif payment:
         f['payment_status'] = payment
     if method:
         f['$or'] = [{'payment_method': method}, {'payment_channel': method}]

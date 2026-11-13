@@ -237,3 +237,10 @@ img{max-width:100%}.ico{flex:none}.muted{color:var(--muted)}.tiny{font-size:12px
 .use-prev{display:flex;flex-direction:column;align-items:center;gap:6px;background:#f5f7fb;border-radius:12px;padding:10px}.use-prev img,.use-prev video{max-height:200px;max-width:100%;object-fit:contain}
 .use-slots{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:900px){.ml{grid-template-columns:1fr}.ml-side{position:static;max-height:none;flex-direction:row;flex-wrap:wrap}.mf{width:auto}.ml-h{width:100%}}
+
+/* v2.3 manual Send Money verification */
+.mpay{border:1px solid #f3d38a;background:#fffaf0;border-radius:14px;padding:14px;margin:12px 0;display:flex;flex-direction:column;gap:10px}
+.mpay.verified{border-color:#bfe8cf;background:#f2fbf5}.mpay.rejected{border-color:#f3c0c0;background:#fdf3f3}
+.mpay-head{display:flex;justify-content:space-between;align-items:center}
+.mpay-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 16px}.mpay-grid div{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.mpay-grid small{width:100%;color:var(--muted);font-size:11.5px}
+.mpay-grid b.mono{font-size:15px;letter-spacing:.04em}

@@ -8,8 +8,16 @@ class OrderItem(BaseModel):
 class OrderCreate(BaseModel):
     customer_name: str; phone: str; email: Optional[EmailStr]=None; address: str; district: str
     items: list[OrderItem]
-    payment_method: Literal['cod','paystation']='cod'
+    payment_method: Literal['cod','paystation','manual']='cod'
+    # manual = bKash/Nagad Send Money to EMXIN's number; customer gives the TrxID, Admin verifies it
+    manual_channel: Optional[Literal['bkash','nagad']]=None; trx_id: Optional[str]=None; sender_number: Optional[str]=None
     coupon_code: Optional[str]=None; dealer_opt_in: bool=False; shop_name: Optional[str]=None
+class OrderQuote(BaseModel):
+    items: list[OrderItem]; district: str='Dhaka'; payment_method: Literal['cod','paystation','manual']='cod'; coupon_code: Optional[str]=None; dealer_opt_in: bool=False
+class ManualPaymentSubmit(BaseModel):
+    channel: Literal['bkash','nagad']; trx_id: str=Field(min_length=6,max_length=30); sender_number: str=Field(min_length=10,max_length=20)
+class ManualPaymentReview(BaseModel):
+    action: Literal['verify','reject']; amount_received: Optional[float]=None; note: str=''; confirm: bool=True
 class QuantityRequest(BaseModel):
     product_id: str; name: str; shop_name: str; phone: str; email: Optional[EmailStr]=None
     color_quantities: dict[str,int]={}; total_quantity: int=Field(default=0,ge=0,le=100000); urgency: Literal['Normal','Priority','Urgent']='Normal'; message: str=''; dealer_opt_in: bool=False

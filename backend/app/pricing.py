@@ -34,13 +34,13 @@ def calculate(items, products_by_id, district: str, payment_method: str, coupon=
     # Bulk/dealer orders use their separate bulk pricing + advance policy and do not stack this retail benefit.
     digital_discount_percent=float(cfg.get('digital_payment_discount_percent',settings.digital_payment_discount_percent))
     # Business rule: every digital (PayStation) payment always gets the configured discount — retail and bulk.
-    payment_discount=float(round(gross_total*digital_discount_percent/100)) if payment_method=='paystation' else 0.0
+    payment_discount=float(round(gross_total*digital_discount_percent/100)) if payment_method in ('paystation','manual') else 0.0
     grand=float(round(gross_total-payment_discount))  # whole taka: PayStation requires integer amounts
     advance_percent=float(cfg.get('bulk_advance_percent',settings.bulk_advance_percent)) if is_bulk else 0
     if is_bulk:
         advance=float(round(grand*advance_percent/100))
         cod_due=float(round(grand-advance))
     else:
-        advance=grand if payment_method=='paystation' else 0
+        advance=grand if payment_method in ('paystation','manual') else 0
         cod_due=grand if payment_method=='cod' else 0
-    return dict(quantity=qty,is_bulk=is_bulk,subtotal=round(subtotal,2),bulk_discount=bulk_discount_amount,coupon_discount=round(coupon_discount,2),delivery_charge=delivery,estimated_shipping=estimated_shipping,gross_total=gross_total,payment_discount=payment_discount,digital_payment_discount_percent=digital_discount_percent if payment_method=='paystation' else 0,grand_total=grand,advance_required=advance,cod_due=cod_due,total_weight_kg=round(total_weight,3))
+    return dict(quantity=qty,is_bulk=is_bulk,subtotal=round(subtotal,2),bulk_discount=bulk_discount_amount,coupon_discount=round(coupon_discount,2),delivery_charge=delivery,estimated_shipping=estimated_shipping,gross_total=gross_total,payment_discount=payment_discount,digital_payment_discount_percent=digital_discount_percent if payment_method in ('paystation','manual') else 0,grand_total=grand,advance_required=advance,cod_due=cod_due,total_weight_kg=round(total_weight,3))

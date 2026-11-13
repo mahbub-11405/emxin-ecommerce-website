@@ -6,8 +6,28 @@ import {PageHead,Status,Drawer,Tabs,Empty,Loading,toast,Field} from '@/component
 import {api,put,postJSON,tk,dt,downloadCSV} from '@/lib/api';
 
 const STATUSES=['Pending Confirmation','Confirmed','Processing','Sent to Courier','Delivered','Completed','Returned','Cancelled'];
-const PAYMENTS=['Unpaid','Pending Payment','Advance Required','Pending Advance Payment','Awaiting Advance Verification','Advance Paid','Paid','COD Collected','Refunded','Failed'];
+const PAYMENTS=['Unpaid','Awaiting Verification','Payment Rejected','Pending Payment','Advance Required','Pending Advance Payment','Awaiting Advance Verification','Advance Paid','Paid','COD Collected','Refunded','Failed'];
 const CHANNELS=['','cod','bkash','nagad','rocket','card','bank','paystation','other'];
+
+/** bKash/Nagad Send Money: Admin checks the TrxID in the app, then Verify (→ confirm → Steadfast) or Reject. */
+function ManualPay({o,busy,run}:{o:any;busy:string;run:(label:string,fn:()=>Promise<any>)=>void}){
+  const m=o.manual_payment;const[amt,setAmt]=useState(String(m.amount_expected??''));const[note,setNote]=useState('');
+  const pending=m.status==='pending';const closed=['Cancelled','Returned'].includes(o.order_status);
+  const send=(action:string,confirm=true)=>run(action==='verify'?(confirm?'Payment verified & order confirmed':'Payment verified'):'Payment rejected',()=>postJSON(`/admin/orders/${o.order_id}/manual-payment`,{action,amount_received:Number(amt)||null,note,confirm}));
+  return <section className={'mpay '+m.status}><div className="mpay-head"><b>{m.channel_label} Send Money</b><span className={'st st-'+(m.status==='verified'?'green':m.status==='rejected'?'red':'amber')}>{m.status==='pending'?'To verify':m.status}</span></div>
+    <div className="mpay-grid">
+      <div><small>TrxID</small><b className="mono">{m.trx_id}</b><button type="button" className="ib" title="Copy" onClick={()=>{navigator.clipboard?.writeText(m.trx_id);toast.ok('TrxID copied')}}><Icon name="copy" size={14}/></button></div>
+      <div><small>Amount expected</small><b>{tk(m.amount_expected)}</b>{m.is_advance&&<small className="muted">{' '}advance · COD {tk(o.pricing?.cod_due)}</small>}</div>
+      <div><small>Sent from</small><b>{m.sender}</b></div><div><small>Sent to</small><b>{m.to_number}</b> <small className="muted">({m.to_account_type})</small></div>
+      <div><small>Submitted</small><b>{dt(m.submitted_at)}</b></div>{m.amount_received!=null&&<div><small>Received</small><b>{tk(m.amount_received)}</b></div>}
+    </div>
+    {pending&&!closed&&<><p className="tiny muted">Open the {m.channel_label} app → transaction history, find this TrxID and check the amount. Then:</p>
+      <div className="fgrid"><Field label="Amount received (৳)"><input type="number" value={amt} onChange={e=>setAmt(e.target.value)}/></Field><Field label="Note (shown to customer if rejected)"><input value={note} onChange={e=>setNote(e.target.value)} placeholder="e.g. amount short by ৳500"/></Field></div>
+      <div className="od-actions"><button className="btn" disabled={!!busy} onClick={()=>send('verify')}><Icon name="checkCircle" size={17}/>Verify & confirm order</button><button className="btn btn-soft" disabled={!!busy} onClick={()=>send('verify',false)}>Verify only</button><button className="btn btn-ghost danger" disabled={!!busy} onClick={()=>{if(confirm('Reject this payment? The customer will be asked to send the TrxID again.'))send('reject')}}>Reject</button></div>
+      <p className="tiny muted">“Verify & confirm” marks the order {m.is_advance?'Advance Paid':'Paid'}, confirms it and sends it to Steadfast automatically (when the Steadfast API is set up).</p></>}
+    {m.status==='rejected'&&<p className="tiny muted">Waiting for the customer to send a new TrxID{m.note?` · ${m.note}`:''}.</p>}
+  </section>;
+}
 
 function OrderDetail({id,onChanged}:{id:string;onChanged:()=>void}){
   const[d,setD]=useState<any>(null);const[busy,setBusy]=useState('');
@@ -21,10 +41,11 @@ function OrderDetail({id,onChanged}:{id:string;onChanged:()=>void}){
   return <div className="od">
     <div className="od-top"><div><Status s={o.order_status}/> <Status s={o.payment_status}/>{p.is_bulk&&<span className="st st-purple">Bulk</span>}</div><small className="muted">{dt(o.created_at)}</small></div>
     {!locked&&<div className="od-actions">
-      {o.order_status==='Pending Confirmation'&&<button className="btn" disabled={!!busy} onClick={()=>run('Confirmed',()=>postJSON(`/admin/orders/${o.order_id}/confirm`,{}))}><Icon name="phone" size={17}/>Customer confirmed</button>}
+      {o.order_status==='Pending Confirmation'&&!(o.payment_method==='manual'&&o.manual_payment?.status!=='verified')&&<button className="btn" disabled={!!busy} onClick={()=>run('Confirmed',()=>postJSON(`/admin/orders/${o.order_id}/confirm`,{}))}><Icon name="phone" size={17}/>Customer confirmed</button>}
       {['Confirmed','Approved'].includes(o.order_status)&&<><button className="btn" disabled={!!busy} onClick={()=>run('Sent to Steadfast',()=>api(`/admin/orders/${o.order_id}/send-courier?courier=steadfast`,{method:'POST'}))}><Icon name="truck" size={17}/>Send to Steadfast</button><button className="btn btn-soft" disabled={!!busy} onClick={()=>run('Sent to Pathao',()=>api(`/admin/orders/${o.order_id}/send-courier?courier=pathao`,{method:'POST'}))}>Send to Pathao</button></>}
       <button className="btn btn-ghost" onClick={()=>window.open(`/orders/invoice?id=${o.order_id}`,'_blank')}><Icon name="download" size={17}/>Invoice</button>
     </div>}
+    {o.manual_payment&&<ManualPay o={o} busy={busy} run={run}/>}
     <div className="od-grid">
       <section><h4>Customer</h4><p><b>{o.customer_name}</b>{o.shop_name&&<> · {o.shop_name}</>}<br/><a className="lnk" href={`tel:${o.phone}`}>{o.phone}</a>{o.email&&<><br/>{o.email}</>}</p><p className="muted">{o.address}, {o.district}</p><p className="tiny muted">{d.previous_orders} previous order(s) from this phone{d.customer?` · Lead: ${d.customer.lead_status||'—'}`:''}</p></section>
       <section><h4>Delivery</h4><p>Courier: <b>{o.courier||'Not sent'}</b></p>{o.courier_data?.consignment?.tracking_code&&<p>Tracking: <b>{o.courier_data.consignment.tracking_code}</b></p>}<p className="tiny muted">{o.courier_billing_mode==='merchant_periodic_bill'?'Prepaid: courier bills merchant periodically':'COD: courier charge deducted from collection'}</p></section>
@@ -52,15 +73,15 @@ export default function Orders(){
   useEffect(()=>{const o=new URLSearchParams(location.search).get('open');if(o)setOpen(o)},[]);
   const total=d?Object.values(d.by_status||{}).reduce((a:any,b:any)=>a+b,0) as number:0;
   return <Shell>
-    <PageHead title="Orders" sub="Call the customer → confirm → send to courier. Nothing reaches the courier before you confirm."><button className="btn btn-ghost" onClick={()=>d&&downloadCSV('emxin-orders.csv',d.rows,[['Order','order_id'],['Date',r=>dt(r.created_at)],['Customer','customer_name'],['Phone','phone'],['District','district'],['Items',r=>r.items.map((i:any)=>`${i.name} x${i.quantity}`).join('; ')],['Total',r=>r.pricing?.grand_total],['COD due',r=>r.pricing?.cod_due],['Payment','payment_method'],['Payment status','payment_status'],['Status','order_status'],['Courier','courier']])}><Icon name="download" size={17}/>Export CSV</button></PageHead>
+    <PageHead title="Orders" sub="bKash/Nagad orders: verify the TrxID → the order is confirmed and goes to the courier. COD orders: call the customer → confirm. Nothing reaches the courier before you confirm."><button className="btn btn-ghost" onClick={()=>d&&downloadCSV('emxin-orders.csv',d.rows,[['Order','order_id'],['Date',r=>dt(r.created_at)],['Customer','customer_name'],['Phone','phone'],['District','district'],['Items',r=>r.items.map((i:any)=>`${i.name} x${i.quantity}`).join('; ')],['Total',r=>r.pricing?.grand_total],['COD due',r=>r.pricing?.cod_due],['Payment','payment_method'],['Payment status','payment_status'],['Status','order_status'],['Courier','courier']])}><Icon name="download" size={17}/>Export CSV</button></PageHead>
     <Tabs value={status} onChange={k=>{setStatus(k);setPage(1)}} tabs={[{key:'',label:'All',count:total},...STATUSES.map(s=>({key:s,label:s,count:d?.by_status?.[s]||0}))]}/>
-    <div className="filters"><div className="search-in"><Icon name="search" size={17}/><input placeholder="Order ID, name, phone, shop" value={q} onChange={e=>{setQ(e.target.value);setPage(1)}}/></div>
-      <select value={payment} onChange={e=>{setPayment(e.target.value);setPage(1)}}><option value="">All payment statuses</option>{PAYMENTS.map(p=><option key={p}>{p}</option>)}</select>
+    <div className="filters"><button type="button" className={'btn btn-sm '+(payment==='to_verify'?'':'btn-soft')} onClick={()=>{setPayment(payment==='to_verify'?'':'to_verify');setPage(1)}}><Icon name="cash" size={15}/>bKash / Nagad to verify</button><div className="search-in"><Icon name="search" size={17}/><input placeholder="Order ID, name, phone, shop" value={q} onChange={e=>{setQ(e.target.value);setPage(1)}}/></div>
+      <select value={payment} onChange={e=>{setPayment(e.target.value);setPage(1)}}><option value="">All payment statuses</option><option value="to_verify">bKash / Nagad to verify</option>{PAYMENTS.map(p=><option key={p}>{p}</option>)}</select>
       <select value={method} onChange={e=>{setMethod(e.target.value);setPage(1)}}><option value="">All methods</option>{CHANNELS.filter(Boolean).map(p=><option key={p}>{p}</option>)}</select>
       <input type="date" value={start} onChange={e=>setStart(e.target.value)} aria-label="From"/><input type="date" value={end} onChange={e=>setEnd(e.target.value)} aria-label="To"/></div>
     <div className="card flush">{!d?<Loading/>:d.rows.length?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Items</th><th>Amount</th><th>Payment</th><th>Status</th><th/></tr></thead><tbody>{d.rows.map((o:any)=><tr key={o.order_id} className="click" onClick={()=>setOpen(o.order_id)}>
       <td><b className="lnk">#{o.order_id}</b>{o.pricing?.is_bulk&&<><br/><span className="st st-purple">Bulk</span></>}</td><td className="nowrap">{dt(o.created_at)}</td><td>{o.customer_name}<br/><small className="muted">{o.phone} · {o.district}</small></td><td>{o.items.reduce((n:number,i:any)=>n+i.quantity,0)} pcs<br/><small className="muted">{o.items[0]?.name}{o.items.length>1?` +${o.items.length-1}`:''}</small></td>
-      <td><b>{tk(o.pricing?.grand_total)}</b>{o.pricing?.cod_due>0&&<><br/><small className="muted">COD {tk(o.pricing.cod_due)}</small></>}</td><td><Status s={o.payment_status}/><br/><small className="muted">{o.payment_channel||o.payment_method}</small></td><td><Status s={o.order_status}/>{o.courier&&<><br/><small className="muted">{o.courier}</small></>}</td><td><Icon name="chevronRight" size={18}/></td></tr>)}</tbody></table></div>:<Empty text="No orders match these filters." icon="orders"/>}
+      <td><b>{tk(o.pricing?.grand_total)}</b>{o.pricing?.cod_due>0&&<><br/><small className="muted">COD {tk(o.pricing.cod_due)}</small></>}</td><td><Status s={o.payment_status}/><br/><small className="muted">{o.payment_channel||o.payment_method}{o.manual_payment?.trx_id&&<> · {o.manual_payment.trx_id}</>}</small></td><td><Status s={o.order_status}/>{o.courier&&<><br/><small className="muted">{o.courier}</small></>}</td><td><Icon name="chevronRight" size={18}/></td></tr>)}</tbody></table></div>:<Empty text="No orders match these filters." icon="orders"/>}
       {d&&d.total>d.page_size&&<div className="pager"><button className="btn btn-sm btn-ghost" disabled={page<=1} onClick={()=>setPage(page-1)}>Previous</button><span>Page {page} of {Math.ceil(d.total/d.page_size)} · {d.total} orders</span><button className="btn btn-sm btn-ghost" disabled={page>=Math.ceil(d.total/d.page_size)} onClick={()=>setPage(page+1)}>Next</button></div>}</div>
     <Drawer open={!!open} title={<>Order #{open}</>} onClose={()=>{setOpen('');history.replaceState(null,'','/orders')}} width={640}>{open&&<OrderDetail id={open} onChanged={load}/>}</Drawer>
   </Shell>;

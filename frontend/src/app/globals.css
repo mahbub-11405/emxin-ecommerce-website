@@ -599,3 +599,16 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .pc.pc-fill .pc-save{left:12px;bottom:12px}
 .pc.pc-fill .pc-heart{top:14px;left:14px;width:36px;height:36px;display:grid;place-items:center;background:rgba(255,255,255,.92);border-radius:50%;box-shadow:0 4px 12px rgba(15,30,70,.15)}
 @media(max-width:640px){.pc.pc-fill .pc-media{margin:-12px -12px 12px;height:150px}.pc.pc-fill .pc-badge{top:8px;right:8px}.pc.pc-fill .pc-save{left:8px;bottom:8px}.pc.pc-fill .pc-heart{top:8px;left:8px}}
+
+/* v2.3 bKash / Nagad Send Money at checkout */
+.mp-box{border:1px solid #f4c6dc;background:#fff7fb;border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.mp-tabs{display:flex;gap:8px}.mp-tab{flex:1;border:1.5px solid var(--line);background:#fff;border-radius:10px;padding:8px;font:inherit;font-weight:700;cursor:pointer}
+.mp-tab.bkash.on{border-color:#e2136e;color:#e2136e;background:#fff0f6}.mp-tab.nagad.on{border-color:#f6921e;color:#c86a00;background:#fff6ec}
+.mp-steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;font-size:14px;color:var(--navy)}
+.mp-copy{display:inline-flex;align-items:center;gap:6px;border:1px dashed #e2136e;background:#fff;color:#b10f57;border-radius:8px;padding:2px 9px;font:inherit;cursor:pointer}
+.mp-copy.amt{border-color:var(--blue);color:var(--blue)}.mp-copy:active{transform:scale(.97)}
+.mp-done{display:flex;gap:10px;align-items:flex-start;text-align:left;background:#effaf3;border:1px solid #bfe8cf;color:#14532d;border-radius:12px;padding:12px 14px;margin:10px 0;font-size:14px;line-height:1.5}
+
+.acc-mp{grid-column:1/-1;display:flex;flex-direction:column;gap:8px;margin:4px 0 0;padding:10px 12px;border-radius:10px;font-size:13.5px}
+.acc-mp p{display:flex;gap:8px;margin:0;align-items:flex-start}.acc-mp.wait{flex-direction:row;gap:8px;background:#fff8e6;color:#7a4b00}
+.acc-mp.bad{background:#fdecec;color:#8b1c1c}.acc-mp input{flex:1;min-width:140px}
