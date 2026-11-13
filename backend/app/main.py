@@ -105,9 +105,25 @@ def media_public_url(key):
     return f'{base}/{key}' if base else f'https://{settings.aws_s3_bucket}.s3.{settings.aws_region}.amazonaws.com/{key}'
 
 # ---------- Public CMS / catalog ----------
+PRODUCT_SORTS=('price_asc','price_desc','manual','newest')
+def eff_price(p): return float(p.get('sale_price') or p.get('price') or 0)
+def ts(p):
+    t=p.get('created_at'); return t.timestamp() if hasattr(t,'timestamp') else 0
+def sort_products(rows:list,mode:str|None=None)->list:
+    """Order chosen in Admin → Homepage Builder → Product order. Used by the homepage and the shop's default order.
+    manual = Sort order 1,2,3… first (0 = no preference goes last, cheapest first); price_* uses the selling price (sale price if set)."""
+    mode=mode or (db.homepage.find_one({'key':'home'},{'product_sort':1}) or {}).get('product_sort') or 'price_asc'
+    if mode=='price_desc': return sorted(rows,key=lambda p:(-eff_price(p),-ts(p)))
+    if mode=='newest': return sorted(rows,key=lambda p:-ts(p))
+    if mode=='manual': return sorted(rows,key=lambda p:(int(p.get('sort_order') or 0)<=0,int(p.get('sort_order') or 0),eff_price(p)))
+    return sorted(rows,key=lambda p:(eff_price(p),-ts(p)))
+
 @app.get('/api/v1/home')
 def home():
-    return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':serialize(db.settings.find_one({'key':'commerce'},{'_id':0})),'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),'featured':serialize(with_names(list(db.products.find({'status':'active','featured':True}).sort([('sort_order',1),('created_at',-1)]).limit(8)))),'new_collection':serialize(with_names(list(db.products.find({'status':'active','new_collection':True}).sort([('sort_order',1),('created_at',-1)]).limit(8)))),'products':serialize(with_names(list(db.products.find({'status':'active'}).sort([('sort_order',1),('created_at',-1)]).limit(12))))}
+    mode=(db.homepage.find_one({'key':'home'},{'product_sort':1}) or {}).get('product_sort') or 'price_asc'
+    pick=lambda f,n: serialize(with_names(sort_products(list(db.products.find({'status':'active',**f}).limit(500)),mode)[:n]))
+    return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':serialize(db.settings.find_one({'key':'commerce'},{'_id':0})),'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),
+            'featured':pick({'featured':True},8),'new_collection':pick({'new_collection':True},8),'products':pick({},12)}
 
 @app.get('/api/v1/site-content')
 def site_content():
@@ -145,8 +161,11 @@ def products(category: str|None=None,brand: str|None=None,q: str|None=None,limit
         if max_price is not None: rng['$lte']=max_price
         f['$and']=[{'$or':[{'sale_price':rng},{'sale_price':None,'price':rng}]}]
     if q:f['$or']=[{'name':{'$regex':re.escape(q),'$options':'i'}},{'features':{'$elemMatch':{'$regex':re.escape(q),'$options':'i'}}},{'model':{'$regex':re.escape(q),'$options':'i'}}]
-    order={'price_asc':[('price',1)],'price_desc':[('price',-1)],'newest':[('created_at',-1)],'rating':[('rating',-1),('review_count',-1)],'popular':[('sold_count',-1)]}.get(sort,[('sort_order',1),('stock',-1),('created_at',-1)])
-    return serialize(with_names(list(db.products.find(f).sort(order).limit(min(limit,100)))))
+    if sort in ('price_asc','price_desc','newest'):  # by selling price (sale price when set)
+        return serialize(with_names(sort_products(list(db.products.find(f).limit(1000)),sort)[:min(limit,100)]))
+    order={'rating':[('rating',-1),('review_count',-1)],'popular':[('sold_count',-1)]}.get(sort)
+    if order: return serialize(with_names(list(db.products.find(f).sort(order).limit(min(limit,100)))))
+    return serialize(with_names(sort_products(list(db.products.find(f).limit(1000)))[:min(limit,100)]))  # default = Admin's Product order
 
 def with_names(rows):
     """Adds category_name/brand_name to product lists so cards never show a raw slug."""
@@ -673,12 +692,13 @@ def restore_cms(version_id:str,authorization: str|None=Header(None)):
 @app.put('/api/v1/admin/cms/homepage')
 def update_homepage(payload:dict,authorization: str|None=Header(None)):
     manager(authorization,'marketing')
-    allowed={'hero','promo','sections','branding','links','policies','trust','dealer_benefits','footer','coming_soon','announcement','banner','category_section','featured_section','seo','hidden_sections','smart_section'}
+    allowed={'product_sort','hero','promo','sections','branding','links','policies','trust','dealer_benefits','footer','coming_soon','announcement','banner','category_section','featured_section','seo','hidden_sections','smart_section'}
     if set(payload)-allowed-{'key','updated_at','_id'}: raise HTTPException(400,'Unexpected homepage fields')
     if 'sections' in payload and (not isinstance(payload['sections'],list) or len(payload['sections'])>30 or any(not isinstance(x,str) for x in payload['sections'])):
         raise HTTPException(400,'Invalid homepage sections')
     current=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
     db.cms_versions.insert_one({'snapshot':current,'created_at':now(),'action':'before_publish'})
+    if 'product_sort' in payload and payload['product_sort'] not in PRODUCT_SORTS: raise HTTPException(400,'Invalid product order')
     cleaned={k:v for k,v in payload.items() if k in allowed}
     cleaned['updated_at']=now()
     db.homepage.update_one({'key':'home'},{'$set':cleaned},upsert=True)
