@@ -9,7 +9,7 @@ export async function generateMetadata(){
   const site=await safeJSON<any>('/site-content',{});const seo=site.seo||{};
   const title=seo.title||'EMXIN Technologies — Smart Gadgets. Smarter Living.';
   const description=seo.description||'AI smart glasses, smart sunglasses and premium frames in Bangladesh. Fast delivery, secure payment and dealer pricing.';
-  return {title:{default:title,template:'%s | EMXIN Technologies'},description,openGraph:{title,description,images:isHttp(seo.image)?[seo.image]:[]},icons:{icon:isHttp(site.branding?.favicon_url)?site.branding.favicon_url:'/favicon.svg',apple:'/apple-touch-icon.png'}}; // built-in EMXIN icon unless Admin uploaded one
+  return {title:{default:title,template:'%s | EMXIN Technologies'},description,openGraph:{title,description,images:isHttp(seo.image)?[seo.image]:[]},icons:{icon:isHttp(site.branding?.favicon_url)?[{url:site.branding.favicon_url}]:[{url:'/favicon-48.png',sizes:'48x48',type:'image/png'},{url:'/icon-192.png',sizes:'192x192',type:'image/png'}],apple:'/apple-touch-icon.png'}}; // EMXIN “E” icon unless another favicon is uploaded in Admin → Branding
 }
 export const viewport={width:'device-width',initialScale:1,themeColor:'#1f5cff'};
 

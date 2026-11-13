@@ -15,7 +15,8 @@ export default function ProductCard({p,tag}:{p:any;tag?:string}){
   const sub=p.subtitle||(sameText(cat,p.name)?'':cat); // don't repeat the product name in small letters
   const badge=tag||p.badge||(p.stock<=0?'':p.featured?'Featured':p.new_collection?'New':'');
   const low=p.stock>0&&p.stock<=(p.low_stock_threshold??5);
-  return <article className="pc">
+  const fill=!!img&&p.image_fit!=='contain'; // photos fill the card top; cut-outs float on a light background
+  return <article className={'pc'+(fill?' pc-fill':'')}>
     <Link href={`/product/${p.slug}`} className="pc-link" aria-label={p.name}>
       <div className="pc-media">
         {badge&&<span className={'pc-badge '+(BADGE[badge]||'b-info')}>{badge}</span>}

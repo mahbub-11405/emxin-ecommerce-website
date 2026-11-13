@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs><linearGradient id="x" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#38e1ff"/><stop offset=".55" stop-color="#1f5cff"/><stop offset="1" stop-color="#5fc8ff"/></linearGradient></defs>
-  <rect width="64" height="64" rx="14" fill="#142b57"/>
-  <path d="M10 9h10l6 9 6-9h10L31 25.5 43 43H33l-7-10.5L19 43H9l11.5-17.5z" fill="url(#x)"/>
-  <rect x="6" y="47" width="52" height="13" rx="4" fill="#ffb020"/>
-  <text x="32" y="57.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="11" fill="#142b57">ADMIN</text>
-</svg>
