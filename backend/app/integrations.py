@@ -40,15 +40,42 @@ class PayStationClient:
             r=await c.post(join(settings.paystation_base_url,settings.paystation_status_path),data={'invoice_number':invoice_number},headers={'merchantId':settings.paystation_merchant_id,'Accept':'application/json'})
             r.raise_for_status(); return r.json()
 
-class NishchitClient:
-    async def send(self, phone: str, body: str, idempotency_key: str, reference: str=''):
-        if not settings.nishchit_enabled: raise IntegrationNotConfigured('Nishchit is disabled')
-        if not settings.nishchit_api_key: raise IntegrationNotConfigured('Nishchit API key is missing')
-        payload={'to':phone,'body':body}
-        if reference: payload['reference']=reference
+class BulkSmsBdClient:
+    """BulkSMSBD HTTP API: GET {url}?api_key=…&type=text&number=8801…&senderid=…&message=… → JSON with response_code 202 on success."""
+    def _params(self, phone: str, body: str):
+        if not settings.bulksmsbd_api_key: raise IntegrationNotConfigured('BulkSMSBD API key is missing')
+        number=''.join(ch for ch in phone if ch.isdigit())
+        if number.startswith('01'): number='88'+number
+        params={'api_key':settings.bulksmsbd_api_key,'type':'text' if is_gsm7(body) else 'unicode','number':number,'message':body}  # Bangla needs unicode
+        if settings.bulksmsbd_sender_id: params['senderid']=settings.bulksmsbd_sender_id
+        return params
+    @staticmethod
+    def _check(r):
+        r.raise_for_status()
+        try: data=r.json()
+        except Exception: data={'raw':r.text[:300]}
+        code=str(data.get('response_code','')) if isinstance(data,dict) else ''
+        if code and code not in ('202','200'):  # e.g. 1007 = low balance, 1002 = sender id invalid
+            raise RuntimeError(f"BulkSMSBD error {code}: {data.get('error_message') or data.get('success_message') or data}")
+        return data
+    async def send(self, phone: str, body: str, *_):
         async with httpx.AsyncClient(timeout=20) as c:
-            r=await c.post(join(settings.nishchit_api_base_url,settings.nishchit_messages_path),json=payload,headers={'Authorization':f'Bearer {settings.nishchit_api_key}','Content-Type':'application/json','Idempotency-Key':idempotency_key})
-            r.raise_for_status(); return r.json()
+            return self._check(await c.get(settings.bulksmsbd_api_url,params=self._params(phone,body)))
+    def send_sync(self, phone: str, body: str):
+        with httpx.Client(timeout=20) as c:
+            return self._check(c.get(settings.bulksmsbd_api_url,params=self._params(phone,body)))
+
+GSM7=set("@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà^{}\\[~]|€")
+def is_gsm7(text: str) -> bool: return all(ch in GSM7 for ch in text)
+def sms_parts(text: str) -> int:
+    """How many SMS this text costs (160 chars normal / 70 Unicode; longer texts split into 153 / 67 per part)."""
+    if is_gsm7(text):
+        n=sum(2 if ch in '^{}\\[~]|€' else 1 for ch in text); return 1 if n<=160 else -(-n//153)
+    n=len(text); return 1 if n<=70 else -(-n//67)
+
+async def send_sms(phone: str, body: str, *_):
+    """All SMS (OTP + order/marketing) go through BulkSMSBD."""
+    return await BulkSmsBdClient().send(phone,body)
 
 class SteadfastClient:
     async def create_order(self, order):

@@ -365,6 +365,9 @@ def update_order_status(order_id: str, body: OrderStatusUpdate, authorization: s
     if body.order_status and body.order_status != o.get('order_status'):
         if o.get('order_status') in RELEASED_STATUSES:
             raise HTTPException(409, 'Cancelled/returned orders cannot be reopened; create a new order instead')
+        if body.order_status in ('Confirmed', 'Processing', 'Sent to Courier') and o.get('payment_method') == 'manual' \
+                and (o.get('manual_payment') or {}).get('status') != 'verified':
+            raise HTTPException(409, 'Verify the bKash/Nagad payment first')
         updates['order_status'] = body.order_status
         event['order_status'] = body.order_status
         if body.order_status in RELEASED_STATUSES:
@@ -391,6 +394,9 @@ def update_order_status(order_id: str, body: OrderStatusUpdate, authorization: s
     if body.payment_channel:
         updates['payment_channel'] = body.payment_channel
     db.orders.update_one({'_id': o['_id']}, {'$set': updates, '$push': {'timeline': event}})
+    if updates.get('order_status') == 'Confirmed':  # same event key as the Confirm button, so the customer gets it once
+        from .notify import queue_sms, t_order_confirmed
+        queue_sms('order-confirmed-' + order_id, o['phone'], t_order_confirmed(db.orders.find_one({'_id': o['_id']})), 'order', order_id=order_id)
     audit(actor, 'order_updated', order_id, {k: v for k, v in event.items() if k not in ('at',)})
     return serialize(db.orders.find_one({'_id': o['_id']}))
 
@@ -464,7 +470,7 @@ def duplicate_product(product_id: str, authorization: str | None = Header(None))
     while db.products.find_one({'slug': slug}):
         slug = f'{base}-{n}'
         n += 1
-    codes = next_product_codes(db)  # a copy gets its own SKU / stock code, not the original's
+    codes = next_product_codes(db, p.get('category_slug', ''), p.get('brand_slug', ''), p.get('model', ''))  # copy gets its own SKU (…-2) and next stock code
     p.update({'sku': codes['sku'], 'compare_note': codes['compare_note'] or p.get('compare_note', '')})
     p.update({'slug': slug, 'name': p['name'] + ' (Copy)', 'status': 'draft', 'reserved': 0, 'sold_count': 0,
               'rating': 0, 'review_count': 0, 'created_at': now(), 'updated_at': now()})
@@ -773,14 +779,13 @@ def dealer_status(dealer_id: str, payload: dict, authorization: str | None = Hea
     if status == 'Active':
         upd['discount_approved'] = True
     db.dealers.update_one({'_id': oid}, {'$set': upd})
-    if status in ('Active', 'Rejected') and d.get('status') != status:
-        bn = d.get('preferred_language') == 'bn'
-        msg = {('Active', True): 'EMXIN Technologies: আপনার ডিলার আবেদন অনুমোদিত হয়েছে।',
-               ('Active', False): 'EMXIN Technologies: Your dealer application has been approved.',
-               ('Rejected', True): 'EMXIN Technologies: দুঃখিত, আপনার ডিলার আবেদন এই মুহূর্তে অনুমোদন করা যায়নি।',
-               ('Rejected', False): 'EMXIN Technologies: Sorry, your dealer application could not be approved at this time.'}[(status, bn)]
-        key = f'dealer-{status.lower()}-{dealer_id}'
-        db.sms_outbox.update_one({'event_key': key}, {'$setOnInsert': {'event_key': key, 'phone': d['phone'], 'message': msg, 'status': 'pending', 'created_at': now()}}, upsert=True)
+    from .notify import queue_sms, ensure_dealer_code, t_dealer_approved, t_dealer_rejected
+    if status == 'Active':
+        code = ensure_dealer_code(d)  # EMX-DLR-70001, 70002, … given once
+        if d.get('status') != 'Active':
+            queue_sms(f'dealer-approved-{dealer_id}', d['phone'], t_dealer_approved(code), 'dealer')
+    elif status == 'Rejected' and d.get('status') != 'Rejected':
+        queue_sms(f'dealer-rejected-{dealer_id}', d['phone'], t_dealer_rejected(), 'dealer')
     audit(actor, 'dealer_status', dealer_id, {'status': status})
     return {'ok': True}
 

@@ -1,10 +1,10 @@
 'use client';
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import Shell from '@/components/Shell';
 import Icon from '@/components/Icon';
 import {PageHead,Status,Drawer,Empty,Loading,toast,Field,Toggle,Confirm,Tabs} from '@/components/ui';
 import {parseSpecs} from '@/lib/productText';
-import {api,put,del,postJSON,tk,downloadCSV,mediaFolder} from '@/lib/api';
+import {api,put,del,postJSON,tk,downloadCSV,mediaFolder,slugify} from '@/lib/api';
 import {DropZone,MediaPicker} from '@/components/Media';
 
 const BLANK:any={name:'',name_bn:'',slug:'',subtitle:'',category_slug:'',brand_slug:'',model:'',sku:'',compare_note:'',price:0,sale_price:null,stock:0,low_stock_threshold:5,weight_kg:.3,
@@ -36,6 +36,16 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
   const[tab,setTab]=useState('basic');const[busy,setBusy]=useState(false);const[pick,setPick]=useState(false);
   const[pid,setPid]=useState<string>(initial._id||''); // set after the first create, so later saves update the same product
   const set=(k:string,v:any)=>setF((o:any)=>({...o,[k]:v}));
+  // Auto codes: SKU EMX-<CAT>-<BRAND>-<MODEL>, stock code EMXIN-<CAT>-<serial per category>, slug <name>-<model>.
+  // A field is only auto-updated while it is empty or still holds the last suggestion — a value you typed is never overwritten.
+  const auto=useRef<{sku?:string;compare_note?:string;slug?:string}>({});
+  const autoSlug=(n:string,m:string)=>{const a=slugify(n),b=slugify(m);return !b||a.includes(b)?a:`${a}-${b}`};
+  const suggest=async(force=false)=>{if(!f.category_slug)return;
+    try{const c=await api(`/admin/product-next-codes?category=${encodeURIComponent(f.category_slug)}&brand=${encodeURIComponent(f.brand_slug||'')}&model=${encodeURIComponent(f.model||'')}${pid?'&exclude='+pid:''}`);
+      setF((o:any)=>({...o,sku:force||!o.sku||o.sku===auto.current.sku?c.sku:o.sku,compare_note:force||!o.compare_note||o.compare_note===auto.current.compare_note?c.compare_note:o.compare_note}));
+      auto.current={...auto.current,sku:c.sku,compare_note:c.compare_note}}catch{}};
+  useEffect(()=>{const t=setTimeout(()=>suggest(),350);return()=>clearTimeout(t)},[f.category_slug,f.brand_slug,f.model]);
+  useEffect(()=>{const s=autoSlug(f.name||'',f.model||'');setF((o:any)=>!o.slug||o.slug===auto.current.slug?{...o,slug:s}:o);auto.current={...auto.current,slug:s}},[f.name,f.model]);
   const setMedia=(m:any[])=>setF((o:any)=>({...o,media:m,images:m.filter(x=>x.type==='image').map(x=>x.url),video_url:m.find(x=>x.type==='video')?.url||''}));
   const addMedia=(items:any[])=>{setF((o:any)=>{const seen=new Set(o.media.map((m:any)=>m.url));const m=[...o.media,...items.filter(x=>!seen.has(x.url))];return {...o,media:m,images:m.filter((x:any)=>x.type==='image').map((x:any)=>x.url),video_url:m.find((x:any)=>x.type==='video')?.url||''}});toast.ok(`${items.length} file(s) added — save the product to publish`)};
   function move(i:number,d:number){const m=[...f.media];const j=i+d;if(j<0||j>=m.length)return;[m[i],m[j]]=[m[j],m[i]];setMedia(m)}
@@ -58,14 +68,15 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
       <Field label="Category *"><select required value={f.category_slug} onChange={e=>set('category_slug',e.target.value)}><option value="">Select…</option>{cats.map(c=><option key={c.slug} value={c.slug}>{c.name}</option>)}</select></Field>
       <Field label="Brand *"><select required value={f.brand_slug} onChange={e=>set('brand_slug',e.target.value)}><option value="">Select…</option>{brands.map(b=><option key={b.slug} value={b.slug}>{b.name}</option>)}</select></Field>
       <Field label="Model"><input value={f.model} onChange={e=>set('model',e.target.value)}/></Field>
-      <Field label="SKU" hint="Auto-numbered for new products (e.g. EMXIN-0002). You can change it."><input value={f.sku} onChange={e=>set('sku',e.target.value)}/></Field>
+      <Field label="SKU" hint="Auto: EMX-category-brand-model, e.g. EMX-SSG-TXK-MR1. Unique per product (a copy gets -2). Fills in after you choose category, brand and model."><input value={f.sku} onChange={e=>set('sku',e.target.value.toUpperCase())} placeholder="EMX-SSG-TXK-MR1"/></Field>
       <Field label="Regular price (৳) *"><input required type="number" min="1" value={f.price} onChange={e=>set('price',e.target.value)}/></Field>
       <Field label="Sale price (৳)" hint={off?`Shows ${off}% OFF badge`:'Leave empty for no discount'}><input type="number" min="0" value={f.sale_price??''} onChange={e=>set('sale_price',e.target.value?Number(e.target.value):null)}/></Field>
       <Field label="Stock (pcs) *"><input required type="number" min="0" value={f.stock} onChange={e=>set('stock',e.target.value)}/></Field>
       <Field label="Low-stock alert at"><input type="number" min="0" value={f.low_stock_threshold} onChange={e=>set('low_stock_threshold',e.target.value)}/></Field>
       <Field label="Weight (kg)" hint="Used for estimated shipping on 6+ pcs"><input type="number" step="0.01" min="0.01" value={f.weight_kg} onChange={e=>set('weight_kg',e.target.value)}/></Field>
-      <Field label="URL slug" hint="Only used in the web address (…/product/aimb-g2-pro). It is not shown on the page. Auto-made from the name when empty."><input value={f.slug} onChange={e=>set('slug',e.target.value)} placeholder="aimb-g2-pro"/></Field>
-      <Field label="Stock bar code / label" hint="Right side of the green stock bar. New products get the next number automatically (EMXIN-SMG-00001 → 00002). You can change it."><input value={f.compare_note} onChange={e=>set('compare_note',e.target.value)}/></Field>
+      <Field label="URL slug" hint="Auto from name + model (TXK + MR-1 → txk-mr-1). Only used in the web address, not shown on the page. Changing it later breaks old links."><input value={f.slug} onChange={e=>set('slug',e.target.value)} placeholder="aimb-g2-pro"/></Field>
+      <Field label="Stock bar code / label" hint="Auto: EMXIN-category code-serial, numbered separately per category (EMXIN-SSG-00001, 00002…). Shown on the right of the green stock bar. Category codes are set in Categories."><input value={f.compare_note} onChange={e=>set('compare_note',e.target.value)}/></Field>
+      <div className="span row" style={{alignItems:'center'}}><button type="button" className="btn btn-sm btn-ghost" disabled={!f.category_slug} onClick={()=>suggest(true)}><Icon name="refresh" size={15}/>Regenerate SKU &amp; stock code</button><small className="muted">{f.category_slug?'Uses the category, brand and model above.':'Choose a category first.'}</small></div>
     </div>}
     {tab==='media'&&<div>
       <DropZone folder={mediaFolder('product',f.slug||f.name)} onUploaded={addMedia}/>
@@ -106,7 +117,7 @@ export default function Products(){
   return <Shell>
     <PageHead title="Products" sub="Create, edit and publish products. Media uploads go to S3 and are served via CloudFront.">
       <button className="btn btn-ghost" onClick={()=>rows&&downloadCSV('emxin-products.csv',rows,[['Name','name'],['SKU','sku'],['Category','category_slug'],['Price','price'],['Sale','sale_price'],['Stock','stock'],['Reserved','reserved'],['Sold','sold_count'],['Status','status']])}><Icon name="download" size={17}/>Export</button>
-      <button className="btn" onClick={async()=>{const c=await api('/admin/product-next-codes').catch(()=>({}));setEdit({...BLANK,sku:c.sku||'',compare_note:c.compare_note||''})}}><Icon name="plus" size={18}/>Add product</button></PageHead>
+      <button className="btn" onClick={()=>setEdit({...BLANK})}><Icon name="plus" size={18}/>Add product</button></PageHead>
     <div className="filters"><div className="search-in"><Icon name="search" size={17}/><input placeholder="Search name, SKU, model" value={q} onChange={e=>setQ(e.target.value)}/></div>
       <select value={cat} onChange={e=>setCat(e.target.value)}><option value="">All categories</option>{cats.map(c=><option key={c.slug} value={c.slug}>{c.name}</option>)}</select>
       <select value={st} onChange={e=>setSt(e.target.value)}><option value="">All statuses</option><option value="active">Active</option><option value="draft">Draft</option><option value="hidden">Hidden</option><option value="low">Low stock</option></select></div>

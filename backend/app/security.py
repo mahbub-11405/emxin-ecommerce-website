@@ -18,7 +18,8 @@ def verify_password(password: str, encoded: str) -> bool:
 
 def create_token(subject: str, role: str) -> str:
     now=datetime.now(timezone.utc)
-    return jwt.encode({'sub':subject,'role':role,'iat':now,'exp':now+timedelta(minutes=settings.jwt_expire_minutes)}, settings.app_secret, algorithm='HS256')
+    life=timedelta(days=settings.customer_session_days) if role in ('customer','dealer') else timedelta(minutes=settings.jwt_expire_minutes)
+    return jwt.encode({'sub':subject,'role':role,'iat':now,'exp':now+life}, settings.app_secret, algorithm='HS256')
 
 def decode_token(token: str):
     try: return jwt.decode(token, settings.app_secret, algorithms=['HS256'])

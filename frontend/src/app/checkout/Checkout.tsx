@@ -32,6 +32,8 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
     if(ids.length)fetch(`${API}/products?ids=${ids.join(',')}`).then(r=>r.json()).then((a:any[])=>setById(Object.fromEntries(a.map(p=>[p._id,p])))).catch(()=>{});
     track('checkout_started',{product_id:productId||undefined,metadata:{items:list.length}});
   },[productId,initialQty,initialColor]);
+  const changeQty=(k:number,q:number)=>setItems(list=>{const n=list.map((x,j)=>j===k?{...x,quantity:Math.max(1,q)}:x);if(!productId)writeCart(n);return n});
+  const removeItem=(k:number)=>setItems(list=>{const n=list.filter((_,j)=>j!==k);if(!productId)writeCart(n);return n});
   const qty=items.reduce((n,x)=>n+x.quantity,0);
   const threshold=Number(settings.bulk_threshold_qty||20);
   const bulk=qty>=threshold;
@@ -106,17 +108,26 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
           <small className="muted">Please send the exact amount. EMXIN verifies the TrxID, then confirms your order and sends it to the courier.</small>
         </div>}
         {psOn&&<label className={'pay-opt'+(pay==='paystation'?' on':'')}><input type="radio" name="pay" checked={pay==='paystation'} onChange={()=>setPay('paystation')}/><Icon name="lockCard" size={26}/><span><b>Digital Payment {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Secure checkout by PayStation</small><PayMethods small/></span><em className="save">SAVE {pct}%</em></label>}
-        {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {est.saving.toLocaleString('en-IN')}</b> by paying in advance — the {pct}% discount applies to every bKash / Nagad / online payment.</span></div>}
+        {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</b> by paying in advance — the {pct}% discount applies to every bKash / Nagad / online payment.</span></div>}
         {!bulk&&<label className={'pay-opt'+(pay==='cod'?' on':'')}><input type="radio" name="pay" checked={pay==='cod'} onChange={()=>setPay('cod')}/><Icon name="truck" size={26}/><span><b>Cash on Delivery</b><small>Pay when you receive the parcel · no digital discount</small></span></label>}
         {pay==='cod'&&est.saving>0&&<p className="note-warn">Tip: pay by bKash / Nagad to save ৳ {est.saving.toLocaleString('en-IN')} on this order.</p>}
       </div>
         {bulk&&<p className="note-good"><Icon name="info" size={15}/> Bulk order ({threshold}+ pcs): pay {settings.bulk_advance_percent??50}% advance by bKash / Nagad; the rest is paid on delivery after EMXIN confirms. Dealer discount is applied by EMXIN on confirmation.</p>}
-        <label className="chk"><input type="checkbox" checked={f.dealer_opt_in} onChange={e=>setF({...f,dealer_opt_in:e.target.checked})}/> Also register me as a Dealer (optional)</label>
+        {bulk?<label className="co-dealer on"><input type="checkbox" checked={f.dealer_opt_in} onChange={e=>setF({...f,dealer_opt_in:e.target.checked})}/><span><b>I am an EMXIN dealer / I want dealer pricing</b><small>Approved dealers get {(settings.dealer_tiers||[5])[0]}%–{(settings.dealer_tiers||[5,8,12,15]).slice(-1)[0]}% off bulk orders. Not a dealer yet? Tick this and EMXIN will contact you.</small></span></label>
+        :<Link className="co-dealer" href="/dealer"><Icon name="handshake" size={22}/><span><b>Buying for your shop?</b><small>Order {threshold}+ pcs as an EMXIN dealer and save {(settings.dealer_tiers||[5])[0]}%–{(settings.dealer_tiers||[5,8,12,15]).slice(-1)[0]}%. Already a dealer? Just order {threshold}+ pcs.</small></span><Icon name="arrowRight" size={16}/></Link>}
       </section>
     </div>
     <aside className="panel co-sum"><h3>Order Summary</h3>
-      {items.map(i=>{const p=byId[i.product_id];return <div className="co-item" key={i.product_id+i.frame_color}><span>{p?.name||'…'} <small>× {i.quantity} · {i.frame_color}</small></span><b>৳ {(priceOf(p)*i.quantity).toLocaleString('en-IN')}</b></div>})}
-      <Link className="link-muted left" href="/cart">Edit cart</Link>
+      <div className="co-items">{items.map((i,k)=>{const p=byId[i.product_id];const img=p?.images?.[0]||p?.media?.find((m:any)=>m.type!=='video')?.url;const max=Math.max(1,Number(p?.stock)||99);
+        return <div className="co-item2" key={i.product_id+i.frame_color}>
+          <span className="co-thumb">{img?<img src={img} alt=""/>:<Icon name="glasses" size={22}/>}</span>
+          <div className="co-info"><b>{p?.name||'…'}</b><small>{i.frame_color} · ৳ {priceOf(p).toLocaleString('en-IN')} each</small>
+            <div className="co-qty" role="group" aria-label={`Quantity for ${p?.name||'item'}`}>
+              <button type="button" aria-label="Less" disabled={i.quantity<=1} onClick={()=>changeQty(k,i.quantity-1)}>−</button><span>{i.quantity}</span>
+              <button type="button" aria-label="More" disabled={i.quantity>=max} onClick={()=>changeQty(k,i.quantity+1)}>+</button>
+              <button type="button" className="co-rm" aria-label="Remove" title="Remove" onClick={()=>removeItem(k)}><Icon name="trash" size={15}/></button></div></div>
+          <b className="co-line">৳ {(priceOf(p)*i.quantity).toLocaleString('en-IN')}</b></div>})}</div>
+      <Link className="co-editcart" href="/cart"><Icon name="cart" size={16}/>Edit cart · add more items<Icon name="arrowRight" size={15}/></Link>
       <div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={applyCoupon}>Apply</button></div>{cpMsg&&<small className={cp?'qr-okline':'qr-warn'}>{cpMsg}</small>}
       <div className="sum-row"><span>Subtotal</span><span>৳ {est.sub.toLocaleString('en-IN')}</span></div>
       {est.c>0&&<div className="sum-row good"><span>Coupon</span><span>− ৳ {Math.round(est.c).toLocaleString('en-IN')}</span></div>}

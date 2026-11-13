@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi import FastAPI, HTTPException, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import ReturnDocument
 from bson import ObjectId
@@ -7,13 +7,14 @@ import secrets, re, hashlib, hmac, uuid, mimetypes
 from zoneinfo import ZoneInfo
 from .config import get_settings
 from .db import db, client, ensure_indexes
-from .helpers import serialize, now, slugify, next_product_codes
+from .helpers import serialize, now, slugify, next_product_codes, product_slug
 from .security import hash_password, verify_password, create_token, require_role, decode_token
 from .schemas import *
 from .pricing import calculate
-from .integrations import PayStationClient, NishchitClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
+from .integrations import send_sms, sms_parts, PayStationClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
 from .admin_ext import router as v2_router, release_stock
 from .media_optimize import queue_video
+from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_order_confirmed, t_payment_rejected
 
 settings=get_settings()
 app=FastAPI(title='EMXIN REST API',version='1.0.0',openapi_url='/api/v1/openapi.json',docs_url='/docs')
@@ -22,7 +23,7 @@ app.include_router(v2_router)
 
 @app.on_event('startup')
 def startup():
-    client.admin.command('ping'); ensure_indexes()
+    client.admin.command('ping'); ensure_indexes(); start_sms_worker()
     if not db.admins.find_one({'email':settings.initial_admin_email.lower()}):
         db.admins.insert_one({'email':settings.initial_admin_email.lower(),'password_hash':hash_password(settings.initial_admin_password),'role':'super_admin','created_at':now()})
     if not db.settings.find_one({'key':'commerce'}):
@@ -48,46 +49,69 @@ def normalize_bd_phone(phone: str):
 def otp_hash(phone,purpose,code):
     return hmac.new(settings.app_secret.encode(),f'{phone}|{purpose}|{code}'.encode(),hashlib.sha256).hexdigest()
 
+def client_ip(request: Request) -> str:
+    # Behind the reverse proxy the real visitor IP is the last X-Forwarded-For entry the proxy added.
+    xff=[x.strip() for x in (request.headers.get('x-forwarded-for') or '').split(',') if x.strip()]
+    return xff[-1] if xff else (request.client.host if request.client else '')
+
+def otp_message(code: str) -> str:
+    return settings.otp_sms_template.replace('\\n','\n').format(OTP=code,MINUTES=max(1,settings.otp_expire_seconds//60),DOMAIN=settings.site_domain)
+
 @app.post('/api/v1/auth/otp/request')
-async def request_otp(body: OTPRequest):
-    phone=normalize_bd_phone(body.phone); now_dt=now()
+async def request_otp(body: OTPRequest, request: Request):
+    phone=normalize_bd_phone(body.phone); now_dt=now(); ip=client_ip(request)
     if body.purpose=='login' and not db.customers.find_one({'phone':phone},{'_id':1}):
         raise HTTPException(404,'No account found for this number. Please register first.')
     if body.purpose=='customer_register' and db.customers.find_one({'phone':phone},{'_id':1}):
         raise HTTPException(409,'This number is already registered. Please log in.')
-    previous=db.otp_challenges.find_one({'phone':phone,'purpose':body.purpose},sort=[('created_at',-1)])
-    if previous and (now_dt-previous['created_at']).total_seconds()<settings.otp_resend_seconds: raise HTTPException(429,'Please wait before requesting another OTP')
-    if settings.app_env == 'production' and not settings.nishchit_enabled:
-        raise HTTPException(503,'SMS verification provider must be enabled in production')
+    if settings.app_env=='production' and not settings.sms_enabled:
+        raise HTTPException(503,'SMS verification is not available right now. Please try again later.')
+    # ---- limits: 60 s between sends · 5 per number per hour · per-IP and daily caps (each send, incl. resend, costs 1 SMS)
+    previous=db.otp_challenges.find_one({'phone':phone},sort=[('created_at',-1)])
+    if previous:
+        wait=settings.otp_resend_seconds-int((now_dt-previous['created_at']).total_seconds())
+        if wait>0: raise HTTPException(429,f'Please wait {wait} seconds before requesting another code')
+    hour=now_dt-timedelta(hours=1)
+    if db.otp_challenges.count_documents({'phone':phone,'created_at':{'$gte':hour}})>=settings.otp_max_per_phone_hour:
+        raise HTTPException(429,'Too many codes for this number. Please try again in an hour.')
+    if ip and db.otp_challenges.count_documents({'ip':ip,'created_at':{'$gte':hour}})>=settings.otp_max_per_ip_hour:
+        raise HTTPException(429,'Too many requests. Please try again later.')
+    if db.otp_challenges.count_documents({'created_at':{'$gte':now_dt-timedelta(days=1)}})>=settings.otp_max_per_day:
+        raise HTTPException(429,'Verification is busy right now. Please try again later or contact EMXIN.')
     code=f'{secrets.randbelow(1000000):06d}'; challenge_id=str(uuid.uuid4())
     expires=now_dt+timedelta(seconds=settings.otp_expire_seconds)
-    doc={'challenge_id':challenge_id,'phone':phone,'purpose':body.purpose,'code_hash':otp_hash(phone,body.purpose,code),'attempts':0,'verified':False,'created_at':now_dt,'expires_at':expires}
+    # the code itself is never stored — only an HMAC-SHA256 hash keyed with APP_SECRET
+    doc={'challenge_id':challenge_id,'phone':phone,'purpose':body.purpose,'code_hash':otp_hash(phone,body.purpose,code),'attempts':0,'verified':False,'ip':ip,'created_at':now_dt,'expires_at':expires}
     db.otp_challenges.insert_one(doc)
-    sms_result=None
-    if settings.nishchit_enabled:
-        text=(f'আপনার EMXIN যাচাইকরণ কোড: {code}. কোডটি {settings.otp_expire_seconds//60} মিনিট কার্যকর।' if body.language=='bn' else f'Your EMXIN verification code is {code}. It expires in {settings.otp_expire_seconds//60} minutes.')
-        try: sms_result=await NishchitClient().send(phone,text,f'otp-{challenge_id}',challenge_id)
-        except (IntegrationNotConfigured, Exception) as e:
+    response={'challenge_id':challenge_id,'expires_in':settings.otp_expire_seconds,'resend_in':settings.otp_resend_seconds}
+    if settings.sms_enabled:
+        try: await send_sms(phone,otp_message(code))
+        except Exception:
             db.otp_challenges.delete_one({'challenge_id':challenge_id})
-            raise HTTPException(503,'SMS delivery failed; please retry later')
-    response={'challenge_id':challenge_id,'expires_in':settings.otp_expire_seconds,'sms':sms_result}
-    if settings.otp_expose_code_in_test and (settings.app_env!='production' or settings.nishchit_is_test): response['test_code']=code
+            raise HTTPException(503,'Could not send the SMS. Please try again in a minute.')
+    elif settings.app_env!='production' and settings.otp_expose_code_in_test:
+        response['test_code']=code  # development only: no SMS provider set, code shown on screen
     return response
 
 @app.post('/api/v1/auth/otp/verify')
 def verify_otp(body: OTPVerify):
-    phone=normalize_bd_phone(body.phone); c=db.otp_challenges.find_one({'phone':phone,'purpose':body.purpose},sort=[('created_at',-1)])
-    if not c or c.get('verified') or c['expires_at']<now(): raise HTTPException(400,'OTP expired or invalid')
-    if c.get('attempts',0)>=settings.otp_max_attempts: raise HTTPException(429,'Too many attempts')
-    if not hmac.compare_digest(c['code_hash'],otp_hash(phone,body.purpose,body.code)):
-        db.otp_challenges.update_one({'_id':c['_id']},{'$inc':{'attempts':1}}); raise HTTPException(400,'Incorrect OTP')
+    phone=normalize_bd_phone(body.phone)
+    c=db.otp_challenges.find_one({'phone':phone,'purpose':body.purpose,'verified':False},sort=[('created_at',-1)])
+    if not c or c['expires_at']<now(): raise HTTPException(400,'This code has expired. Please request a new one.')
+    # count the attempt first (atomic), so parallel guesses can't get past the limit
+    c=db.otp_challenges.find_one_and_update({'_id':c['_id'],'attempts':{'$lt':settings.otp_max_attempts}},{'$inc':{'attempts':1}},return_document=ReturnDocument.AFTER)
+    if not c: raise HTTPException(429,'Too many wrong codes. Please request a new code.')
+    if not hmac.compare_digest(c['code_hash'],otp_hash(phone,body.purpose,re.sub(r'\D','',body.code))):
+        left=settings.otp_max_attempts-c['attempts']
+        raise HTTPException(400,f'Incorrect code. {left} attempt(s) left.' if left>0 else 'Too many wrong codes. Please request a new code.')
     verification_id=str(uuid.uuid4())
     db.otp_challenges.update_one({'_id':c['_id']},{'$set':{'verified':True,'verified_at':now(),'verification_id':verification_id}})
     return {'verified':True,'verification_id':verification_id}
 
 def consume_phone_verification(phone,purpose,verification_id):
     if not verification_id: return False
-    c=db.otp_challenges.find_one({'phone':normalize_bd_phone(phone),'purpose':purpose,'verification_id':verification_id,'verified':True,'consumed':{'$ne':True}})
+    c=db.otp_challenges.find_one({'phone':normalize_bd_phone(phone),'purpose':purpose,'verification_id':verification_id,'verified':True,'consumed':{'$ne':True},
+                                  'verified_at':{'$gte':now()-timedelta(minutes=settings.otp_verification_valid_minutes)}})
     if not c:return False
     result=db.otp_challenges.update_one({'_id':c['_id'],'consumed':{'$ne':True}},{'$set':{'consumed':True,'consumed_at':now()}})
     return result.modified_count == 1
@@ -199,7 +223,7 @@ def dhaka_day_bounds(days_back:int=0):
 @app.post('/api/v1/customers/register')
 def customer_register(body: CustomerRegister):
     email=body.email.lower().strip(); phone=normalize_bd_phone(body.phone)
-    if settings.nishchit_enabled and not consume_phone_verification(phone,'customer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
+    if not consume_phone_verification(phone,'customer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
     if db.customers.find_one({'$or':[{'email':email},{'phone':phone}]}): raise HTTPException(409,'Email or phone already registered')
     doc=body.model_dump(exclude={'password'}); doc.update({'email':email,'phone':phone,'password_hash':hash_password(body.password),'account_type':'customer','lead_status':'New Lead','lead_priority':'Cold','total_orders':0,'total_purchase':0.0,'created_at':now(),'last_login_at':None,'last_active_at':now(),'assigned_sales_person':None,'sales_notes':[],'next_followup_at':None})
     r=db.customers.insert_one(doc)
@@ -295,14 +319,13 @@ def quantity_request(body: QuantityRequest):
 
 @app.post('/api/v1/dealers/apply')
 def dealer_apply(body: DealerApply):
-    if settings.nishchit_enabled and not consume_phone_verification(body.phone,'dealer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
+    if not consume_phone_verification(body.phone,'dealer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
     phone=normalize_bd_phone(body.phone)
     if db.dealers.find_one({'phone':phone}): raise HTTPException(409,'Phone already registered')
     if not body.terms_accepted: raise HTTPException(400,'Please read and accept the dealer order terms')
     doc=body.model_dump(exclude={'password'}); doc['phone']=phone; doc['terms_accepted_at']=now(); doc.update({'password_hash':hash_password(body.password),'status':'Pending','discount_percent':settings.bulk_discount_percent,'created_at':now(),'total_orders':0,'total_purchase':0})
     r=db.dealers.insert_one(doc)
-    message=('EMXIN Technologies: আপনার ডিলার আবেদন সফলভাবে জমা হয়েছে। ধন্যবাদ।' if body.preferred_language=='bn' else 'EMXIN Technologies: Your dealer application has been submitted successfully. Thank you.')
-    db.sms_outbox.update_one({'event_key':'dealer-applied-'+str(r.inserted_id)},{'$setOnInsert':{'event_key':'dealer-applied-'+str(r.inserted_id),'phone':phone,'message':message,'status':'pending','created_at':now()}},upsert=True)
+    queue_sms('dealer-applied-'+str(r.inserted_id),phone,t_dealer_applied(),'dealer')
     return {'dealer_id':str(r.inserted_id),'status':'Pending','sms_queued':True}
 
 @app.post('/api/v1/dealers/login')
@@ -405,6 +428,7 @@ async def review_manual_payment(order_id:str,body:ManualPaymentReview,authorizat
         st='Payment Rejected'
         db.orders.update_one({'_id':o['_id']},{'$set':{'manual_payment.status':'rejected','manual_payment.note':body.note,'manual_payment.reviewed_at':now(),'manual_payment.reviewed_by':actor['sub'],'payment_status':st,'updated_at':now()},
             '$push':{'timeline':{'at':now(),'payment_status':st,'note':'Payment not found / wrong: '+(body.note or 'please re-send the TrxID'),'role':'admin'}}})
+        queue_sms(f"payment-rejected-{order_id}-{mp.get('trx_id')}",o['phone'],t_payment_rejected(o),'order',order_id=order_id)
         return serialize(db.orders.find_one({'_id':o['_id']}))
     if mp.get('status')!='verified':
         amount=float(body.amount_received if body.amount_received is not None else mp.get('amount_expected',0))
@@ -663,7 +687,8 @@ async def confirm_order(order_id:str,authorization: str|None=Header(None)):
     if o.get('order_status') in ('Sent to Courier','Delivered','Cancelled'):
         return serialize(o)
     if manual_unverified(o): raise HTTPException(409,'Verify the bKash/Nagad payment first')
-    db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Confirmed','confirmed_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Confirmed','note':'Customer confirmed by phone'}}})
+    db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Confirmed','confirmed_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Confirmed','note':'Order confirmed by EMXIN'}}})
+    queue_sms('order-confirmed-'+order_id,o['phone'],t_order_confirmed(o),'order',order_id=order_id)
     # Business rule: after EMXIN calls the customer and Admin confirms, create the default
     # Steadfast consignment automatically. Nothing is sent to courier before this click.
     if settings.courier_default=='steadfast' and settings.steadfast_enabled:
@@ -717,33 +742,35 @@ def approve_dealer(dealer_id:str,authorization: str|None=Header(None)):
     except Exception: raise HTTPException(400,'Invalid dealer id')
     d=db.dealers.find_one({'_id':oid})
     if not d: raise HTTPException(404,'Dealer not found')
-    db.dealers.update_one({'_id':oid},{'$set':{'status':'Active','discount_approved':True,'updated_at':now()}})
-    if d.get('status')!='Active':
-        message=('EMXIN Technologies: আপনার ডিলার আবেদন অনুমোদিত হয়েছে।' if d.get('preferred_language')=='bn' else 'EMXIN Technologies: Your dealer application has been approved.')
-        db.sms_outbox.update_one({'event_key':'dealer-approved-'+dealer_id},{'$setOnInsert':{'event_key':'dealer-approved-'+dealer_id,'phone':d['phone'],'message':message,'status':'pending','created_at':now()}},upsert=True)
-    return {'ok':True,'sms_queued':d.get('status')!='Active'}
+    db.dealers.update_one({'_id':oid},{'$set':{'status':'Active','discount_approved':True,'approved_at':d.get('approved_at') or now(),'updated_at':now()}})
+    code=ensure_dealer_code(d)  # EMX-DLR-70001, 70002, … given once, on first approval
+    queued=queue_sms('dealer-approved-'+dealer_id,d['phone'],t_dealer_approved(code),'dealer') if d.get('status')!='Active' else False
+    return {'ok':True,'dealer_code':code,'sms_queued':queued}
 
 @app.get('/api/v1/admin/products')
 def admin_products(authorization: str|None=Header(None)):
     admin(authorization); return serialize(list(db.products.find().sort('created_at',-1)))
 
 @app.get('/api/v1/admin/product-next-codes')
-def product_next_codes(authorization: str|None=Header(None)):
-    require_role(authorization,CATALOG); return next_product_codes(db)
+def product_next_codes(category: str='',brand: str='',model: str='',exclude: str='',authorization: str|None=Header(None)):
+    require_role(authorization,CATALOG)
+    return next_product_codes(db,category,brand,model,ObjectId(exclude) if ObjectId.is_valid(exclude) else None)
 
 @app.post('/api/v1/admin/products')
 def create_product(body:ProductInput,authorization: str|None=Header(None)):
-    require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=slugify(d.get('slug') or d['name'])
+    require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=slugify(d.get('slug') or '') or product_slug(d['name'],d.get('model',''))
     if db.products.find_one({'slug':d['slug']}): raise HTTPException(409,'A product with this slug already exists')
-    codes=next_product_codes(db)
+    if d.get('sku') and db.products.find_one({'sku':d['sku']},{'_id':1}): raise HTTPException(409,f"SKU {d['sku']} is already used by another product")
+    codes=next_product_codes(db,d.get('category_slug',''),d.get('brand_slug',''),d.get('model',''))
     if not d.get('sku'): d['sku']=codes['sku']
     if not d.get('compare_note'): d['compare_note']=codes['compare_note']
     d.update({'reserved':0,'sold_count':0,'rating':0,'review_count':0,'created_at':now(),'updated_at':now()}); r=db.products.insert_one(d); return {'id':str(r.inserted_id),'slug':d['slug']}
 
 @app.put('/api/v1/admin/products/{product_id}')
 def update_product(product_id:str,body:ProductInput,authorization: str|None=Header(None)):
-    require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=slugify(d.get('slug') or d['name']); d['updated_at']=now()
+    require_role(authorization,CATALOG); d=body.model_dump(); d['slug']=slugify(d.get('slug') or '') or product_slug(d['name'],d.get('model','')); d['updated_at']=now()
     if not ObjectId.is_valid(product_id): raise HTTPException(400,'Invalid product id')
+    if d.get('sku') and db.products.find_one({'sku':d['sku'],'_id':{'$ne':ObjectId(product_id)}},{'_id':1}): raise HTTPException(409,f"SKU {d['sku']} is already used by another product")
     if db.products.find_one({'slug':d['slug'],'_id':{'$ne':ObjectId(product_id)}}): raise HTTPException(409,'Another product already uses this slug')
     db.products.update_one({'_id':ObjectId(product_id)},{'$set':d}); return {'ok':True}
 
@@ -1182,20 +1209,22 @@ def sms_outbox(authorization:str|None=Header(None)):
     manager(authorization,'marketing')
     return serialize(list(db.sms_outbox.find().sort('created_at',-1).limit(100)))
 
+@app.post('/api/v1/admin/sms/test')
+async def sms_test(payload:dict,authorization:str|None=Header(None)):
+    """Super admin sends the OTP SMS (sample code 123456) to check BulkSMSBD works (uses 1 SMS credit)."""
+    super_admin(authorization)
+    if not settings.sms_enabled: raise HTTPException(503,'BULKSMSBD_API_KEY is not set in the backend .env')
+    phone=normalize_bd_phone(str(payload.get('phone','')))
+    text=otp_message('123456')  # the real OTP template with a sample code
+    try: r=await send_sms(phone,text)
+    except Exception as e: raise HTTPException(502,f'SMS failed: {str(e)[:200]}')
+    return {'ok':True,'provider':'BulkSMSBD','message':text,'sms_parts':sms_parts(text),'response':r}
+
 @app.post('/api/v1/admin/sms/dispatch')
 async def dispatch_sms(authorization:str|None=Header(None)):
     manager(authorization,'marketing')
-    if not settings.nishchit_enabled: raise HTTPException(503,'SMS provider is not enabled')
-    sent=0; failed=0
-    for _ in range(20):
-        item=db.sms_outbox.find_one_and_update({'status':{'$in':['pending','retry']}}, {'$set':{'status':'sending','last_attempt_at':now()}},return_document=ReturnDocument.AFTER)
-        if not item: break
-        try:
-            await NishchitClient().send(item['phone'],item['message'],item['event_key'])
-            db.sms_outbox.update_one({'_id':item['_id']},{'$set':{'status':'sent','sent_at':now()}}); sent+=1
-        except Exception as exc:
-            db.sms_outbox.update_one({'_id':item['_id']},{'$set':{'status':'failed','error':str(exc)[:250]}}); failed+=1
-    return {'sent':sent,'failed':failed}
+    if not settings.sms_enabled: raise HTTPException(503,'SMS provider is not enabled')
+    return sms_dispatch(50)  # the background worker also sends automatically every minute
 
 @app.post('/api/v1/admin/sms/{event_key}/retry')
 def retry_sms(event_key:str,authorization:str|None=Header(None)):

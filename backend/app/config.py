@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     mongodb_db_name: str = 'emxin'
     initial_admin_email: str = 'owner@example.com'
     initial_admin_password: str = 'change-me'
-    jwt_expire_minutes: int = 720
+    jwt_expire_minutes: int = 720          # Admin / staff sessions (12 h)
+    customer_session_days: int = 30         # customers & dealers stay logged in on their device (saves OTP SMS)
 
     aws_region: str = 'ap-southeast-1'
     aws_access_key_id: str = ''
@@ -53,10 +54,17 @@ class Settings(BaseSettings):
     payment_bank_branch: str = ''
     payment_bank_routing_number: str = ''
 
-    nishchit_enabled: bool = False
-    nishchit_api_base_url: str = 'https://api.nishchit.tech'
-    nishchit_api_key: str = ''
-    nishchit_messages_path: str = '/v1/messages'
+    # ---- SMS / OTP: BulkSMSBD (the only SMS provider) ----
+    bulksmsbd_api_url: str = 'http://bulksmsbd.net/api/smsapi'
+    bulksmsbd_api_key: str = ''
+    bulksmsbd_sender_id: str = ''
+    # {OTP}, {MINUTES} and {DOMAIN} are filled in. Keep it plain English/ASCII (no ৳, emoji or curly quotes) so it is 1 normal SMS, not Unicode.
+    # The last line lets Android Chrome / iPhone fill the code in automatically (WebOTP); {DOMAIN} = the storefront host.
+    otp_sms_template: str = 'Your EMXIN verification code is {OTP}. Valid for {MINUTES} minutes. Do not share this code with anyone.\n\n@{DOMAIN} #{OTP}'
+    otp_max_per_phone_hour: int = 5      # sends (incl. resends) per number per hour
+    otp_max_per_ip_hour: int = 15        # sends per visitor IP per hour (stops SMS pumping)
+    otp_max_per_day: int = 300           # whole-site daily cap — protects your SMS balance
+    otp_verification_valid_minutes: int = 30  # a verified OTP must be used to register/login within this time
     otp_expire_seconds: int = 300
     otp_resend_seconds: int = 60
     otp_max_attempts: int = 5
@@ -98,8 +106,12 @@ class Settings(BaseSettings):
     def paystation_base_url(self):
         return self.paystation_live_base_url if self.paystation_env.lower() == 'live' else self.paystation_sandbox_base_url
     @property
-    def nishchit_is_test(self):
-        return self.nishchit_api_key.startswith('nk_test_')
+    def sms_enabled(self) -> bool:
+        return bool(self.bulksmsbd_api_key)
+    @property
+    def site_domain(self) -> str:
+        from urllib.parse import urlparse
+        return urlparse(self.frontend_url).hostname or 'localhost'
 
 @lru_cache
 def get_settings():

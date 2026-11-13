@@ -13,6 +13,7 @@
 | PAYSTATION_MERCHANT_ID / PASSWORD | Merchant credentials from PayStation |
 | PAYSTATION_IPN_URL | Public HTTPS backend route `/api/v1/payments/paystation/ipn` |
 | PAYSTATION_CALLBACK_URL | Customer-facing payment-result page URL |
-| NISHCHIT_API_KEY | `nk_test_...` for test, `nk_live_...` for live |
+| BULKSMSBD_API_KEY / BULKSMSBD_SENDER_ID | From the BulkSMSBD panel (API page) |
+| OTP_SMS_TEMPLATE | Plain English OTP text; `{OTP}`, `{MINUTES}`, `{DOMAIN}` are filled in |
 | STEADFAST_* | Your Steadfast merchant API URL/credentials |
 | PATHAO_* | Your Pathao merchant API URL/credentials |

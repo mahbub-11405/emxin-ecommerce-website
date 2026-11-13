@@ -11,7 +11,7 @@ Before first build:
 3. Paste the MongoDB Atlas M0 URI.
 4. Create the S3 bucket and CloudFront distribution, then set `AWS_CLOUDFRONT_DOMAIN`, `AWS_CDN_BASE_URL`, and AWS credentials.
 5. Add PayStation sandbox credentials when available and enable `PAYSTATION_ENABLED=true` only when ready to test.
-6. Add Nishchit `nk_test_...` key and enable `NISHCHIT_ENABLED=true` for OTP integration tests.
+6. Add `BULKSMSBD_API_KEY` + `BULKSMSBD_SENDER_ID`, then send a test SMS from Admin → Settings → SMS / OTP.
 7. Add Steadfast/Pathao merchant API credentials only when available; checkout never auto-dispatches orders.
 8. Host Nginx and Certbot are managed manually on EC2 and are intentionally not included in this repository.
 

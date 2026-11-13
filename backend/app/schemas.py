@@ -45,6 +45,7 @@ class ProductInput(BaseModel):
     compare_note: str=''; promo_image_url: str=''; highlights: list[str]=[]
 class CategoryInput(BaseModel):
     name: str; name_bn: str=''; slug: Optional[str]=None; order: int=0; visible: bool=True; thumbnail_url: str=''; image_fit: Literal['','contain','cover']=''; subtitle: str=''; icon: str=''; show_on_home: bool=True
+    code: str=Field(default='',max_length=5,pattern=r'^[A-Za-z0-9]{0,5}$')  # short category code used in SKU / stock codes, e.g. SMG, SEG, SSG
 class BrandInput(BaseModel):
     name: str; slug: Optional[str]=None; order: int=0; visible: bool=True; logo_url: str=''
 class StaffCreate(BaseModel):

@@ -82,7 +82,12 @@ Checkout/payment alone never creates a courier order.
 
 ## OTP
 
-Nishchit is the SMS adapter. Use an `nk_test_*` key for free integration testing and an `nk_live_*` key for real SMS. Keep `OTP_EXPOSE_CODE_IN_TEST=false` in live production.
+SMS goes through **BulkSMSBD** (`BULKSMSBD_API_KEY`, `BULKSMSBD_SENDER_ID`, `BULKSMSBD_API_URL`). Check it with Admin → Settings → SMS / OTP → *Send test SMS*.
+
+- Message: `OTP_SMS_TEMPLATE` — plain English/ASCII so each OTP is 1 normal SMS (no ৳, emoji or curly quotes). The last line `@{DOMAIN} #{OTP}` lets Android Chrome / iPhone auto-fill the code.
+- Limits: 1 send per 60 s per number, 5 per number per hour, 15 per IP per hour, 300 per day (all configurable). Every resend costs 1 SMS.
+- Verify: 5 wrong codes → a new code is needed; codes expire after 5 minutes; only an HMAC-SHA256 hash of the code is stored.
+- Development without a key: set `APP_ENV=development` and `OTP_EXPOSE_CODE_IN_TEST=true` to see the code on screen. With `APP_ENV=production` the key is required.
 
 ## Admin staff
 
@@ -95,7 +100,7 @@ One bootstrap Super Admin is created from `.env` if no Super Admin exists. Super
 3. Configure MongoDB Atlas network access and DB credentials.
 4. Create private S3 bucket + CloudFront distribution/OAC + least-privilege IAM credentials.
 5. Test PayStation sandbox end-to-end before switching to live credentials.
-6. Test Nishchit with an `nk_test_*` key, then switch to live.
+6. Add the BulkSMSBD API key + sender ID and send a test SMS from Admin → Settings → SMS / OTP.
 7. Add/test Steadfast and/or Pathao merchant API credentials.
 8. Configure host Nginx and Certbot manually.
 9. Run one complete test order lifecycle including payment, confirmation, courier, ledger and tracking before production launch.

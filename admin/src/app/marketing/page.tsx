@@ -10,7 +10,7 @@ export default function Marketing(){
   const s=d?.segments?.find((x:any)=>x.key===seg);const parts=Math.ceil((msg.length+25)/(/[^\x00-\x7F]/.test(msg)?67:153))||1;
   async function send(){if(!confirm(`Queue this SMS for ${s?.count||0} recipients? SMS credits will be used when you dispatch.`))return;setBusy(true);try{const r=await postJSON('/admin/marketing/campaigns',{segment:seg,message:msg});toast.ok(`${r.queued} messages queued`);setMsg('');load()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
   async function dispatch(){setBusy(true);try{const r=await postJSON('/admin/sms/dispatch',{});toast.ok(`Sent ${r.sent}, failed ${r.failed}`);load()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
-  return <Shell><PageHead title="Marketing" sub="SMS campaigns to customer segments via Nishchit, plus the transactional SMS outbox."/>
+  return <Shell><PageHead title="Marketing" sub="SMS campaigns to customer segments via BulkSMSBD, plus the transactional SMS outbox."/>
     {!d?<Loading/>:<div className="two-col">
       <section className="card"><h2>New SMS campaign</h2><div className="seg-cards">{d.segments.map((x:any)=><button key={x.key} className={seg===x.key?'on':''} onClick={()=>setSeg(x.key)}><b>{x.count}</b><span>{x.label}</span></button>)}</div>
         <Field label="Message" hint={`${msg.length} chars · ~${parts} SMS part(s) per recipient · “Reply STOP to opt out.” is added automatically`}><textarea rows={4} maxLength={600} value={msg} onChange={e=>setMsg(e.target.value)} placeholder="EMXIN: New AIMB G2 Pro stock arrived! Order now at emxin.com.bd"/></Field>
