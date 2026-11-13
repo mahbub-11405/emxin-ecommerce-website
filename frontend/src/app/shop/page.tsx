@@ -16,7 +16,9 @@ export default async function Shop({searchParams}:{searchParams:Promise<any>}){
   const Opt=({on,href,children}:{on:boolean;href:string;children:React.ReactNode})=><Link href={href} className={'flt-opt'+(on?' on':'')} aria-current={on?'true':undefined}><i/>{children}</Link>;
   return <main className="wrap section-sm">
     <nav className="crumbs"><Link href="/">Home</Link><Icon name="chevronRight" size={14}/><Link href="/shop">Shop</Link>{cat&&<><Icon name="chevronRight" size={14}/><span>{cat.name}</span></>}</nav>
-    <div className="shop-head"><div><h1>{title}</h1><span className="muted">{ps.length} product{ps.length===1?'':'s'} found</span></div><SortSelect value={sp.sort||'featured'}/></div>
+    <div className="shop-head"><div><h1>{title}</h1><span className="muted">{ps.length} product{ps.length===1?'':'s'} found</span></div><div className="shop-tools"><label htmlFor="flt-tg" className="btn btn-outline btn-sm flt-btn"><Icon name="filter" size={16}/>Filters{['category','brand','camera','availability','min_price','max_price'].filter(k=>sp[k]).length>0&&<em>{['category','brand','camera','availability','min_price','max_price'].filter(k=>sp[k]).length}</em>}</label><SortSelect value={sp.sort||'featured'}/></div></div>
+    {/* phones: the filter panel is folded behind the “Filters” button (CSS-only toggle, works without JS) */}
+    <input type="checkbox" id="flt-tg" className="flt-tg" hidden/>
     <div className="shop">
       <aside className="flt" aria-label="Filters">
         <h4>Categories</h4><Opt on={!sp.category} href={link({category:undefined,brand:undefined})}>All Products</Opt>{cats.map(c=><Opt key={c.slug} on={sp.category===c.slug} href={link({category:c.slug,brand:undefined})}>{c.name}</Opt>)}

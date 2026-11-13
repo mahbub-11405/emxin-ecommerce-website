@@ -612,3 +612,35 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .acc-mp{grid-column:1/-1;display:flex;flex-direction:column;gap:8px;margin:4px 0 0;padding:10px 12px;border-radius:10px;font-size:13.5px}
 .acc-mp p{display:flex;gap:8px;margin:0;align-items:flex-start}.acc-mp.wait{flex-direction:row;gap:8px;background:#fff8e6;color:#7a4b00}
 .acc-mp.bad{background:#fdecec;color:#8b1c1c}.acc-mp input{flex:1;min-width:140px}
+
+/* v2.3 mobile polish */
+.shop-tools{display:flex;align-items:center;gap:10px}.flt-btn{display:none}
+.flt-btn em{font-style:normal;background:var(--blue);color:#fff;border-radius:999px;font-size:11px;min-width:18px;height:18px;display:inline-grid;place-items:center;padding:0 5px}
+.otp-row{display:flex;gap:8px}.otp-row input{flex:1;min-width:0}
+@media (max-width:980px){
+  .flt-btn{display:inline-flex}.flt{display:none}.flt-tg:checked+.shop .flt{display:block}
+}
+@media (max-width:620px){
+  .shop-head{align-items:flex-start}.shop-tools{width:100%;justify-content:space-between}
+  /* category tiles: picture left, text right — same for photo and cut-out tiles */
+  .cat-tile,.cat-tile.fit-cover{flex-wrap:nowrap;flex-direction:row;align-items:center;text-align:left;gap:0;padding:0;min-height:96px;overflow:hidden}
+  .cat-tile .cat-img{width:118px;height:96px;flex:none;margin:0}
+  .cat-tile:not(.fit-cover) .cat-img{padding:8px}
+  .cat-txt{flex:1;min-width:0;padding:12px 14px;align-items:flex-start}
+  .cat-tile b{font-size:17px;line-height:1.25}.cat-tile small{font-size:13px}
+  /* promo banner: let the tagline wrap */
+  .promo p{white-space:normal;font-size:13.5px;line-height:1.5}
+  .promo{padding:24px 20px}
+  /* dealer OTP: code on its own line, buttons side by side under it */
+  .otp-row{flex-wrap:wrap}.otp-row input{flex:1 1 100%}.otp-row button{flex:1}
+  /* footer: brand full width, link groups in two columns, clear space above the copyright line */
+  .ftr{margin-top:40px}.ftr-grid{grid-template-columns:1fr 1fr;gap:22px 16px;padding-top:36px;padding-bottom:28px}.ftr-brand{grid-column:1/-1}
+  .ftr-bottom{gap:8px;padding-top:16px;padding-bottom:24px;font-size:12.5px}.ftr-bottom span:last-child{flex-wrap:wrap;gap:8px 16px}
+}
+@media (max-width:620px){
+  /* payment cards: SAVE badge sits top-right so the description gets the full width */
+  .pay-opt{gap:10px;padding:12px 14px;align-items:flex-start}.pay-opt>.ico{margin-top:2px}
+  .pay-opt:has(.save)>span{padding-right:64px}.pay-opt b{font-size:15px;line-height:1.3}.pay-opt small{font-size:12.5px;line-height:1.4}
+  .pay-opt em.save{position:absolute;top:12px;right:12px}
+  .mp-box{padding:12px}.mp-steps{font-size:13.5px;padding-left:18px}
+}
