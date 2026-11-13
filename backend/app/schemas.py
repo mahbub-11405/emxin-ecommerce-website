@@ -14,7 +14,7 @@ class QuantityRequest(BaseModel):
     product_id: str; name: str; shop_name: str; phone: str; email: Optional[EmailStr]=None
     color_quantities: dict[str,int]={}; total_quantity: int=Field(default=0,ge=0,le=100000); urgency: Literal['Normal','Priority','Urgent']='Normal'; message: str=''; dealer_opt_in: bool=False
 class DealerApply(BaseModel):
-    name: str; shop_name: str; phone: str; email: Optional[EmailStr]=None; address: str; password: str=Field(min_length=8); business_type: str='Retailer'; otp_verification_id: Optional[str]=None; preferred_language: Literal['en','bn']='bn'
+    name: str; shop_name: str; phone: str; email: Optional[EmailStr]=None; address: str; password: str=Field(min_length=8); business_type: str='Retailer'; otp_verification_id: Optional[str]=None; preferred_language: Literal['en','bn']='bn'; terms_accepted: bool=False
 class Login(BaseModel): email: str; password: str
 class CustomerRegister(BaseModel):
     name: str; phone: str; email: EmailStr; password: str=Field(min_length=8); shop_name: Optional[str]=None; location: Optional[str]=None; otp_verification_id: Optional[str]=None; preferred_language: Literal['en','bn']='bn'
@@ -42,7 +42,8 @@ class BrandInput(BaseModel):
 class StaffCreate(BaseModel):
     name: str; email: EmailStr; phone: str=''; role: Literal['admin','sales','marketing','inventory','support']; password: str=Field(min_length=8); status: Literal['active','disabled']='active'
 class MediaPresign(BaseModel):
-    filename: str; content_type: str; folder: Literal['logo','favicon','hero','banner','branding','product','category','dealer','payment','video','library','promo']='product'; size: int=Field(default=0,ge=0)
+    # folder = section[/group[/role]] e.g. 'product/aimb-g2-pro', 'product/aimb-g2-pro/banner', 'category/smart-glasses', 'homepage/hero', 'branding/favicon'
+    filename: str; content_type: str; folder: str=Field(default='library',pattern=r'^[a-z][a-z0-9-]{1,30}(/[a-z0-9][a-z0-9-]{0,60}){0,2}$'); size: int=Field(default=0,ge=0)
 
 class CouponInput(BaseModel):
     code: str=Field(min_length=3,max_length=32); type: Literal['percentage','fixed']='fixed'; value: float=Field(gt=0)
@@ -61,5 +62,11 @@ class QuestionInput(BaseModel):
 class PhoneRegister(BaseModel):
     name: str=Field(min_length=2,max_length=80); phone: str; verification_id: str
     email: Optional[EmailStr]=None; district: Optional[str]=None; address: Optional[str]=None
+class MediaOrganize(BaseModel):
+    dry_run: bool=True
+
+class MediaUse(BaseModel):
+    url: str; target: Literal['product','category','hero','promo','product_banner','logo','logo_dark','favicon','hero_video']; id: Optional[str]=None
+
 class MediaRecord(BaseModel):
     url: str; key: str; type: Literal['image','video']; name: str=''; size: int=0; folder: str='product'

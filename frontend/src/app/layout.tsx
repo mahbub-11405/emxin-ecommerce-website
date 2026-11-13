@@ -9,7 +9,7 @@ export async function generateMetadata(){
   const site=await safeJSON<any>('/site-content',{});const seo=site.seo||{};
   const title=seo.title||'EMXIN Technologies — Smart Gadgets. Smarter Living.';
   const description=seo.description||'AI smart glasses, smart sunglasses and premium frames in Bangladesh. Fast delivery, secure payment and dealer pricing.';
-  return {title:{default:title,template:'%s | EMXIN Technologies'},description,openGraph:{title,description,images:isHttp(seo.image)?[seo.image]:[]},icons:isHttp(site.branding?.favicon_url)?{icon:site.branding.favicon_url}:undefined};
+  return {title:{default:title,template:'%s | EMXIN Technologies'},description,openGraph:{title,description,images:isHttp(seo.image)?[seo.image]:[]},icons:{icon:isHttp(site.branding?.favicon_url)?site.branding.favicon_url:'/favicon.svg',apple:'/apple-touch-icon.png'}}; // built-in EMXIN icon unless Admin uploaded one
 }
 export const viewport={width:'device-width',initialScale:1,themeColor:'#1f5cff'};
 

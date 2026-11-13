@@ -25,7 +25,9 @@ export default async function Home(){
   const featured:any[]=(d.featured?.length?d.featured:d.new_collection)||[];
   const all:any[]=d.products||featured;
   const heroImg=isHttp(h.image)?h.image:'';
-  const heroProduct=all.find((p:any)=>p.slug===h.product_slug)||all[0];
+  // Floating tag: the chosen product, else the product whose photo is the hero image, else (only when no hero image was uploaded) the first product.
+  const pool=[...all,...featured];const hasImg=(p:any)=>[...(p.images||[]),...(p.media||[]).map((m:any)=>m?.url)].includes(heroImg);
+  const heroProduct=(h.product_slug&&pool.find((p:any)=>p.slug===h.product_slug))||(heroImg?pool.find(hasImg):all[0]);
   let order:string[]=(Array.isArray(hp.sections)&&hp.sections.length?hp.sections:DEFAULT_ORDER).map((k:string)=>ALIAS[k]??k).filter(Boolean);
   // Fixed top of the page: hero → trust row → Shop by Category. The rest follows the Homepage Builder order.
   order=['categories',...order.filter((k,i)=>k!=='trust'&&k!=='categories'&&order.indexOf(k)===i)];

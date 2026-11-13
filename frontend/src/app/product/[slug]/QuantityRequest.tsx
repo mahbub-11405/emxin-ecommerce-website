@@ -14,7 +14,8 @@ const LEVELS=[
 function Stepper({value,onChange,min=0,label}:{value:number;onChange:(n:number)=>void;min?:number;label:string}){
   return <div className="stepper sm"><button type="button" aria-label={`Decrease ${label}`} onClick={()=>onChange(Math.max(min,value-1))}><Icon name="minus" size={16} stroke={2.2}/></button><input aria-label={label} inputMode="numeric" value={value} onChange={e=>onChange(Math.max(min,Math.min(100000,Number(e.target.value.replace(/\D/g,''))||0)))}/><button type="button" aria-label={`Increase ${label}`} onClick={()=>onChange(value+1)}><Icon name="plus" size={16} stroke={2.2}/></button></div>;
 }
-export default function QuantityRequest({product:p,open,onClose,dealerPercent=5,bulkThreshold=20}:{product:any;open:boolean;onClose:()=>void;dealerPercent?:number;bulkThreshold?:number}){
+const ORD=['st','nd','rd'];
+export default function QuantityRequest({product:p,open,onClose,dealerPercent=5,dealerTiers=[],bulkThreshold=20}:{product:any;open:boolean;onClose:()=>void;dealerPercent?:number;dealerTiers?:number[];bulkThreshold?:number}){
   const colors:string[]=useMemo(()=>p.colors?.length?p.colors:['Black'],[p]);
   const[total,setTotal]=useState(bulkThreshold);
   const[cq,setCq]=useState<Record<string,number>>(()=>Object.fromEntries(colors.map(c=>[c,0])));
@@ -25,6 +26,8 @@ export default function QuantityRequest({product:p,open,onClose,dealerPercent=5,
   const allocated=Object.values(cq).reduce((a,b)=>a+b,0);
   const unit=Number(p.sale_price||p.price||0);
   const dealerPrice=Math.round(unit*(1-dealerPercent/100));
+  // Dealer Benefits tiers (Settings → dealer_tiers, e.g. 5/8/12/15): 1st order is the headline %, the rest are listed here.
+  const tiers=dealerTiers.filter(n=>n>0);const next=(tiers.length>1?tiers.slice(1):[8,12,15]);
   const mismatch=allocated>0&&allocated!==total;
   async function submit(e:React.FormEvent){
     e.preventDefault();
@@ -58,7 +61,7 @@ export default function QuantityRequest({product:p,open,onClose,dealerPercent=5,
           <input type="checkbox" checked={f.dealer_opt_in} onChange={e=>setF({...f,dealer_opt_in:e.target.checked})}/>
           <span className="qr-check"><Icon name="check" size={14} stroke={3.2}/></span>
           <span className="qr-dealer-body"><b>Become a Dealer &amp; Get Extra {dealerPercent}% Discount</b>
-            <ul><li><Icon name="check" size={13} stroke={3}/>Exclusive dealer pricing ({dealerPercent}% additional discount)</li><li><Icon name="check" size={13} stroke={3}/>Priority restock &amp; early product updates</li><li><Icon name="check" size={13} stroke={3}/>Your orders will be tracked under Dealer Account</li></ul></span>
+            <ul><li><Icon name="check" size={13} stroke={3}/>Exclusive dealer pricing ({dealerPercent}% additional discount)</li>{next.length>0&&<li className="qr-tiers"><Icon name="check" size={13} stroke={3}/><span>Next orders: {next.map((t,i)=><em key={i}>{i===next.length-1?`${i+2}${ORD[i+1]||'th'}+`:`${i+2}${ORD[i+1]||'th'}`} <b>{t}%</b></em>)}</span></li>}<li><Icon name="check" size={13} stroke={3}/>Priority restock &amp; early product updates</li><li><Icon name="check" size={13} stroke={3}/>Your orders will be tracked under Dealer Account</li></ul></span>
           <span className="qr-dprice"><small>Dealer Price</small><b>৳ {dealerPrice.toLocaleString('en-IN')} / pc</b></span>
         </label>
         <div className="qr-field"><span>Need Level / Urgency <em>*</em></span><div className="qr-levels" role="radiogroup">{LEVELS.map(l=><button type="button" role="radio" aria-checked={f.urgency===l.key} key={l.key} className={l.cls+(f.urgency===l.key?' on':'')} onClick={()=>setF({...f,urgency:l.key})}>

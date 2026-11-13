@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import Icon from './Icon';
 import {api,uploadMedia,isVideoUrl} from '@/lib/api';
 
-type Job={name:string;pct:number;err?:string;done?:boolean};
+type Job={name:string;pct:number;err?:string;done?:boolean;note?:string};
 /** Drag & drop (or click) zone that uploads many images/videos from the desktop to S3 in parallel. */
 export function DropZone({folder,accept='image/*,video/*',onUploaded,label='Drag & drop images or videos here, or click to browse',compact=false}:{folder:string;accept?:string;onUploaded:(items:{url:string;type:'image'|'video';name:string}[])=>void;label?:string;compact?:boolean}){
   const[jobs,setJobs]=useState<Job[]>([]);const[over,setOver]=useState(false);const input=useRef<HTMLInputElement>(null);
@@ -11,17 +11,17 @@ export function DropZone({folder,accept='image/*,video/*',onUploaded,label='Drag
     if(!files.length)return;const start=jobs.length;setJobs(j=>[...j,...files.map(f=>({name:f.name,pct:0}))]);
     const out:{url:string;type:'image'|'video';name:string}[]=[];
     let next=0;const worker=async()=>{while(next<files.length){const i=next++;const f=files[i];
-      try{const url=await uploadMedia(f,folder,pct=>setJobs(j=>j.map((x,k)=>k===start+i?{...x,pct}:x)));out[i]={url,type:f.type.startsWith('video/')?'video':'image',name:f.name};setJobs(j=>j.map((x,k)=>k===start+i?{...x,pct:100,done:true}:x))}
+      try{const url=await uploadMedia(f,folder,pct=>setJobs(j=>j.map((x,k)=>k===start+i?{...x,pct}:x)),note=>setJobs(j=>j.map((x,k)=>k===start+i?{...x,note}:x)));out[i]={url,type:f.type.startsWith('video/')?'video':'image',name:f.name};setJobs(j=>j.map((x,k)=>k===start+i?{...x,pct:100,done:true}:x))}
       catch(e:any){setJobs(j=>j.map((x,k)=>k===start+i?{...x,err:e.message}:x))}}};
     await Promise.all([worker(),worker(),worker()]); // 3 parallel uploads
     const ok=out.filter(Boolean);if(ok.length)onUploaded(ok);
-    setTimeout(()=>setJobs(j=>j.filter(x=>x.err)),2500);
+    setTimeout(()=>setJobs(j=>j.filter(x=>x.err)),4000);
   }
   return <div><div className={'drop'+(over?' over':'')+(compact?' compact':'')} role="button" tabIndex={0} onClick={()=>input.current?.click()} onKeyDown={e=>e.key==='Enter'&&input.current?.click()}
     onDragOver={e=>{e.preventDefault();setOver(true)}} onDragLeave={()=>setOver(false)} onDrop={e=>{e.preventDefault();setOver(false);run(Array.from(e.dataTransfer.files))}}>
-    <Icon name="upload" size={compact?20:30}/><b>{label}</b>{!compact&&<small>Multiple files at once · images up to 15 MB, videos up to 300 MB · stored in S3, served via CloudFront</small>}
+    <Icon name="upload" size={compact?20:30}/><b>{label}</b>{!compact&&<small>Multiple files at once · images up to 15 MB, videos up to 300 MB · images are auto-compressed to WebP, videos to 1080p MP4 · stored in S3, served via CloudFront</small>}
     <input ref={input} hidden multiple type="file" accept={accept} onChange={e=>{run(Array.from(e.target.files||[]));e.target.value=''}}/></div>
-    {jobs.length>0&&<ul className="jobs">{jobs.map((j,i)=><li key={i} className={j.err?'err':j.done?'ok':''}><span>{j.name}</span>{j.err?<small>{j.err}</small>:<i><em style={{width:j.pct+'%'}}/></i>}<b>{j.err?'Failed':j.done?'Done':j.pct+'%'}</b></li>)}</ul>}</div>;
+    {jobs.length>0&&<ul className="jobs">{jobs.map((j,i)=><li key={i} className={j.err?'err':j.done?'ok':''}><span>{j.name}{j.note&&<small className="muted"> · {j.note}</small>}</span>{j.err?<small>{j.err}</small>:<i><em style={{width:j.pct+'%'}}/></i>}<b>{j.err?'Failed':j.done?'Done':j.pct+'%'}</b></li>)}</ul>}</div>;
 }
 
 /** Modal to reuse files that were already uploaded to S3. */

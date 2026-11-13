@@ -4,7 +4,7 @@ import Shell from '@/components/Shell';
 import Icon from '@/components/Icon';
 import {PageHead,Status,Drawer,Empty,Loading,toast,Field,Toggle,Confirm,Tabs} from '@/components/ui';
 import {parseSpecs} from '@/lib/productText';
-import {api,put,del,postJSON,tk,downloadCSV} from '@/lib/api';
+import {api,put,del,postJSON,tk,downloadCSV,mediaFolder} from '@/lib/api';
 import {DropZone,MediaPicker} from '@/components/Media';
 
 const BLANK:any={name:'',name_bn:'',slug:'',subtitle:'',category_slug:'',brand_slug:'',model:'',sku:'',compare_note:'',price:0,sale_price:null,stock:0,low_stock_threshold:5,weight_kg:.3,
@@ -66,10 +66,9 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
       <Field label="Weight (kg)" hint="Used for estimated shipping on 6+ pcs"><input type="number" step="0.01" min="0.01" value={f.weight_kg} onChange={e=>set('weight_kg',e.target.value)}/></Field>
       <Field label="URL slug" hint="Only used in the web address (…/product/aimb-g2-pro). It is not shown on the page. Auto-made from the name when empty."><input value={f.slug} onChange={e=>set('slug',e.target.value)} placeholder="aimb-g2-pro"/></Field>
       <Field label="Stock bar code / label" hint="Right side of the green stock bar. New products get the next number automatically (EMXIN-SMG-00001 → 00002). You can change it."><input value={f.compare_note} onChange={e=>set('compare_note',e.target.value)}/></Field>
-      <Field label="বাংলা নাম" hint="Optional. Leave empty if not needed — nothing is shown."><input value={f.name_bn} onChange={e=>set('name_bn',e.target.value)}/></Field>
     </div>}
     {tab==='media'&&<div>
-      <DropZone folder="product" onUploaded={addMedia}/>
+      <DropZone folder={mediaFolder('product',f.slug||f.name)} onUploaded={addMedia}/>
       <div className="row" style={{marginTop:10}}><button type="button" className="btn btn-sm btn-ghost" onClick={()=>setPick(true)}><Icon name="cms" size={15}/>Choose from Media Library</button><span className="muted tiny">Drag pictures to change the order · click ★ to make a picture the cover</span></div>
       <MediaPicker open={pick} onClose={()=>setPick(false)} onPick={addMedia}/>
       <div className="media-grid">{f.media.map((m:any,i:number)=><div key={m.url+i} className={'media-it'+(drag===i?' dragging':'')+(over===i&&drag!==i?' over':'')} draggable onDragStart={e=>{setDrag(i);e.dataTransfer.effectAllowed='move'}} onDragOver={e=>{e.preventDefault();setOver(i)}} onDragLeave={()=>setOver(-1)} onDrop={e=>{e.preventDefault();moveTo(drag,i);setDrag(-1);setOver(-1)}} onDragEnd={()=>{setDrag(-1);setOver(-1)}}>{m.type==='video'?<video src={m.url} muted/>:<img src={m.url} alt="" draggable={false}/>}<span className="media-no">{i+1}</span>{i===coverIdx?<span className="cover">★ Cover</span>:m.type==='video'?<span className="cover vid">Video</span>:null}<div className="media-ops">{m.type==='image'&&i!==coverIdx&&<button type="button" onClick={()=>moveTo(i,0)} aria-label="Make cover" title="Make cover">★</button>}<button type="button" onClick={()=>move(i,-1)} aria-label="Move left"><Icon name="chevronLeft" size={15}/></button><button type="button" onClick={()=>move(i,1)} aria-label="Move right"><Icon name="chevronRight" size={15}/></button><button type="button" onClick={()=>setMedia(f.media.filter((_:any,j:number)=>j!==i))} aria-label="Remove"><Icon name="trash" size={15}/></button></div></div>)}</div>
@@ -83,7 +82,6 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
       <Field label="Specifications" span hint="Each row becomes one line of the Specifications table on the website. Don't add a header row like “Feature / Item Detail”."><SpecEditor value={f.specifications||[]} onChange={v=>set('specifications',v)}/></Field>
       <Field label="What's in the box (one per line)"><textarea rows={6} value={lines(f.box_contents)} onChange={e=>set('box_contents',toLines(e.target.value))}/></Field>
       <Field label="FAQ" span><div className="faq-ed">{(f.faq||[]).map((x:any,i:number)=><div key={i} className="row"><input placeholder="Question" value={x.question} onChange={e=>set('faq',f.faq.map((y:any,j:number)=>j===i?{...y,question:e.target.value}:y))}/><input placeholder="Answer" value={x.answer} onChange={e=>set('faq',f.faq.map((y:any,j:number)=>j===i?{...y,answer:e.target.value}:y))}/><button type="button" className="ib" onClick={()=>set('faq',f.faq.filter((_:any,j:number)=>j!==i))}><Icon name="trash" size={16}/></button></div>)}<button type="button" className="btn btn-sm btn-soft" onClick={()=>set('faq',[...(f.faq||[]),{question:'',answer:''}])}><Icon name="plus" size={15}/>Add FAQ</button></div></Field>
-      <Field label="বাংলা বিবরণ" span><textarea rows={3} value={f.description_bn} onChange={e=>set('description_bn',e.target.value)}/></Field>
     </div>}
     {tab==='display'&&<div className="fgrid">
       <Field label="Status"><select value={f.status} onChange={e=>set('status',e.target.value)}><option value="active">Active (visible)</option><option value="draft">Draft</option><option value="hidden">Hidden</option></select></Field>

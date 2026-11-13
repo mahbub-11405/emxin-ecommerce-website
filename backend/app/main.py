@@ -13,6 +13,7 @@ from .schemas import *
 from .pricing import calculate
 from .integrations import PayStationClient, NishchitClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
 from .admin_ext import router as v2_router, release_stock
+from .media_optimize import queue_video
 
 settings=get_settings()
 app=FastAPI(title='EMXIN REST API',version='1.0.0',openapi_url='/api/v1/openapi.json',docs_url='/docs')
@@ -106,7 +107,7 @@ def media_public_url(key):
 # ---------- Public CMS / catalog ----------
 @app.get('/api/v1/home')
 def home():
-    return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':serialize(db.settings.find_one({'key':'commerce'},{'_id':0})),'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),'featured':serialize(list(db.products.find({'status':'active','featured':True}).sort([('sort_order',1),('created_at',-1)]).limit(8))),'new_collection':serialize(list(db.products.find({'status':'active','new_collection':True}).sort([('sort_order',1),('created_at',-1)]).limit(8))),'products':serialize(list(db.products.find({'status':'active'}).sort([('sort_order',1),('created_at',-1)]).limit(12)))}
+    return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':serialize(db.settings.find_one({'key':'commerce'},{'_id':0})),'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),'featured':serialize(with_names(list(db.products.find({'status':'active','featured':True}).sort([('sort_order',1),('created_at',-1)]).limit(8)))),'new_collection':serialize(with_names(list(db.products.find({'status':'active','new_collection':True}).sort([('sort_order',1),('created_at',-1)]).limit(8)))),'products':serialize(with_names(list(db.products.find({'status':'active'}).sort([('sort_order',1),('created_at',-1)]).limit(12))))}
 
 @app.get('/api/v1/site-content')
 def site_content():
@@ -145,7 +146,13 @@ def products(category: str|None=None,brand: str|None=None,q: str|None=None,limit
         f['$and']=[{'$or':[{'sale_price':rng},{'sale_price':None,'price':rng}]}]
     if q:f['$or']=[{'name':{'$regex':re.escape(q),'$options':'i'}},{'features':{'$elemMatch':{'$regex':re.escape(q),'$options':'i'}}},{'model':{'$regex':re.escape(q),'$options':'i'}}]
     order={'price_asc':[('price',1)],'price_desc':[('price',-1)],'newest':[('created_at',-1)],'rating':[('rating',-1),('review_count',-1)],'popular':[('sold_count',-1)]}.get(sort,[('sort_order',1),('stock',-1),('created_at',-1)])
-    return serialize(list(db.products.find(f).sort(order).limit(min(limit,100))))
+    return serialize(with_names(list(db.products.find(f).sort(order).limit(min(limit,100)))))
+
+def with_names(rows):
+    """Adds category_name/brand_name to product lists so cards never show a raw slug."""
+    cats={c['slug']:c.get('name') for c in db.categories.find({},{'slug':1,'name':1})}
+    for p in rows: p['category_name']=cats.get(p.get('category_slug')) or (p.get('category_slug') or '').replace('-',' ').title()
+    return rows
 
 @app.get('/api/v1/products/{slug}')
 def product(slug:str):
@@ -271,7 +278,8 @@ def dealer_apply(body: DealerApply):
     if settings.nishchit_enabled and not consume_phone_verification(body.phone,'dealer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
     phone=normalize_bd_phone(body.phone)
     if db.dealers.find_one({'phone':phone}): raise HTTPException(409,'Phone already registered')
-    doc=body.model_dump(exclude={'password'}); doc['phone']=phone; doc.update({'password_hash':hash_password(body.password),'status':'Pending','discount_percent':settings.bulk_discount_percent,'created_at':now(),'total_orders':0,'total_purchase':0})
+    if not body.terms_accepted: raise HTTPException(400,'Please read and accept the dealer order terms')
+    doc=body.model_dump(exclude={'password'}); doc['phone']=phone; doc['terms_accepted_at']=now(); doc.update({'password_hash':hash_password(body.password),'status':'Pending','discount_percent':settings.bulk_discount_percent,'created_at':now(),'total_orders':0,'total_purchase':0})
     r=db.dealers.insert_one(doc)
     message=('EMXIN Technologies: আপনার ডিলার আবেদন সফলভাবে জমা হয়েছে। ধন্যবাদ।' if body.preferred_language=='bn' else 'EMXIN Technologies: Your dealer application has been submitted successfully. Thank you.')
     db.sms_outbox.update_one({'event_key':'dealer-applied-'+str(r.inserted_id)},{'$setOnInsert':{'event_key':'dealer-applied-'+str(r.inserted_id),'phone':phone,'message':message,'status':'pending','created_at':now()}},upsert=True)
@@ -711,8 +719,8 @@ def admin_media_presign(body: MediaPresign,authorization: str|None=Header(None))
     limit=(300 if body.content_type.startswith('video/') else 15)*1024*1024
     if body.size and body.size>limit: raise HTTPException(400,f'File too large (max {limit//1024//1024} MB)')
     ext=(body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else 'bin')
-    safe=re.sub(r'[^a-zA-Z0-9_-]','-',body.filename.rsplit('.',1)[0])[:80]
-    key=f"{settings.aws_s3_prefix.strip('/')}/{body.folder}/{now().strftime('%Y/%m')}/{safe}-{secrets.token_hex(4)}.{ext}"
+    key=media_key(body.folder,ext,body.content_type.startswith('video/'),body.filename)
+    db.media_reserved.insert_one({'key':key,'created_at':now()})
     client=s3_client()
     post=client.generate_presigned_post(Bucket=settings.aws_s3_bucket,Key=key,Fields={'Content-Type':body.content_type},Conditions=[{'Content-Type':body.content_type},['content-length-range',1,limit]],ExpiresIn=settings.s3_presigned_upload_expire_seconds)
     return {'upload':post,'key':key,'public_url':media_public_url(key),'expires_in':settings.s3_presigned_upload_expire_seconds}
@@ -721,17 +729,198 @@ def admin_media_presign(body: MediaPresign,authorization: str|None=Header(None))
 def media_library_add(body: MediaRecord,authorization: str|None=Header(None)):
     actor=admin(authorization)
     if not body.key.startswith(settings.aws_s3_prefix.strip('/')+'/'): raise HTTPException(400,'Key outside media prefix')
-    doc={**body.model_dump(),'url':media_public_url(body.key),'uploaded_by':actor['sub'],'created_at':now()}
-    db.media_library.update_one({'key':body.key},{'$setOnInsert':doc},upsert=True)
+    doc={**body.model_dump(),'url':media_public_url(body.key),'name':body.key.rsplit('/',1)[-1],'original_name':body.name,'uploaded_by':actor['sub'],'created_at':now()}
+    r=db.media_library.update_one({'key':body.key},{'$setOnInsert':doc},upsert=True)
+    if r.upserted_id and body.type=='video':
+        try: queue_video(body.key,s3_client())
+        except Exception: pass
     return serialize(db.media_library.find_one({'key':body.key}))
 
+# ---------- Media naming convention ----------
+# <prefix>/<section>/<group>/<group>[-role][-video]-NN.<ext>
+#   product/aimb-g2-pro/aimb-g2-pro-01.webp        (01 = cover, in gallery order)
+#   product/aimb-g2-pro/aimb-g2-pro-video-01.mp4
+#   product/aimb-g2-pro/aimb-g2-pro-banner-01.webp (Product Details overview banner)
+#   category/smart-glasses/smart-glasses-tile-01.webp
+#   homepage/hero/hero-01.webp · branding/favicon/favicon-01.png · brand/aimb/aimb-logo-01.png
+#   library/unsorted/<original-name>.jpg            (uploaded without a section / not used anywhere)
+LEGACY_FOLDER={'hero':'homepage/hero','promo':'homepage/promo','banner':'homepage/banner','video':'homepage/hero-video','logo':'branding/logo','favicon':'branding/favicon','branding':'branding/logo','category':'category/unsorted','product':'product/unsorted','dealer':'dealer/documents','payment':'payment/proofs'}
+def media_base(folder:str,is_video:bool,filename:str='')->tuple[str,str]:
+    folder=LEGACY_FOLDER.get(folder,folder); parts=folder.split('/')
+    if parts[0]=='library' or (len(parts)>1 and parts[1]=='unsorted'):
+        return '/'.join(parts if len(parts)>1 else parts+['unsorted']), slugify((filename or 'file').rsplit('.',1)[0])[:60] or 'file'
+    section,rest=parts[0],parts[1:]
+    if section=='category' and len(rest)==1: rest=rest+['tile']
+    if section=='brand' and len(rest)==1: rest=rest+['logo']
+    base='-'.join(rest or [section])+('-video' if is_video and section=='product' and len(rest)==1 else '')
+    return f"{section}/{rest[0]}" if rest else section, base
+def taken_keys()->set:
+    # library files + names handed out in the last hour (parallel uploads must not get the same number)
+    recent={r['key'] for r in db.media_reserved.find({'created_at':{'$gte':now()-timedelta(hours=1)}},{'key':1})}
+    return {r['key'] for r in db.media_library.find({},{'key':1})}|recent
+def media_key(folder:str,ext:str,is_video:bool=False,filename:str='',n:int|None=None,taken:set|None=None)->str:
+    d,base=media_base(folder,is_video,filename); pre=settings.aws_s3_prefix.strip('/'); taken=taken_keys() if taken is None else taken
+    if d.startswith('library/') or d.endswith('/unsorted'):
+        k=f"{pre}/{d}/{base}.{ext}"; i=2
+        while k in taken: k=f"{pre}/{d}/{base}-{i}.{ext}"; i+=1
+        return k
+    used=[int(x) for x in (re.fullmatch(rf"{re.escape(pre)}/{re.escape(d)}/{re.escape(base)}-(\d+)\.\w+",k) for k in taken) for x in ([x.group(1)] if x else [])]
+    i=n or (max(used)+1 if used else 1)
+    while any(k.startswith(f"{pre}/{d}/{base}-{i:02d}.") for k in taken): i+=1
+    return f"{pre}/{d}/{base}-{i:02d}.{ext}"
+
+def replace_url_everywhere(old:str,new:str):
+    for p in db.products.find({'$or':[{'images':old},{'media.url':old},{'video_url':old},{'promo_image_url':old}]}):
+        upd={'images':[new if u==old else u for u in (p.get('images') or [])],'media':[{**x,'url':new} if isinstance(x,dict) and x.get('url')==old else x for x in (p.get('media') or [])]}
+        if p.get('video_url')==old: upd['video_url']=new
+        if p.get('promo_image_url')==old: upd['promo_image_url']=new
+        db.products.update_one({'_id':p['_id']},{'$set':upd})
+    db.categories.update_many({'thumbnail_url':old},{'$set':{'thumbnail_url':new}})
+    db.brands.update_many({'logo_url':old},{'$set':{'logo_url':new}})
+    db.media_versions.update_many({'url':old},{'$set':{'url':new}})
+    hp=db.homepage.find_one({'key':'home'})
+    if hp and old in str(hp):
+        def sub(v):
+            if isinstance(v,dict): return {k:sub(x) for k,x in v.items()}
+            if isinstance(v,list): return [sub(x) for x in v]
+            return new if v==old else v
+        db.homepage.replace_one({'_id':hp['_id']},sub(hp))
+
+def media_plan()->list[dict]:
+    """Works out the conventional name for every library file from where it is used (first use wins)."""
+    pre=settings.aws_s3_prefix.strip('/'); want:dict={}
+    def claim(url,folder,n=None,video=False):
+        if isinstance(url,str) and url and url not in want: want[url]=(folder,n,video)
+    for p in db.products.find({},{'slug':1,'name':1,'images':1,'media':1,'video_url':1,'promo_image_url':1}).sort([('sort_order',1),('created_at',1)]):
+        slug=p.get('slug') or slugify(p.get('name','product'))
+        media=[x for x in (p.get('media') or []) if isinstance(x,dict)] or [{'url':u,'type':'image'} for u in (p.get('images') or [])]+([{'url':p['video_url'],'type':'video'}] if p.get('video_url') else [])
+        imgs=[x['url'] for x in media if x.get('type')!='video']; vids=[x['url'] for x in media if x.get('type')=='video']
+        for i,u in enumerate(imgs,1): claim(u,f'product/{slug}',i)
+        for i,u in enumerate(vids,1): claim(u,f'product/{slug}',i,True)
+        claim(p.get('promo_image_url'),f'product/{slug}/banner')
+    for c in db.categories.find({},{'slug':1,'thumbnail_url':1}).sort('order',1): claim(c.get('thumbnail_url'),f"category/{c['slug']}")
+    for b in db.brands.find({},{'slug':1,'logo_url':1}): claim(b.get('logo_url'),f"brand/{b.get('slug') or 'brand'}")
+    hp=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
+    slots={'hero.image':'homepage/hero','hero.video_url':'homepage/hero-video','promo.image':'homepage/promo-banner','coming_soon.image':'homepage/coming-soon','banner.image':'homepage/banner',
+           'branding.logo_url':'branding/header-logo','branding.logo_dark_url':'branding/footer-logo','branding.favicon_url':'branding/favicon','branding.product_banner_url':'branding/product-banner','seo.image':'branding/share-image'}
+    for path,folder in slots.items():
+        v=hp
+        for k in path.split('.'): v=v.get(k) if isinstance(v,dict) else None
+        claim(v,folder,video=path.endswith('video_url'))
+    rows=list(db.media_library.find({}).sort('created_at',1)); taken={r['key'] for r in rows}; plan=[]
+    for r in rows:
+        ext=r['key'].rsplit('.',1)[-1].lower() if '.' in r['key'] else 'bin'
+        folder,n,video=want.get(r['url'],('library/unsorted',None,r.get('type')=='video'))
+        orig=r.get('original_name') or r.get('name') or r['key'].rsplit('/',1)[-1]
+        d,base=media_base(folder,video or r.get('type')=='video',orig)
+        # already correctly named? keep it
+        if d.startswith('library/') and r['key'].startswith(f'{pre}/{d}/'): continue
+        # already in the right folder with the right name pattern -> keep (later re-ordering never renames again)
+        if not d.startswith('library/') and re.fullmatch(rf"{re.escape(pre)}/{re.escape(d)}/{re.escape(base)}-\d+\.\w+",r['key']): continue
+        others=taken-{r['key']}
+        new=media_key(folder,ext,video or r.get('type')=='video',orig,n,others)
+        if new==r['key']: continue
+        taken.discard(r['key']); taken.add(new)
+        plan.append({'id':str(r['_id']),'from':r['key'],'to':new,'old_url':r['url'],'new_url':media_public_url(new),'name':new.rsplit('/',1)[-1],'original_name':orig,'type':r.get('type','image')})
+    return plan
+
+@app.post('/api/v1/admin/media/organize')
+def media_organize(body: MediaOrganize,authorization: str|None=Header(None)):
+    """Renames existing S3 files to the naming convention and updates every place that uses them. dry_run=True only previews."""
+    actor=manager(authorization); plan=media_plan()
+    if body.dry_run: return {'count':len(plan),'plan':plan[:500]}
+    s3=s3_client(); b=settings.aws_s3_bucket; done=0; failed=[]
+    for x in plan:
+        try:
+            s3.copy_object(Bucket=b,Key=x['to'],CopySource={'Bucket':b,'Key':x['from']},MetadataDirective='COPY')
+            replace_url_everywhere(x['old_url'],x['new_url'])
+            db.media_library.update_one({'_id':ObjectId(x['id'])},{'$set':{'key':x['to'],'url':x['new_url'],'name':x['name'],'original_name':x['original_name'],'renamed_at':now()}})
+            try: s3.delete_object(Bucket=b,Key=x['from'])
+            except Exception: pass
+            done+=1
+        except Exception as e:
+            failed.append({'file':x['original_name'],'error':str(e)[:160]})
+    db.audit_logs.insert_one({'actor_id':actor['sub'],'actor_role':actor.get('role'),'action':'media_organized','target_id':f'{done} files','created_at':now()})
+    return {'renamed':done,'failed':failed}
+
+HOME_SLOTS={'hero.image':'Homepage hero','hero.video_url':'Hero video','promo.image':'Promo banner','branding.logo_url':'Header logo','branding.logo_dark_url':'Footer logo','branding.favicon_url':'Favicon','branding.product_banner_url':'Product page banner','seo.image':'Share image (SEO)'}
+def media_usage()->dict:
+    """url -> where it is used: [{kind:'product'|'category'|'homepage', id, label, where}]"""
+    use:dict={}
+    def add(url,item):
+        if isinstance(url,str) and url.startswith('http'): use.setdefault(url,[]).append(item)
+    for p in db.products.find({},{'name':1,'images':1,'media':1,'video_url':1,'promo_image_url':1,'status':1}):
+        it={'kind':'product','id':str(p['_id']),'label':p.get('name',''),'status':p.get('status','')}
+        urls=set(p.get('images') or [])|{m.get('url') for m in (p.get('media') or []) if isinstance(m,dict)}|{p.get('video_url')}
+        for u in urls: add(u,{**it,'where':'Gallery'})
+        add(p.get('promo_image_url'),{**it,'where':'Promo image'})
+    for c in db.categories.find({},{'slug':1,'name':1,'thumbnail_url':1}):
+        add(c.get('thumbnail_url'),{'kind':'category','id':c['slug'],'label':c.get('name',''),'where':'Category tile'})
+    for b in db.brands.find({},{'slug':1,'name':1,'logo_url':1}):
+        add(b.get('logo_url'),{'kind':'brand','id':b.get('slug'),'label':b.get('name',''),'where':'Brand logo'})
+    def walk(v,path):
+        if isinstance(v,dict):
+            for k,x in v.items(): walk(x,f'{path}.{k}' if path else k)
+        elif isinstance(v,list):
+            for x in v: walk(x,path)
+        elif isinstance(v,str) and v.startswith('http') and not path.startswith('links'):
+            add(v,{'kind':'homepage','id':path,'label':HOME_SLOTS.get(path,'Homepage: '+path.replace('.',' › ')),'where':'Homepage'})
+    walk({k:v for k,v in (db.homepage.find_one({'key':'home'},{'_id':0}) or {}).items()},'')
+    return use
+
 @app.get('/api/v1/admin/media/library')
-def media_library_list(type: str|None=None,q: str|None=None,page:int=1,authorization: str|None=Header(None)):
+def media_library_list(type: str|None=None,q: str|None=None,folder: str|None=None,page:int=1,authorization: str|None=Header(None)):
+    """folder: '' all · 'unused' · 'homepage' · 'categories' · 'product:<id>'. Folders are worked out from where each file is used."""
     admin(authorization); f={}
     if type in ('image','video'): f['type']=type
     if q: f['name']={'$regex':re.escape(q),'$options':'i'}
-    page=max(1,page); total=db.media_library.count_documents(f)
-    return {'total':total,'page':page,'rows':serialize(list(db.media_library.find(f).sort('created_at',-1).skip((page-1)*60).limit(60)))}
+    use=media_usage(); rows=list(db.media_library.find(f).sort('created_at',-1))
+    for r in rows: r['used_in']=use.get(r.get('url'),[])
+    products:dict={}
+    for r in rows:
+        for u in r['used_in']:
+            if u['kind']=='product':
+                e=products.setdefault(u['id'],{'id':u['id'],'name':u['label'],'count':0,'cover':''})
+                e['count']+=1; e['cover']=e['cover'] or (r['url'] if r.get('type')=='image' else '')
+    folders={'all':len(rows),'unused':sum(not r['used_in'] for r in rows),
+             'homepage':sum(any(u['kind']=='homepage' for u in r['used_in']) for r in rows),
+             'categories':sum(any(u['kind']=='category' for u in r['used_in']) for r in rows),
+             'products':sorted(products.values(),key=lambda x:x['name'].lower())}
+    if folder=='unused': rows=[r for r in rows if not r['used_in']]
+    elif folder in ('homepage','categories'):
+        kind={'homepage':'homepage','categories':'category'}[folder]; rows=[r for r in rows if any(u['kind']==kind for u in r['used_in'])]
+    elif folder and folder.startswith('product:'):
+        pid=folder.split(':',1)[1]; rows=[r for r in rows if any(u['kind']=='product' and u['id']==pid for u in r['used_in'])]
+    page=max(1,page); total=len(rows)
+    return {'total':total,'page':page,'folders':folders,'rows':serialize(rows[(page-1)*60:page*60])}
+
+@app.post('/api/v1/admin/media/use')
+def media_use(body: MediaUse,authorization: str|None=Header(None)):
+    """Put a library file to work: add to a product gallery, set a category tile, or a homepage slot."""
+    m=db.media_library.find_one({'url':body.url})
+    if not m: raise HTTPException(404,'File is not in the Media Library')
+    kind=m.get('type','image')
+    if body.target=='product':
+        require_role(authorization,CATALOG)
+        if not ObjectId.is_valid(body.id or ''): raise HTTPException(400,'Choose a product')
+        p=db.products.find_one({'_id':ObjectId(body.id)},{'media':1,'images':1,'video_url':1,'name':1})
+        if not p: raise HTTPException(404,'Product not found')
+        media=list(p.get('media') or [])
+        if not media: media=[{'url':u,'type':'image'} for u in (p.get('images') or [])]+([{'url':p['video_url'],'type':'video'}] if p.get('video_url') else [])
+        if any(x.get('url')==body.url for x in media): return {'ok':True,'message':f"Already in {p.get('name')}"}
+        media.append({'url':body.url,'type':kind,'name':m.get('name')})
+        upd={'media':media,'images':[x['url'] for x in media if x.get('type')=='image'],'video_url':next((x['url'] for x in media if x.get('type')=='video'),''),'updated_at':now()}
+        db.products.update_one({'_id':p['_id']},{'$set':upd}); return {'ok':True,'message':f"Added to {p.get('name')}"}
+    if body.target=='category':
+        require_role(authorization,CATALOG)
+        r=db.categories.update_one({'slug':body.id},{'$set':{'thumbnail_url':body.url,'updated_at':now()}})
+        if not r.matched_count: raise HTTPException(404,'Category not found')
+        return {'ok':True,'message':'Category tile updated'}
+    manager(authorization,'marketing')
+    path={'hero':'hero.image','promo':'promo.image','product_banner':'branding.product_banner_url','logo':'branding.logo_url','logo_dark':'branding.logo_dark_url','favicon':'branding.favicon_url','hero_video':'hero.video_url'}[body.target]
+    if (kind=='video')!=(body.target=='hero_video'): raise HTTPException(400,'That slot needs '+('a video' if body.target=='hero_video' else 'an image'))
+    db.homepage.update_one({'key':'home'},{'$set':{path:body.url,'updated_at':now()}},upsert=True)
+    return {'ok':True,'message':HOME_SLOTS.get(path,path)+' updated'}
 
 @app.delete('/api/v1/admin/media/library/{media_id}')
 def media_library_delete(media_id:str,authorization: str|None=Header(None)):

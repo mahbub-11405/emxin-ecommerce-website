@@ -3,7 +3,7 @@ import {useEffect,useState} from 'react';
 import Shell from '@/components/Shell';
 import Icon from '@/components/Icon';
 import {PageHead,Drawer,Empty,Loading,toast,Field,Toggle,Confirm,ImageInput,Status} from '@/components/ui';
-import {api,put,del,postJSON} from '@/lib/api';
+import {api,put,del,postJSON,mediaFolder} from '@/lib/api';
 const BLANK={name:'',slug:'',order:0,visible:true,logo_url:''};
 export default function Brands(){
   const[rows,setRows]=useState<any[]|null>(null);const[f,setF]=useState<any>(null);const[orig,setOrig]=useState('');
@@ -14,5 +14,5 @@ export default function Brands(){
       <td className="r nowrap"><button className="btn btn-sm btn-soft" onClick={()=>{setOrig(b.slug);setF(b)}}><Icon name="edit" size={15}/>Edit</button><Confirm cls="ib danger" text={`Delete ${b.name}?`} onYes={async()=>{try{await del(`/admin/brands/${b.slug}`);toast.ok('Deleted');load()}catch(e:any){toast.err(e.message)}}}><Icon name="trash" size={16}/></Confirm></td></tr>)}</tbody></table>:<Empty text="No brands yet."/>}</div>
     <Drawer open={!!f} title={orig?'Edit brand':'Add brand'} onClose={()=>setF(null)}>{f&&<form onSubmit={save} className="stack">
       <Field label="Name *"><input required value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field><Field label="Slug"><input value={f.slug} onChange={e=>setF({...f,slug:e.target.value})}/></Field><Field label="Sort order"><input type="number" value={f.order} onChange={e=>setF({...f,order:e.target.value})}/></Field>
-      <ImageInput label="Logo" folder="logo" value={f.logo_url} onChange={u=>setF({...f,logo_url:u})}/><Toggle checked={f.visible} onChange={v=>setF({...f,visible:v})} label="Visible"/><button className="btn">Save brand</button></form>}</Drawer></Shell>;
+      <ImageInput label="Logo" folder={mediaFolder('brand',f.slug||f.name)} value={f.logo_url} onChange={u=>setF({...f,logo_url:u})}/><Toggle checked={f.visible} onChange={v=>setF({...f,visible:v})} label="Visible"/><button className="btn">Save brand</button></form>}</Drawer></Shell>;
 }

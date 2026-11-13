@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     aws_cdn_base_url: str = ''
     aws_s3_prefix: str = 'media'
     s3_presigned_upload_expire_seconds: int = 900
+    # Server-side video re-encode after upload (needs ffmpeg in the image). CRF 20 = near-lossless, 23 = default, 26 = smaller.
+    video_compression_enabled: bool = True
+    video_crf: int = 23
 
     paystation_enabled: bool = False
     paystation_env: str = 'sandbox'

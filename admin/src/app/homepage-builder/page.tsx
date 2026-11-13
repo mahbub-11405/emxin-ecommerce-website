@@ -21,7 +21,7 @@ export default function HomepageBuilder(){
   if(file.size>12*1024*1024){notify('error','Image must be 12 MB or smaller.');return;}
   setUploading(section);notify('info','Uploading image to S3…');
   try{
-   const url=await uploadMedia(file,section==='branding'?'branding':section);
+   const url=await uploadMedia(file,section==='branding'?'branding/header-logo':section==='promo'?'homepage/promo-banner':'homepage/'+section);
    change(section,section==='branding'?'logo_url':'image',url);
    setLocalPreview(old=>({...old,[section]:URL.createObjectURL(file)}));
    notify('success','Image uploaded. Review the preview, then click Publish Homepage.');

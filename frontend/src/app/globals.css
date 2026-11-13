@@ -577,3 +577,17 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
   .fit-cover .cat-img{width:120px;height:96px;flex:none}
   .fit-cover .cat-txt{padding:10px 12px}
 }
+
+/* v2.2 dealer tiers in Quantity Request */
+.qr-dealer li.qr-tiers{align-items:flex-start}.qr-tiers span{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
+.qr-tiers em{font-style:normal;background:#e9f0ff;color:#24408f;border-radius:999px;padding:1px 8px;font-size:11.5px;font-weight:600}.qr-tiers em b{display:inline;padding:0;font-size:11.5px;color:var(--blue)}
+
+/* v2.2 dealer order terms */
+.dealer-terms ol{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.dealer-terms li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start}
+.dealer-terms li span{width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+.dealer-terms li p{margin:3px 0 0;font-size:14px;line-height:1.5;color:var(--navy)}
+.dealer-terms li:nth-child(2) p,.dealer-terms li:nth-child(4) p{font-weight:600}
+.dealer-agree{display:flex;gap:10px;align-items:flex-start;margin:6px 0 14px;padding:12px;border:1px solid var(--blue-100);background:var(--blue-50);border-radius:12px;font-size:13.5px;line-height:1.45;cursor:pointer}
+.dealer-agree input{width:18px;height:18px;margin-top:2px;flex:none;accent-color:var(--blue)}
+.dealer-agree a{color:var(--blue);font-weight:600;white-space:nowrap}

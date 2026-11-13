@@ -3,7 +3,7 @@ import {useEffect,useState} from 'react';
 import Shell from '@/components/Shell';
 import Icon from '@/components/Icon';
 import {PageHead,Drawer,Empty,Loading,toast,Field,Toggle,Confirm,ImageInput,Status} from '@/components/ui';
-import {api,put,del,postJSON} from '@/lib/api';
+import {api,put,del,postJSON,mediaFolder} from '@/lib/api';
 const BLANK={name:'',name_bn:'',slug:'',subtitle:'',order:0,visible:true,show_on_home:true,thumbnail_url:'',icon:''};
 export default function Categories(){
   const[rows,setRows]=useState<any[]|null>(null);const[f,setF]=useState<any>(null);const[orig,setOrig]=useState('');const[busy,setBusy]=useState(false);
@@ -20,8 +20,7 @@ export default function Categories(){
       <Field label="Name *"><input required value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field>
       <Field label="Subtitle" hint="e.g. AI & Camera Enabled"><input value={f.subtitle} onChange={e=>setF({...f,subtitle:e.target.value})}/></Field>
       <Field label="Slug" hint="Changing it updates all products in this category"><input value={f.slug} onChange={e=>setF({...f,slug:e.target.value})}/></Field>
-      <Field label="বাংলা নাম"><input value={f.name_bn} onChange={e=>setF({...f,name_bn:e.target.value})}/></Field>
-      <ImageInput label="Tile image (transparent PNG works best)" folder="category" value={f.thumbnail_url} onChange={u=>setF({...f,thumbnail_url:u})}/>
+      <ImageInput label="Tile image (transparent PNG works best)" folder={mediaFolder('category',f.slug||f.name)} value={f.thumbnail_url} onChange={u=>setF({...f,thumbnail_url:u})}/>
       <Field label="Image style" hint="Cut-out: product floats on the tile (use a PNG with transparent background). Photo: the picture fills the top of the tile (use for normal photos). Auto picks Cut-out for PNG files, Photo for JPG/WebP."><select value={f.image_fit||''} onChange={e=>setF({...f,image_fit:e.target.value})}><option value="">Auto</option><option value="contain">Cut-out (transparent PNG)</option><option value="cover">Photo (fill the tile)</option></select></Field>
       <Toggle checked={f.visible} onChange={v=>setF({...f,visible:v})} label="Visible on storefront"/><Toggle checked={f.show_on_home!==false} onChange={v=>setF({...f,show_on_home:v})} label="Show on homepage tiles"/>
       <button className="btn" disabled={busy}>{busy?'Saving…':'Save category'}</button></form>}</Drawer></Shell>;
