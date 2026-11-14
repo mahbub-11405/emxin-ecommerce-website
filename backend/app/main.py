@@ -13,7 +13,7 @@ from .schemas import *
 from .pricing import calculate
 from .integrations import send_sms, sms_parts, PayStationClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
 from .admin_ext import router as v2_router, release_stock
-from .media_optimize import queue_video
+from .media_optimize import queue_video, big_images, optimize_existing_images
 from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_order_confirmed, t_payment_rejected
 
 settings=get_settings()
@@ -958,6 +958,14 @@ def media_plan()->list[dict]:
         taken.discard(r['key']); taken.add(new)
         plan.append({'id':str(r['_id']),'from':r['key'],'to':new,'old_url':r['url'],'new_url':media_public_url(new),'name':new.rsplit('/',1)[-1],'original_name':orig,'type':r.get('type','image')})
     return plan
+
+@app.post('/api/v1/admin/media/optimize-images')
+def media_optimize_images(body: MediaOrganize,authorization: str|None=Header(None)):
+    """Shrinks big images uploaded before automatic compression (same address, WebP, max 2400 px). dry_run=True only counts."""
+    manager(authorization); items=big_images()
+    total=sum(int(x.get('size') or 0) for x in items)
+    if body.dry_run: return {'count':len(items),'total_mb':round(total/1048576,1)}
+    return {'started':optimize_existing_images(s3_client()),'total_mb':round(total/1048576,1)}
 
 @app.post('/api/v1/admin/media/organize')
 def media_organize(body: MediaOrganize,authorization: str|None=Header(None)):

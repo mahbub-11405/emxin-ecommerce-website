@@ -53,7 +53,7 @@ p{margin:0 0 1em}
 
 /* announcement + header */
 .announce{background:var(--navy);color:#fff;text-align:center;font-size:13px;padding:8px 16px}
-.hdr{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.97);backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line)}
+.hdr{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid var(--line)}
 .hdr-row{display:flex;align-items:center;gap:22px;height:76px}
 .hdr-logo img{height:34px;width:auto}
 .hdr-nav{display:flex;align-items:center;gap:22px;font-weight:600;font-size:14.5px;color:var(--navy)}
@@ -660,3 +660,8 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .co-dealer{display:flex;gap:12px;align-items:center;margin-top:12px;padding:12px 14px;border:1px solid #d9e4fb;border-radius:12px;background:linear-gradient(90deg,#f5f8ff,#fff);color:var(--navy);cursor:pointer}
 .co-dealer>.ico:first-child{color:var(--blue);flex:none}.co-dealer span{flex:1;display:flex;flex-direction:column;gap:2px}.co-dealer b{font-size:14px}.co-dealer small{font-size:12.5px;color:var(--muted);line-height:1.45}
 .co-dealer.on{align-items:flex-start}.co-dealer input{width:18px;height:18px;margin-top:2px;accent-color:var(--blue);flex:none}
+
+/* v2.4 performance: smoother scrolling */
+.pa-glasses,.pa-orbit,.pa-cam{will-change:transform}
+.block,.ftr{content-visibility:auto;contain-intrinsic-size:auto 520px}
+@media (hover:none){.pc:hover,.cat-tile:hover{transform:none}.pc:hover .pc-media img{transform:none}}

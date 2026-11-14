@@ -40,7 +40,7 @@ export default async function Home(){
     trust:<div className="wrap" key="trust"><section className="trust" aria-label="Why shop with EMXIN">{trust.map((t:any)=><Link href={t.href||'#'} key={t.title}><span className="trust-ico"><Icon name={t.icon||'badgeCheck'} size={24} stroke={1.7}/></span><span><b>{t.title}</b><small>{t.text}</small></span></Link>)}</section></div>,
     categories:cats.length?<section className="wrap block" key="categories"><div className="block-head"><h2 className="bar-title">{hp.category_section?.title||'Shop by Category'}</h2><Link className="view-all" href="/shop">View All <Icon name="arrowRight" size={18} stroke={2.2}/></Link></div>
       <div className="cat-grid">{cats.slice(0,hp.category_section?.limit||3).map((c:any)=>{const img=isHttp(c.thumbnail_url);const fit=c.image_fit||(/\.(png|svg|gif)(\?|$)/i.test(c.thumbnail_url||'')?'contain':'cover');return <Link className={'cat-tile'+(img&&fit==='cover'?' fit-cover':'')} key={c.slug} href={`/shop?category=${c.slug}`}>
-        <div className="cat-img">{isHttp(c.thumbnail_url)?<img src={c.thumbnail_url} alt="" loading="lazy"/>:<GlassesArt variant={c.slug.includes('sun')?'sun':c.slug.includes('frame')?'frame':'camera'}/>}</div>
+        <div className="cat-img">{isHttp(c.thumbnail_url)?<img src={c.thumbnail_url} alt="" loading="lazy" decoding="async"/>:<GlassesArt variant={c.slug.includes('sun')?'sun':c.slug.includes('frame')?'frame':'camera'}/>}</div>
         <span className="cat-txt"><b>{c.name}</b><small>{c.subtitle||'Explore collection'}</small><em>Shop now <Icon name="arrowRight" size={15} stroke={2.2}/></em></span></Link>})}</div></section>:null,
     featured:featured.length?<section className="wrap block" key="featured"><div className="block-head"><h2 className="bar-title">{hp.featured_section?.title||'Featured Products / New Collection'}</h2><Link className="view-all" href="/new-collection">View All <Icon name="arrowRight" size={18} stroke={2.2}/></Link></div>
       <div className="pc-grid">{featured.slice(0,hp.featured_section?.limit||4).map((p:any)=><ProductCard key={p._id} p={p}/>)}</div></section>:null,
@@ -65,7 +65,7 @@ export default async function Home(){
         <div className="hero-cta"><Link className="btn btn-lg" href={h.cta_href||'/shop'}>{h.cta||'Shop Now'} <Icon name="arrowRight" size={18} stroke={2.2}/></Link>{h.secondary_cta&&<Link className="btn btn-lg btn-ghost" href={h.secondary_href||'/new-collection'}>{h.secondary_cta}</Link>}</div>
       </div>
       <div className={'hero-media fit-'+(['contain','cover'].includes(h.fit_mode)?h.fit_mode:'contain')}>
-        {heroImg?<img src={heroImg} alt={h.image_alt||heroProduct?.name||'EMXIN smart glasses'} fetchPriority="high"/>:firstImage(heroProduct)?<img src={firstImage(heroProduct)} alt={heroProduct.name}/>:<GlassesArt variant="camera"/>}
+        {heroImg?<img src={heroImg} alt={h.image_alt||heroProduct?.name||'EMXIN smart glasses'} fetchPriority="high" decoding="async"/>:firstImage(heroProduct)?<img src={firstImage(heroProduct)} alt={heroProduct.name}/>:<GlassesArt variant="camera"/>}
         {heroProduct&&h.show_tag!==false&&<Link href={`/product/${heroProduct.slug}`} className="hero-tag"><b>{h.tag_title||heroProduct.name}</b><small>{h.tag_text||(heroProduct.has_camera?'With Camera':heroProduct.subtitle||'')}</small></Link>}
         {isHttp(h.video_url)&&<HeroVideo src={h.video_url}/>}
       </div>

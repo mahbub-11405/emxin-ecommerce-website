@@ -52,3 +52,38 @@ def _optimize(key: str, s3) -> None:
         db.media_library.update_one({'key': key}, {'$set': {'optimize_status': 'failed', 'optimize_error': str(e)[:300]}})
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+# ---------- one-time clean-up: shrink images uploaded before browser compression existed ----------
+IMG_MAX_EDGE=2400; IMG_QUALITY=84; MIN_BYTES=300*1024
+def big_images() -> list:
+    return list(db.media_library.find({'type':'image','size':{'$gt':MIN_BYTES},'key':{'$regex':r'\.(png|jpe?g|webp)$','$options':'i'},
+                                       'image_optimized':{'$ne':True}},{'key':1,'size':1,'name':1}))
+
+def _shrink(key: str, s3) -> tuple[int,int]:
+    """Re-encodes one image as WebP (max 2400 px, transparency kept) and writes it back to the SAME key, so all links keep working."""
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    bucket=get_settings().aws_s3_bucket
+    raw=s3.get_object(Bucket=bucket,Key=key)['Body'].read(); before=len(raw)
+    im=ImageOps.exif_transpose(Image.open(BytesIO(raw)))
+    if max(im.size)>IMG_MAX_EDGE: im.thumbnail((IMG_MAX_EDGE,IMG_MAX_EDGE),Image.LANCZOS)
+    if im.mode not in ('RGB','RGBA'): im=im.convert('RGBA' if 'A' in im.getbands() or im.mode=='P' else 'RGB')
+    out=BytesIO(); im.save(out,'WEBP',quality=IMG_QUALITY,method=6); data=out.getvalue()
+    if len(data)>=before*0.8: return before,before  # not worth it — keep the original
+    s3.put_object(Bucket=bucket,Key=key,Body=data,ContentType='image/webp',CacheControl='public, max-age=31536000')
+    return before,len(data)
+
+def _run_shrink(items: list, s3):
+    for it in items:
+        try:
+            b,a=_shrink(it['key'],s3)
+            db.media_library.update_one({'_id':it['_id']},{'$set':{'image_optimized':True,'size':a,'original_size':b,'optimized_at':now()}})
+        except Exception as e:
+            log.exception('image optimize failed for %s',it.get('key'))
+            db.media_library.update_one({'_id':it['_id']},{'$set':{'image_optimized':True,'optimize_error':str(e)[:200]}})
+
+def optimize_existing_images(s3) -> int:
+    items=big_images()
+    if items: _pool.submit(_run_shrink,items,s3)
+    return len(items)

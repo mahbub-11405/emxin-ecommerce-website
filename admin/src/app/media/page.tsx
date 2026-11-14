@@ -21,13 +21,17 @@ export default function MediaLibrary(){
   const pName=pid?(fo?.products?.find((p:any)=>p.id===pid)?.name||products.find(p=>p._id===pid)?.name||'Product'):'';
   const title=pid?pName:{'':'All files',unused:'Not used anywhere',homepage:'Used on the homepage',categories:'Category tiles'}[folder]||'All files';
   const pick=(f:string)=>{setFolder(f);setPage(1)};
+  async function shrinkOld(){try{const c=await postJSON('/admin/media/optimize-images',{dry_run:true});
+    if(!c.count){toast.ok('All images are already small');return}
+    if(!confirm(`${c.count} big image(s), ${c.total_mb} MB in total, were uploaded before automatic compression.\n\nShrink them now? They become WebP (max 2400 px, same quality to the eye) at the SAME address, so nothing on the site breaks.`))return;
+    const r=await postJSON('/admin/media/optimize-images',{dry_run:false});toast.ok(`Optimizing ${r.started} image(s) in the background — sizes update in a minute`);setTimeout(load,30000)}catch(e:any){toast.err(e.message)}}
   async function preview(){setOrgBusy(true);try{setOrg(await postJSON('/admin/media/organize',{dry_run:true}))}catch(e:any){toast.err(e.message)}finally{setOrgBusy(false)}}
   async function organize(){setOrgBusy(true);try{const r=await postJSON('/admin/media/organize',{dry_run:false});r.failed?.length?toast.err(`${r.renamed} renamed, ${r.failed.length} failed: ${r.failed[0].error}`):toast.ok(`${r.renamed} file(s) renamed and every page updated`);setOrg(null);load()}catch(e:any){toast.err(e.message)}finally{setOrgBusy(false)}}
   async function apply(target:string,id?:string,url=use?.url){try{const r=await postJSON('/admin/media/use',{url,target,id});toast.ok(r.message||'Done');setUse(null);load()}catch(e:any){toast.err(e.message)}}
   // Uploading while a product folder is open adds the files straight to that product's gallery.
   async function uploaded(items:any[]){if(pid){for(const i of items){try{await postJSON('/admin/media/use',{url:i.url,target:'product',id:pid})}catch{}}toast.ok(`${items.length} file(s) added to ${pName}`)}else toast.ok(`${items.length} file(s) uploaded`);setPage(1);load()}
   const F=({k,icon,label,n,cover}:{k:string;icon:string;label:string;n?:number;cover?:string})=><button type="button" className={'mf'+(folder===k?' on':'')} onClick={()=>pick(k)}>{cover?<img src={cover} alt=""/>:<Icon name={icon} size={16}/>}<span>{label}</span>{n!==undefined&&<em>{n}</em>}</button>;
-  return <Shell><PageHead title="Media Library" sub="Every image and video you upload. Folders show where each file is used on the website; use “Use on…” to put a file on a product, a category tile or the homepage."><button type="button" className="btn btn-ghost" disabled={orgBusy} onClick={preview}><Icon name="refresh" size={16}/>{orgBusy&&!org?'Checking…':'Tidy names'}</button></PageHead>
+  return <Shell><PageHead title="Media Library" sub="Every image and video you upload. Folders show where each file is used on the website; use “Use on…” to put a file on a product, a category tile or the homepage."><button type="button" className="btn btn-ghost" onClick={shrinkOld} title="Shrink big images uploaded before automatic compression"><Icon name="download" size={16}/>Optimize old images</button><button type="button" className="btn btn-ghost" disabled={orgBusy} onClick={preview}><Icon name="refresh" size={16}/>{orgBusy&&!org?'Checking…':'Tidy names'}</button></PageHead>
     <div className="ml">
       <aside className="ml-side">
         <F k="" icon="products" label="All files" n={fo?.all}/>

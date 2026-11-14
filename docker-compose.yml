@@ -15,6 +15,9 @@ services:
       NODE_ENV: production
       PORT: 4310
       HOSTNAME: 0.0.0.0
+      # server-side rendering calls the API inside Docker instead of over the internet
+      API_INTERNAL_URL: http://backend:8430/api/v1
+      PAGE_CACHE_SECONDS: ${PAGE_CACHE_SECONDS:-30}
     depends_on:
       backend:
         condition: service_healthy

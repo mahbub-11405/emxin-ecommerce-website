@@ -22,7 +22,7 @@ export default function ProductCard({p,tag}:{p:any;tag?:string}){
         {badge&&<span className={'pc-badge '+(BADGE[badge]||'b-info')}>{badge}</span>}
         {p.stock<=0&&<span className="pc-badge b-out">Stock Out</span>}
         {off>0&&<span className="pc-save">Save ৳ {save.toLocaleString('en-IN')}</span>}
-        {img?<img src={img} alt={p.name} loading="lazy"/>:<GlassesArt variant={p.category_slug==='sunglasses'?'sun':p.category_slug==='frames'?'frame':p.has_camera?'camera':'smart'}/>}
+        {img?<img src={img} alt={p.name} loading="lazy" decoding="async"/>:<GlassesArt variant={p.category_slug==='sunglasses'?'sun':p.category_slug==='frames'?'frame':p.has_camera?'camera':'smart'}/>}
       </div>
       <h3>{p.name}</h3>
       {sub&&<p className="pc-sub">{sub}</p>}
