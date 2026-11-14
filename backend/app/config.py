@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     initial_admin_password: str = 'change-me'
     jwt_expire_minutes: int = 720          # Admin / staff sessions (12 h)
     customer_session_days: int = 30         # customers & dealers stay logged in on their device (saves OTP SMS)
+    admin_remember_days: int = 7            # admin 'Keep me signed in' on a trusted device
 
     aws_region: str = 'ap-southeast-1'
     aws_access_key_id: str = ''

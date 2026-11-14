@@ -15,6 +15,8 @@ export default function AuthPage(){
   const codeRef=useRef<HTMLInputElement>(null);
   useEffect(()=>{const q=new URLSearchParams(location.search);const t=q.get('tab');if(t==='register'||t==='login')setMode(t);const n=safeNext(q.get('next'));setNext(n);
     const d=readDraft();if(d?.f){setFromCheckout(n.startsWith('/checkout'));if(d.f.phone)setPhone(d.f.phone);if(d.f.customer_name)setName(d.f.customer_name);if(d.f.email)setEmail(d.f.email)}},[]);
+  // last number used to log in on this device is filled in (number only — the account still needs the OTP)
+  useEffect(()=>{try{const p=localStorage.getItem('customer_last_phone');if(p)setPhone(v=>v||p)}catch{}},[]);
   useEffect(()=>{if(wait<=0)return;const t=setTimeout(()=>setWait(wait-1),1000);return()=>clearTimeout(t)},[wait]);
   const purpose=mode==='login'?'login':'customer_register';
   const full=()=>'+880'+digitsBD(phone);
@@ -29,7 +31,7 @@ export default function AuthPage(){
   async function verify(e:React.FormEvent){e.preventDefault();setBusy(true);setMsg(null);
     try{const v=await postJSON('/auth/otp/verify',{phone:full(),purpose,code});
       const r=mode==='login'?await postJSON('/customers/phone-login',{phone:full(),verification_id:v.verification_id}):await postJSON('/customers/register-phone',{phone:full(),name:name.trim(),email:email.trim()||null,verification_id:v.verification_id,district:readDraft()?.f?.district,address:readDraft()?.f?.address});
-      setToken(r.access_token);location.href=next;
+      try{localStorage.setItem('customer_last_phone',digitsBD(phone))}catch{}setToken(r.access_token);location.href=next;
     }catch(err:any){setMsg({k:'err',t:err.message})}finally{setBusy(false)}}
   return <main className="wrap section-sm"><div className="auth">
     <aside className="auth-side"><span className="pill">EMXIN ACCOUNT</span><h1>{mode==='login'?'Welcome back':'Create your account'}</h1><p>{fromCheckout?'One quick step: verify your mobile number and you will return to checkout with your details already filled in.':mode==='login'?'Log in with your mobile number — no password. We send a one-time code (OTP) by SMS. You stay logged in on this device for 30 days, so you won’t need a new code every time.':'Just your mobile number — no password to remember. We verify it once with a one-time code (OTP) by SMS, and you stay logged in on this device for 30 days.'}</p>
@@ -39,7 +41,7 @@ export default function AuthPage(){
       {fromCheckout&&<p className="note-good"><Icon name="cart" size={16}/> Your cart and delivery details are saved.</p>}
       <form onSubmit={sent?verify:send} className="auth-form">
         {mode==='register'&&<label className="qr-field"><span>Full name <em>*</em></span><input required autoComplete="name" value={name} disabled={sent} onChange={e=>setName(e.target.value)} placeholder="Your name"/></label>}
-        <label className="qr-field"><span>Mobile number <em>*</em></span><div className="qr-phone"><span className="qr-cc"><i className="flag-bd" aria-hidden="true"/></span><span className="qr-code">+880</span><input required type="tel" inputMode="tel" autoComplete="tel-national" value={phone} disabled={sent} onChange={e=>setPhone(e.target.value.replace(/[^\d ]/g,'').replace(/^\s*(880|0)+/,''))} placeholder="1712 345678" maxLength={11}/></div><small className="muted">Start with 1 — e.g. <b>1712 345678</b> (no 0 needed after +880)</small></label>
+        <label className="qr-field"><span>Mobile number <em>*</em></span><div className="qr-phone"><span className="qr-cc"><i className="flag-bd" aria-hidden="true"/></span><span className="qr-code">+880</span><input required id="phone" name="phone" type="tel" inputMode="tel" autoComplete="tel-national" value={phone} disabled={sent} onChange={e=>setPhone(e.target.value.replace(/[^\d ]/g,'').replace(/^\s*(880|0)+/,''))} placeholder="1712 345678" maxLength={11}/></div><small className="muted">Start with 1 — e.g. <b>1712 345678</b> (no 0 needed after +880)</small></label>
         {mode==='register'&&<label className="qr-field"><span>Email <small className="muted">(optional, for receipts)</small></span><input type="email" autoComplete="email" value={email} disabled={sent} onChange={e=>setEmail(e.target.value)}/></label>}
         {sent&&<label className="qr-field"><span>Verification code</span><input ref={codeRef} className="otp-in" required inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,''))} placeholder="••••••"/></label>}
         {msg&&<p className={msg.k==='err'?'form-err':'note-good'} role="status">{msg.t}</p>}

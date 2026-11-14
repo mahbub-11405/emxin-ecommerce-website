@@ -617,7 +617,7 @@ def admin_login(body: Login):
     if not a or not verify_password(body.password,a['password_hash']): raise HTTPException(401,'Invalid login')
     role=a.get('role','super_admin')
     db.audit_logs.insert_one({'actor_id':str(a['_id']),'actor_role':role,'action':'login','created_at':now()})
-    return {'access_token':create_token(str(a['_id']),role),'role':role,'name':a.get('name',''),'must_change_password':bool(a.get('must_change_password'))}
+    return {'access_token':create_token(str(a['_id']),role,body.remember),'role':role,'name':a.get('name',''),'must_change_password':bool(a.get('must_change_password'))}
 
 def admin(authorization): return require_role(authorization,('admin','super_admin','sales','inventory','support','marketing'))
 CATALOG=('super_admin','admin','inventory'); ORDER_WRITE=('super_admin','admin','sales','support'); CRM=('super_admin','admin','sales','support','marketing')

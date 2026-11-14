@@ -16,9 +16,9 @@ def verify_password(password: str, encoded: str) -> bool:
     actual=hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 220_000)
     return hmac.compare_digest(actual, expected)
 
-def create_token(subject: str, role: str) -> str:
+def create_token(subject: str, role: str, remember: bool=False) -> str:
     now=datetime.now(timezone.utc)
-    life=timedelta(days=settings.customer_session_days) if role in ('customer','dealer') else timedelta(minutes=settings.jwt_expire_minutes)
+    life=timedelta(days=settings.customer_session_days) if role in ('customer','dealer') else timedelta(days=settings.admin_remember_days) if remember else timedelta(minutes=settings.jwt_expire_minutes)
     return jwt.encode({'sub':subject,'role':role,'iat':now,'exp':now+life}, settings.app_secret, algorithm='HS256')
 
 def decode_token(token: str):
