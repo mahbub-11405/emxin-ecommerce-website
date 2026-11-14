@@ -12,7 +12,15 @@ def calculate(items, products_by_id, district: str, payment_method: str, coupon=
         subtotal += float(p.get('sale_price') or p['price']) * int(it['quantity'])
         total_weight += float(p.get('weight_kg',0.3))*int(it['quantity'])
     is_bulk=qty>=bulk_threshold
-    bulk_discount_amount=round(subtotal*bulk_discount/100,2) if is_bulk else 0
+    # dealer / bulk discount per line: a category can cap it ('fixed', e.g. power banks max 5%) or switch it off ('none')
+    caps=cfg.get('category_dealer') or {}
+    bulk_discount_amount=0.0
+    if is_bulk and bulk_discount>0:
+        for it in items:
+            p=products_by_id[it['product_id']]; mode,cap=caps.get(p.get('category_slug'),('tiers',None))
+            pct=0.0 if mode=='none' else min(bulk_discount,float(cap)) if mode=='fixed' and cap is not None else bulk_discount
+            bulk_discount_amount+=float(p.get('sale_price') or p['price'])*int(it['quantity'])*pct/100
+    bulk_discount_amount=round(bulk_discount_amount,2)
     after_bulk=subtotal-bulk_discount_amount
     coupon_discount=0.0
     if coupon and (not is_bulk or coupon.get('allow_bulk')):

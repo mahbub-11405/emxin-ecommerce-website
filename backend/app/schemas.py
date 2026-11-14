@@ -46,6 +46,8 @@ class ProductInput(BaseModel):
 class CategoryInput(BaseModel):
     name: str; name_bn: str=''; slug: Optional[str]=None; order: int=0; visible: bool=True; thumbnail_url: str=''; image_fit: Literal['','contain','cover']=''; subtitle: str=''; icon: str=''; show_on_home: bool=True
     code: str=Field(default='',max_length=5,pattern=r'^[A-Za-z0-9]{0,5}$')  # short category code used in SKU / stock codes, e.g. SMG, SEG, SSG
+    # dealer discount for products in this category: 'tiers' = 5/8/12/15 by order number, 'fixed' = never above dealer_percent, 'none' = no dealer discount
+    dealer_mode: Literal['tiers','fixed','none']='tiers'; dealer_percent: float=Field(default=5,ge=0,le=50)
 class BrandInput(BaseModel):
     name: str; slug: Optional[str]=None; order: int=0; visible: bool=True; logo_url: str=''
 class StaffCreate(BaseModel):
@@ -58,7 +60,7 @@ class CouponInput(BaseModel):
     code: str=Field(min_length=3,max_length=32); type: Literal['percentage','fixed']='fixed'; value: float=Field(gt=0)
     max_discount: Optional[float]=None; min_order: float=0; usage_limit: Optional[int]=None; active: bool=True; allow_bulk: bool=False
     starts_at: Optional[str]=None; ends_at: Optional[str]=None; description: str=''
-    show_public: bool=False  # listed under “Available coupons” at checkout (off = secret code, e.g. for influencers)
+    show_public: bool=True  # listed under “Available coupons” at checkout (off = secret code you share yourself)
 class OrderStatusUpdate(BaseModel):
     order_status: Optional[Literal['Pending Confirmation','Confirmed','Processing','Sent to Courier','Delivered','Completed','Returned','Cancelled']]=None
     payment_status: Optional[Literal['Unpaid','Pending Payment','Pending Advance Payment','Advance Required','Awaiting Advance Verification','Advance Paid','Paid','COD Collected','Refunded','Failed']]=None

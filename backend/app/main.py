@@ -363,6 +363,7 @@ def order_pricing_cfg(phone,dealer_opt_in,qty):
         cfg['bulk_discount_percent']=float(dealer.get('discount_override_percent') if dealer.get('discount_override_percent') is not None else tier) if dealer.get('discount_approved',False) else 0.0
     else:
         cfg['bulk_discount_percent']=0.0
+    cfg['category_dealer']={c['slug']:(c.get('dealer_mode') or 'tiers',c.get('dealer_percent')) for c in db.categories.find({},{'slug':1,'dealer_mode':1,'dealer_percent':1})}
     return dealer,cfg
 
 @app.post('/api/v1/orders/quote')

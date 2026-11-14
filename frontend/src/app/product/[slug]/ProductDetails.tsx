@@ -12,7 +12,7 @@ import {parseSpecs,parseFeature,sameText} from '@/lib/productText';
 const specIcon=(label:string)=>{const l=label.toLowerCase();if(/chip|processor|ram|storage|memory/.test(l))return 'cube';if(/compat|app/.test(l))return 'phone';if(/control|touch/.test(l))return 'bolt';if(/model|brand/.test(l))return 'glasses';const i=featureIcon(l);return i==='badgeCheck'?'info':i};
 
 const TABS=['Product Details','Specifications',"What's in the Box",'Reviews','Q&A'] as const;
-export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent=5,dealerTiers=[],defaultBanner=''}:{product:any;bulkThreshold?:number;dealerPercent?:number;dealerTiers?:number[];defaultBanner?:string}){
+export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent=5,dealerTiers=[],dealerFixed=false,defaultBanner=''}:{product:any;bulkThreshold?:number;dealerPercent?:number;dealerTiers?:number[];dealerFixed?:boolean;defaultBanner?:string}){
   const media=useMemo(()=>{const m=p.media?.length?p.media:[...(p.images||[]).map((url:string)=>({url,type:'image'})),...(p.video_url?[{url:p.video_url,type:'video'}]:[])];return m.filter((x:any)=>x?.url)},[p]);
   const[sel,setSel]=useState(()=>Math.max(0,media.findIndex((m:any)=>m.type==='image')));
   const[tab,setTab]=useState<typeof TABS[number]>('Product Details');
@@ -60,7 +60,7 @@ export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent
         <PurchaseOptions product={p}/>
         <button type="button" className="dealer-cta" onClick={()=>setDrawer(true)}>
           <span className="dealer-cta-ico"><Icon name="percent" size={22} stroke={2.4}/></span>
-          <span><b>Order {bulkThreshold}+ pcs?</b><small>Become a Dealer & Get Extra {dealerPercent}% Discount</small></span>
+          <span><b>Order {bulkThreshold}+ pcs?</b><small>{dealerPercent>0?(dealerFixed?`Dealer price: ${dealerPercent}% off on every bulk order`:`Become a Dealer & Get Extra ${dealerPercent}% Discount`):'Request a bulk quote from EMXIN'}</small></span>
           <Icon name="chevronRight" size={22} stroke={2.2}/>
         </button>
         <div className="pd-assure"><span><Icon name="shieldPlain" size={22} stroke={1.6}/><b>Product<br/>Support</b></span><span><Icon name="badgeCheck" size={22} stroke={1.6}/><b>100%<br/>Genuine</b></span><Link href="/delivery"><Icon name="truck" size={22} stroke={1.6}/><b>Fast<br/>Delivery</b></Link><Link href="/payments"><Icon name="secure" size={22} stroke={1.6}/><b>Secure<br/>Payment</b></Link></div>
@@ -76,6 +76,6 @@ export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent
       {tab==='Q&A'&&<Questions product={p}/>}
     </section>
     {zoom&&active&&<div className="modal-bg" role="dialog" aria-modal="true" onClick={()=>setZoom(false)}><button className="modal-x" aria-label="Close"><Icon name="close"/></button><img className="zoom-img" src={active.url} alt={p.name}/></div>}
-    <QuantityRequest product={p} open={drawer} onClose={()=>setDrawer(false)} dealerPercent={dealerPercent} dealerTiers={dealerTiers} bulkThreshold={bulkThreshold}/>
+    <QuantityRequest product={p} open={drawer} onClose={()=>setDrawer(false)} dealerPercent={dealerPercent} dealerTiers={dealerTiers} dealerFixed={dealerFixed} bulkThreshold={bulkThreshold}/>
   </div>;
 }

@@ -633,7 +633,7 @@ def validate_coupon(code: str, subtotal: float = 0):
 def available_coupons(subtotal: float = 0):
     """Coupons the admin chose to show at checkout: active, in date, not used up. `eligible` says if this cart qualifies."""
     n = now(); out = []
-    for c in db.coupons.find({'active': True, 'show_public': True}).sort('value', -1).limit(20):
+    for c in db.coupons.find({'active': True, 'show_public': {'$ne': False}}).sort('value', -1).limit(20):  # older coupons (no flag) are shown too
         if c.get('starts_at') and n < c['starts_at'].replace(tzinfo=timezone.utc): continue
         if c.get('ends_at') and n > c['ends_at'].replace(tzinfo=timezone.utc): continue
         if c.get('usage_limit') and db.orders.count_documents({'coupon_code': c['code'], 'order_status': {'$nin': list(RELEASED_STATUSES)}}) >= c['usage_limit']: continue
