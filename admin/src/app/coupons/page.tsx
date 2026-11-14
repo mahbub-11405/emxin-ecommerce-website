@@ -4,7 +4,7 @@ import Shell from '@/components/Shell';
 import Icon from '@/components/Icon';
 import {PageHead,Drawer,Empty,Loading,toast,Field,Toggle,Confirm,Status} from '@/components/ui';
 import {api,put,del,postJSON,tk,dateOnly} from '@/lib/api';
-const BLANK:any={code:'',type:'fixed',value:100,max_discount:null,min_order:0,usage_limit:null,active:true,allow_bulk:false,starts_at:'',ends_at:'',description:''};
+const BLANK:any={code:'',type:'fixed',value:100,max_discount:null,min_order:0,usage_limit:null,active:true,allow_bulk:false,starts_at:'',ends_at:'',description:'',show_public:false};
 const d10=(s:any)=>s?String(s).slice(0,10):'';
 export default function Coupons(){
   const[rows,setRows]=useState<any[]|null>(null);const[f,setF]=useState<any>(null);const[orig,setOrig]=useState('');
@@ -23,5 +23,5 @@ export default function Coupons(){
       <Field label="Usage limit" hint="Empty = unlimited"><input type="number" value={f.usage_limit??''} onChange={e=>setF({...f,usage_limit:e.target.value})}/></Field>
       <Field label="Starts"><input type="date" value={f.starts_at||''} onChange={e=>setF({...f,starts_at:e.target.value})}/></Field><Field label="Ends (inclusive)"><input type="date" value={f.ends_at||''} onChange={e=>setF({...f,ends_at:e.target.value})}/></Field>
       <Field label="Description" span><input value={f.description} onChange={e=>setF({...f,description:e.target.value})}/></Field>
-      <div className="span stack"><Toggle checked={f.active} onChange={v=>setF({...f,active:v})} label="Active"/><Toggle checked={f.allow_bulk} onChange={v=>setF({...f,allow_bulk:v})} label="Allow on bulk / dealer orders"/><button className="btn">Save coupon</button></div></form>}</Drawer></Shell>;
+      <div className="span stack"><Toggle checked={f.active} onChange={v=>setF({...f,active:v})} label="Active"/><Toggle checked={f.allow_bulk} onChange={v=>setF({...f,allow_bulk:v})} label="Allow on bulk / dealer orders"/><Toggle checked={!!f.show_public} onChange={v=>setF({...f,show_public:v})} label="Show in “Available coupons” at checkout (off = secret code you share yourself)"/><button className="btn">Save coupon</button></div></form>}</Drawer></Shell>;
 }

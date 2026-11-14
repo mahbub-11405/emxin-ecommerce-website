@@ -58,6 +58,7 @@ class CouponInput(BaseModel):
     code: str=Field(min_length=3,max_length=32); type: Literal['percentage','fixed']='fixed'; value: float=Field(gt=0)
     max_discount: Optional[float]=None; min_order: float=0; usage_limit: Optional[int]=None; active: bool=True; allow_bulk: bool=False
     starts_at: Optional[str]=None; ends_at: Optional[str]=None; description: str=''
+    show_public: bool=False  # listed under “Available coupons” at checkout (off = secret code, e.g. for influencers)
 class OrderStatusUpdate(BaseModel):
     order_status: Optional[Literal['Pending Confirmation','Confirmed','Processing','Sent to Courier','Delivered','Completed','Returned','Cancelled']]=None
     payment_status: Optional[Literal['Unpaid','Pending Payment','Pending Advance Payment','Advance Required','Awaiting Advance Verification','Advance Paid','Paid','COD Collected','Refunded','Failed']]=None

@@ -25,7 +25,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
     const list=productId?[{product_id:productId,quantity:initialQty,frame_color:initialColor}]:readCart();
     setItems(list);
     const d=readDraft();const token=getToken();
-    if(d){setF(v=>({...v,...d.f}));if(d.pay&&(d.pay!=='paystation'||psOn))setPay(d.pay);if(d.coupon)setCoupon(d.coupon);if(token){setWelcome(true);try{sessionStorage.removeItem(DRAFT)}catch{}}}
+    if(d){setF(v=>({...v,...d.f}));if(d.pay&&(d.pay!=='paystation'||psOn))setPay(d.pay);if(d.coupon){setCoupon(d.coupon);setTimeout(()=>applyCoupon(d.coupon),600)}if(d.mp)setMp(m=>({...m,...d.mp}));if(token){setWelcome(true);try{sessionStorage.removeItem(DRAFT)}catch{}}}
     if(token)fetch(API+'/customers/me',{headers:{Authorization:'Bearer '+token}}).then(r=>{if(r.status===401){logout();return null}return r.ok?r.json():null}).then(x=>{if(!x?.customer)return;setMe(x.customer);
       setF(v=>({...v,customer_name:v.customer_name||x.customer.name||'',phone:x.customer.phone||v.phone,email:v.email||x.customer.email||'',address:v.address||x.customer.address||'',district:d?.f?.district||x.customer.district||v.district}))}).catch(()=>{});
     const ids=[...new Set(list.map(i=>i.product_id))];
@@ -52,12 +52,16 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const sendAmt=quote?Math.round(quote.is_bulk?quote.advance_required:quote.grand_total):(bulk?est.adv:est.total);
   const acc=accs[mp.channel]||{};const chLabel=mp.channel==='nagad'?'Nagad':'bKash';
   const copy=(t:string)=>{try{navigator.clipboard?.writeText(t)}catch{}};
-  async function applyCoupon(){setCpMsg('');setCp(null);if(!coupon.trim())return;try{const r=await fetch(`${API}/coupons/validate?code=${encodeURIComponent(coupon)}&subtotal=${est.sub}`);const j=await r.json();if(!r.ok)throw new Error(j.detail);setCp(j);setCpMsg(`Coupon applied${j.description?': '+j.description:''}`)}catch(e:any){setCpMsg(e.message||'Invalid coupon')}}
+  const[offers,setOffers]=useState<any[]>([]);const[showOffers,setShowOffers]=useState(false);const[copied,setCopied]=useState('');
+  useEffect(()=>{if(!est.sub)return;const t=setTimeout(()=>fetch(`${API}/coupons/available?subtotal=${Math.round(est.sub)}`).then(r=>r.ok?r.json():[]).then(x=>setOffers(Array.isArray(x)?x:[])).catch(()=>{}),300);return()=>clearTimeout(t)},[est.sub]);
+  const useOffer=(code:string)=>{setCoupon(code);setShowOffers(false);applyCoupon(code)};
+  const copyCode=(code:string)=>{try{navigator.clipboard?.writeText(code)}catch{}setCopied(code);setTimeout(()=>setCopied(''),1500)};
+  async function applyCoupon(code?:string){const c=(code??coupon).trim().toUpperCase();setCpMsg('');setCp(null);if(!c)return;try{const r=await fetch(`${API}/coupons/validate?code=${encodeURIComponent(c)}&subtotal=${est.sub}`);const j=await r.json();if(!r.ok)throw new Error(j.detail);setCp(j);setCpMsg(`Coupon applied${j.description?': '+j.description:''}`)}catch(e:any){setCpMsg(e.message||'Invalid coupon')}}
   async function go(e:React.FormEvent){
     e.preventDefault();
     const token=getToken();
     if(!token){ // not registered / logged in yet → register, then come straight back here with everything filled in
-      saveDraft({f,pay,coupon:cp?.code||coupon});
+      saveDraft({f,pay,mp,coupon:cp?.code||coupon});
       location.href='/login?tab=register&next='+encodeURIComponent(location.pathname+location.search);return;
     }
     setState({kind:'busy'});
@@ -68,7 +72,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       setState({kind:'ok',order:r});
     }catch(err:any){
       if(/must match your verified account/i.test(err.message))setState({kind:'err',text:`Use the mobile number of your account (${me?.phone||'verified number'}). To order for another number, log out and register that number.`});
-      else if(/Authentication|expired/i.test(err.message)){logout();saveDraft({f,pay,coupon});location.href='/login?next='+encodeURIComponent(location.pathname+location.search)}
+      else if(/Authentication|expired/i.test(err.message)){logout();saveDraft({f,pay,mp,coupon});location.href='/login?next='+encodeURIComponent(location.pathname+location.search)}
       else setState({kind:'err',text:err.message});
     }
   }
@@ -82,7 +86,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   return <form className="co" onSubmit={go}>
     <div className="co-main">
       {welcome&&<p className="note-good big"><Icon name="checkCircle" size={18}/> Welcome{me?.name?`, ${me.name.split(' ')[0]}`:''}! Your account is ready and your details are filled in — review and place your order.</p>}
-      {!logged&&<div className="co-guest"><Icon name="user" size={20}/><span>New here? Fill in your details — we'll ask you to verify your mobile number with an OTP when you place the order. <Link href={'/login?next='+encodeURIComponent('/checkout?cart=1')} onClick={()=>saveDraft({f,pay,coupon})}>Already registered? Log in</Link></span></div>}
+      {!logged&&<div className="co-guest"><Icon name="user" size={20}/><span>New here? Fill in your details — we'll ask you to verify your mobile number with an OTP when you place the order. <Link href={'/login?next='+encodeURIComponent('/checkout?cart=1')} onClick={()=>saveDraft({f,pay,mp,coupon})}>Already registered? Log in</Link></span></div>}
       <section className="panel"><h2><span className="step">1</span>Delivery Details</h2><div className="grid-2">
         <label className="qr-field"><span>Full Name <em>*</em></span><input required value={f.customer_name} onChange={e=>setF({...f,customer_name:e.target.value})}/></label>
         <label className="qr-field"><span>Mobile Number <em>*</em></span><input required type="tel" placeholder="017XXXXXXXX" value={f.phone} readOnly={logged} onChange={e=>setF({...f,phone:e.target.value})}/>{logged?<small className="muted">Verified account number</small>:<small className="muted">You'll verify this number by OTP</small>}</label>
@@ -105,7 +109,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
             <label className="qr-field"><span>Transaction ID (TrxID) <em>*</em></span><input required value={mp.trx_id} onChange={e=>setMp({...mp,trx_id:e.target.value.toUpperCase().replace(/\s/g,'')})} placeholder="e.g. 9KX7A2B1QZ" autoComplete="off"/></label>
             <label className="qr-field"><span>Sent from ({chLabel} number) <em>*</em></span><input required type="tel" value={mp.sender_number} onChange={e=>setMp({...mp,sender_number:e.target.value})} placeholder="017XXXXXXXX"/></label>
           </div>
-          <small className="muted">Please send the exact amount. EMXIN verifies the TrxID, then confirms your order and sends it to the courier.</small>
+          <small className="muted">Please send the exact amount. No separate save needed — the TrxID is sent with your order when you tap {logged?'Place Order':'Continue'} below{logged?'':' (it stays filled in while you verify your mobile)'}. EMXIN verifies it, then confirms your order and sends it to the courier.</small>
         </div>}
         {psOn&&<label className={'pay-opt'+(pay==='paystation'?' on':'')}><input type="radio" name="pay" checked={pay==='paystation'} onChange={()=>setPay('paystation')}/><Icon name="lockCard" size={26}/><span><b>Digital Payment {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Secure checkout by PayStation</small><PayMethods small/></span><em className="save">SAVE {pct}%</em></label>}
         {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</b> by paying in advance — the {pct}% discount applies to every bKash / Nagad / online payment.</span></div>}
@@ -128,7 +132,18 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
               <button type="button" className="co-rm" aria-label="Remove" title="Remove" onClick={()=>removeItem(k)}><Icon name="trash" size={15}/></button></div></div>
           <b className="co-line">৳ {(priceOf(p)*i.quantity).toLocaleString('en-IN')}</b></div>})}</div>
       <Link className="co-editcart" href="/cart"><Icon name="cart" size={16}/>Edit cart · add more items<Icon name="arrowRight" size={15}/></Link>
-      <div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={applyCoupon}>Apply</button></div>{cpMsg&&<small className={cp?'qr-okline':'qr-warn'}>{cpMsg}</small>}
+      <div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={()=>applyCoupon()}>Apply</button></div>{cpMsg&&<small className={cp?'qr-okline':'qr-warn'}>{cpMsg}</small>}
+      {offers.length>0&&<button type="button" className="co-offers-btn" onClick={()=>setShowOffers(true)}><Icon name="percent" size={15} stroke={2.4}/>View available coupons<em>{offers.length}</em></button>}
+      {showOffers&&<div className="co-modal" role="dialog" aria-modal="true" aria-labelledby="offers-title"><button type="button" className="co-modal-bg" aria-label="Close" onClick={()=>setShowOffers(false)}/>
+        <div className="co-modal-box"><div className="co-modal-head"><h3 id="offers-title">Available coupons</h3><button type="button" className="co-x" aria-label="Close" onClick={()=>setShowOffers(false)}>×</button></div>
+          <p className="muted tiny">Tap <b>Apply</b> to use a coupon on this order, or copy the code.</p>
+          <div className="co-offer-list">{offers.map(o=><div key={o.code} className={'co-offer'+(o.eligible?'':' off')}>
+            <div className="co-offer-top"><b>{o.label}</b>{o.allow_bulk&&<span className="co-tag">Bulk OK</span>}</div>
+            {o.description&&<p>{o.description}</p>}
+            <small className="muted">{o.min_order>0?`Min. order ৳ ${Math.round(o.min_order).toLocaleString('en-IN')}`:'No minimum'}{o.ends_at?` · valid till ${new Date(new Date(o.ends_at).getTime()-864e5).toLocaleDateString('en-GB')}`:''}</small>
+            {!o.eligible&&<small className="co-short">Add ৳ {Math.round(o.short_by).toLocaleString('en-IN')} more to use this</small>}
+            <div className="co-offer-act"><span className="co-code">{o.code}</span><button type="button" className="btn btn-ghost btn-sm" onClick={()=>copyCode(o.code)}>{copied===o.code?'Copied ✓':'Copy'}</button><button type="button" className="btn btn-sm" disabled={!o.eligible} onClick={()=>useOffer(o.code)}>Apply</button></div>
+          </div>)}</div></div></div>}
       <div className="sum-row"><span>Subtotal</span><span>৳ {est.sub.toLocaleString('en-IN')}</span></div>
       {est.c>0&&<div className="sum-row good"><span>Coupon</span><span>− ৳ {Math.round(est.c).toLocaleString('en-IN')}</span></div>}
       <div className="sum-row"><span>Delivery ({f.district})</span><span>৳ {est.del}</span></div>

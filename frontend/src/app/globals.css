@@ -665,3 +665,20 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .pa-glasses,.pa-orbit,.pa-cam{will-change:transform}
 .block,.ftr{content-visibility:auto;contain-intrinsic-size:auto 520px}
 @media (hover:none){.pc:hover,.cat-tile:hover{transform:none}.pc:hover .pc-media img{transform:none}}
+
+/* v2.5 checkout: available coupons */
+.co-offers-btn{display:inline-flex;align-items:center;gap:6px;margin:6px 0 4px;border:0;background:none;color:var(--blue);font:inherit;font-weight:700;font-size:13.5px;cursor:pointer;padding:6px 0}
+.co-offers-btn em{font-style:normal;background:var(--blue);color:#fff;border-radius:999px;font-size:11px;min-width:18px;height:18px;display:inline-grid;place-items:center;padding:0 5px}
+.co-modal{position:fixed;inset:0;z-index:200;display:grid;place-items:center;padding:16px}
+.co-modal-bg{position:absolute;inset:0;border:0;background:rgba(11,24,56,.45);cursor:pointer}
+.co-modal-box{position:relative;width:min(460px,100%);max-height:min(80vh,640px);overflow:auto;background:#fff;border-radius:18px;padding:18px 18px 20px;box-shadow:0 30px 70px rgba(11,24,56,.3)}
+.co-modal-head{display:flex;justify-content:space-between;align-items:center}.co-modal-head h3{margin:0;font-size:18px}
+.co-x{width:40px;height:40px;border:0;background:#f3f5fa;border-radius:10px;font-size:22px;line-height:1;cursor:pointer;color:var(--navy)}
+.co-offer-list{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.co-offer{border:1.5px dashed #bcd0ff;background:#f7f9ff;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.co-offer.off{opacity:.75;border-color:#d9dfeb;background:#fafbfd}
+.co-offer-top{display:flex;align-items:center;gap:8px}.co-offer-top b{font-size:17px;color:var(--navy)}
+.co-tag{font-size:11px;font-weight:700;color:#0f7a3d;background:#e6f6ec;border-radius:999px;padding:2px 8px}
+.co-offer p{margin:0;font-size:13.5px;color:#3b4660}.co-short{color:#b3400a;font-weight:600}
+.co-offer-act{display:flex;align-items:center;gap:8px;margin-top:6px}
+.co-code{flex:1;font-family:ui-monospace,Menlo,monospace;font-weight:700;letter-spacing:.06em;font-size:14.5px;color:var(--blue);background:#fff;border:1px solid #d9e4fb;border-radius:8px;padding:6px 10px}

@@ -629,6 +629,24 @@ def validate_coupon(code: str, subtotal: float = 0):
             'min_order': c.get('min_order', 0), 'description': c.get('description', ''), 'allow_bulk': bool(c.get('allow_bulk'))}
 
 
+@router.get('/api/v1/coupons/available')
+def available_coupons(subtotal: float = 0):
+    """Coupons the admin chose to show at checkout: active, in date, not used up. `eligible` says if this cart qualifies."""
+    n = now(); out = []
+    for c in db.coupons.find({'active': True, 'show_public': True}).sort('value', -1).limit(20):
+        if c.get('starts_at') and n < c['starts_at'].replace(tzinfo=timezone.utc): continue
+        if c.get('ends_at') and n > c['ends_at'].replace(tzinfo=timezone.utc): continue
+        if c.get('usage_limit') and db.orders.count_documents({'coupon_code': c['code'], 'order_status': {'$nin': list(RELEASED_STATUSES)}}) >= c['usage_limit']: continue
+        v = float(c['value']); cap = c.get('max_discount')
+        label = (f"{v:g}% OFF" + (f" up to ৳{float(cap):,.0f}" if cap else '')) if c['type'] == 'percentage' else f"৳{v:,.0f} OFF"
+        mo = float(c.get('min_order') or 0)
+        out.append({'code': c['code'], 'label': label, 'description': c.get('description', ''), 'min_order': mo,
+                    'ends_at': c['ends_at'].isoformat() if c.get('ends_at') else None, 'allow_bulk': bool(c.get('allow_bulk')),
+                    'eligible': not subtotal or subtotal >= mo, 'short_by': max(0, mo - subtotal) if subtotal else 0})
+    out.sort(key=lambda x: (not x['eligible'], x['min_order']))
+    return out
+
+
 # ---------------------------------------------------------------- reviews & questions
 def optional_customer(authorization):
     if not authorization or not authorization.startswith('Bearer '):
