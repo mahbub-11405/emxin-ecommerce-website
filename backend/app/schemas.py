@@ -61,6 +61,8 @@ class CouponInput(BaseModel):
     max_discount: Optional[float]=None; min_order: float=0; usage_limit: Optional[int]=None; active: bool=True; allow_bulk: bool=False
     starts_at: Optional[str]=None; ends_at: Optional[str]=None; description: str=''
     show_public: bool=True  # listed under “Available coupons” at checkout (off = secret code you share yourself)
+    promote: bool=False      # featured on the website: offer bar on every page, product pages, cart & checkout
+    promote_popup: bool=True # with promote: also a one-time welcome popup for new visitors
 class OrderStatusUpdate(BaseModel):
     order_status: Optional[Literal['Pending Confirmation','Confirmed','Processing','Sent to Courier','Delivered','Completed','Returned','Cancelled']]=None
     payment_status: Optional[Literal['Unpaid','Pending Payment','Pending Advance Payment','Advance Required','Awaiting Advance Verification','Advance Paid','Paid','COD Collected','Refunded','Failed']]=None

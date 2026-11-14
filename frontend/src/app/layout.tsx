@@ -4,6 +4,7 @@ import {safeJSON,isHttp} from '@/lib/api';
 import AnalyticsTracker from '@/components/AnalyticsTracker';
 import Icon from '@/components/Icon';
 import {CartBadge,AccountLink,NavLinks} from '@/components/HeaderClient';
+import {OfferBar,OfferPopup} from '@/components/Offer';
 
 export async function generateMetadata(){
   const site=await safeJSON<any>('/site-content',{});const seo=site.seo||{};
@@ -14,7 +15,7 @@ export async function generateMetadata(){
 export const viewport={width:'device-width',initialScale:1,themeColor:'#1f5cff'};
 
 export default async function Layout({children}:{children:React.ReactNode}){
-  const[site,cats]=await Promise.all([safeJSON<any>('/site-content',{}),safeJSON<any[]>('/categories',[])]);
+  const[site,cats,offer]=await Promise.all([safeJSON<any>('/site-content',{}),safeJSON<any[]>('/categories',[]),safeJSON<any>('/coupons/featured',{})]);
   const logo=isHttp(site.branding?.logo_url)?site.branding.logo_url:'/branding/emxin-logo-light.png';
   const logoDark=isHttp(site.branding?.logo_dark_url)?site.branding.logo_dark_url:'/branding/emxin-logo-dark.png';
   const links=site.links||{};
@@ -24,7 +25,7 @@ export default async function Layout({children}:{children:React.ReactNode}){
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet"/>
   </head><body>
     <AnalyticsTracker/>
-    {site.announcement?.enabled&&site.announcement?.text&&<div className="announce">{site.announcement.href?<Link href={site.announcement.href}>{site.announcement.text}</Link>:site.announcement.text}</div>}
+    {offer?.code?<><OfferBar c={offer}/><OfferPopup c={offer}/></>:site.announcement?.enabled&&site.announcement?.text&&<div className="announce">{site.announcement.href?<Link href={site.announcement.href}>{site.announcement.text}</Link>:site.announcement.text}</div>}
     <header className="hdr"><div className="wrap hdr-row">
       <Link className="hdr-logo" href="/" aria-label="EMXIN Technologies home"><img src={logo} alt="EMXIN Technologies"/></Link>
       <NavLinks categories={cats}/>

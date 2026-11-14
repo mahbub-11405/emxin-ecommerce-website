@@ -6,13 +6,14 @@ import Stars from '@/components/Stars';
 import GlassesArt from '@/components/GlassesArt';
 import PurchaseOptions from './PurchaseOptions';
 import QuantityRequest from './QuantityRequest';
+import {OfferChip} from '@/components/Offer';
 import {Reviews,Questions} from './Community';
 import {parseSpecs,parseFeature,sameText} from '@/lib/productText';
 
 const specIcon=(label:string)=>{const l=label.toLowerCase();if(/chip|processor|ram|storage|memory/.test(l))return 'cube';if(/compat|app/.test(l))return 'phone';if(/control|touch/.test(l))return 'bolt';if(/model|brand/.test(l))return 'glasses';const i=featureIcon(l);return i==='badgeCheck'?'info':i};
 
 const TABS=['Product Details','Specifications',"What's in the Box",'Reviews','Q&A'] as const;
-export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent=5,dealerTiers=[],dealerFixed=false,defaultBanner=''}:{product:any;bulkThreshold?:number;dealerPercent?:number;dealerTiers?:number[];dealerFixed?:boolean;defaultBanner?:string}){
+export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent=5,dealerTiers=[],dealerFixed=false,defaultBanner='',offer=null}:{product:any;bulkThreshold?:number;dealerPercent?:number;dealerTiers?:number[];dealerFixed?:boolean;defaultBanner?:string;offer?:any}){
   const media=useMemo(()=>{const m=p.media?.length?p.media:[...(p.images||[]).map((url:string)=>({url,type:'image'})),...(p.video_url?[{url:p.video_url,type:'video'}]:[])];return m.filter((x:any)=>x?.url)},[p]);
   const[sel,setSel]=useState(()=>Math.max(0,media.findIndex((m:any)=>m.type==='image')));
   const[tab,setTab]=useState<typeof TABS[number]>('Product Details');
@@ -52,6 +53,7 @@ export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent
         <div className="pd-meta">{p.brand_name&&<span>Brand: {p.brand_name}</span>}{p.model&&<span>Model: {p.model}</span>}{p.sku&&<span>SKU: {p.sku}</span>}</div>
         <div className="pd-price"><b>৳ {price.toLocaleString('en-IN')}</b>{off>0&&<><del>৳ {Number(p.price).toLocaleString('en-IN')}</del><span className="off"><Icon name="flame" size={16} stroke={2.2}/>{off}% OFF</span></>}</div>
         {save>0&&<div className="pd-save"><Icon name="percent" size={15} stroke={2.4}/>You save <b>৳ {save.toLocaleString('en-IN')}</b> on this order</div>}
+        {offer&&<OfferChip c={offer} price={price}/>}
         <div className={'pd-stock'+(p.stock>0?'':' out')}><span><i><Icon name={p.stock>0?'check':'info'} size={14} stroke={3}/></i>{p.stock>0?<>In Stock: {p.stock} pcs</>:'Currently out of stock'}</span>{(p.compare_note||p.sku)&&<small>{p.compare_note||p.sku}</small>}</div>
         {features.length>0&&<div className="pd-feats-wrap">
           <div className="pd-feats" role="tablist" aria-label="Key features">{features.map((f,i)=><button type="button" role="tab" aria-selected={feat===i} key={i} className={feat===i?'on':''} onClick={()=>setFeat(i)} onMouseEnter={()=>setFeat(i)} onFocus={()=>setFeat(i)}><i><Icon name={featureIcon(f.full)} size={22} stroke={1.7}/></i><span>{f.title}</span></button>)}</div>

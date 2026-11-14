@@ -629,22 +629,39 @@ def validate_coupon(code: str, subtotal: float = 0):
             'min_order': c.get('min_order', 0), 'description': c.get('description', ''), 'allow_bulk': bool(c.get('allow_bulk'))}
 
 
-@router.get('/api/v1/coupons/available')
-def available_coupons(subtotal: float = 0):
-    """Coupons the admin chose to show at checkout: active, in date, not used up. `eligible` says if this cart qualifies."""
-    n = now(); out = []
-    for c in db.coupons.find({'active': True, 'show_public': {'$ne': False}}).sort('value', -1).limit(20):  # older coupons (no flag) are shown too
+def coupon_public(c, subtotal: float = 0):
+    v = float(c['value']); cap = c.get('max_discount')
+    label = (f"{v:g}% OFF" + (f" up to ৳{float(cap):,.0f}" if cap else '')) if c['type'] == 'percentage' else f"৳{v:,.0f} OFF"
+    mo = float(c.get('min_order') or 0)
+    return {'code': c['code'], 'label': label, 'description': c.get('description', ''), 'min_order': mo,
+            # ends_at is stored as the start of the day AFTER the last valid day
+            'ends_at': c['ends_at'].replace(tzinfo=timezone.utc).isoformat() if c.get('ends_at') else None,
+            'allow_bulk': bool(c.get('allow_bulk')), 'popup': c.get('promote_popup', True) is not False,
+            'eligible': not subtotal or subtotal >= mo, 'short_by': max(0, mo - subtotal) if subtotal else 0}
+
+
+def live_coupons(extra: dict):
+    n = now()
+    for c in db.coupons.find({'active': True, 'show_public': {'$ne': False}, **extra}).sort([('value', -1), ('created_at', -1)]).limit(30):
         if c.get('starts_at') and n < c['starts_at'].replace(tzinfo=timezone.utc): continue
         if c.get('ends_at') and n > c['ends_at'].replace(tzinfo=timezone.utc): continue
         if c.get('usage_limit') and db.orders.count_documents({'coupon_code': c['code'], 'order_status': {'$nin': list(RELEASED_STATUSES)}}) >= c['usage_limit']: continue
-        v = float(c['value']); cap = c.get('max_discount')
-        label = (f"{v:g}% OFF" + (f" up to ৳{float(cap):,.0f}" if cap else '')) if c['type'] == 'percentage' else f"৳{v:,.0f} OFF"
-        mo = float(c.get('min_order') or 0)
-        out.append({'code': c['code'], 'label': label, 'description': c.get('description', ''), 'min_order': mo,
-                    'ends_at': c['ends_at'].isoformat() if c.get('ends_at') else None, 'allow_bulk': bool(c.get('allow_bulk')),
-                    'eligible': not subtotal or subtotal >= mo, 'short_by': max(0, mo - subtotal) if subtotal else 0})
+        yield c
+
+
+@router.get('/api/v1/coupons/available')
+def available_coupons(subtotal: float = 0):
+    """Coupons shown at checkout: active, in date, not used up, not secret. `eligible` says if this cart qualifies."""
+    out = [coupon_public(c, subtotal) for c in live_coupons({})][:20]
     out.sort(key=lambda x: (not x['eligible'], x['min_order']))
     return out
+
+
+@router.get('/api/v1/coupons/featured')
+def featured_coupon():
+    """The one coupon promoted on the website (offer bar, popup, product pages). Biggest discount wins if several are promoted."""
+    c = next(live_coupons({'promote': True}), None)
+    return coupon_public(c) if c else {}
 
 
 # ---------------------------------------------------------------- reviews & questions
