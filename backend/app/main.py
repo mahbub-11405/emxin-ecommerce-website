@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo import ReturnDocument
 from bson import ObjectId
 from datetime import datetime, timedelta, timezone
-import secrets, re, hashlib, hmac, uuid, mimetypes
+import secrets, re, hashlib, hmac, uuid, mimetypes, logging
+log=logging.getLogger('emxin')
 from zoneinfo import ZoneInfo
 from .config import get_settings
 from .db import db, client, ensure_indexes
@@ -86,7 +87,8 @@ async def request_otp(body: OTPRequest, request: Request):
     response={'challenge_id':challenge_id,'expires_in':settings.otp_expire_seconds,'resend_in':settings.otp_resend_seconds}
     if settings.sms_enabled:
         try: await send_sms(phone,otp_message(code))
-        except Exception:
+        except Exception as e:
+            log.error('OTP SMS failed for %s…: %s',phone[:6],str(e)[:300])  # real BulkSMSBD reason → docker compose logs backend
             db.otp_challenges.delete_one({'challenge_id':challenge_id})
             raise HTTPException(503,'Could not send the SMS. Please try again in a minute.')
     elif settings.app_env!='production' and settings.otp_expose_code_in_test:
