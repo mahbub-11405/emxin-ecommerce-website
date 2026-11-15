@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     bulksmsbd_sender_id: str = ''
     # {OTP}, {MINUTES} and {DOMAIN} are filled in. Keep it plain English/ASCII (no ৳, emoji or curly quotes) so it is 1 normal SMS, not Unicode.
     # The last line lets Android Chrome / iPhone fill the code in automatically (WebOTP); {DOMAIN} = the storefront host.
-    otp_sms_template: str = 'Your EMXIN verification code is {OTP}. Valid for {MINUTES} minutes. Do not share this code with anyone.\n\n@{DOMAIN} #{OTP}'
+    otp_sms_template: str = 'Your EMXIN verification code is {OTP}. Valid for {MINUTES} minutes. Do not share this code with anyone.'  # no '@domain #code' line: iPhone and Android keyboards suggest the code anyway
     otp_max_per_phone_hour: int = 5      # sends (incl. resends) per number per hour
     otp_max_per_ip_hour: int = 15        # sends per visitor IP per hour (stops SMS pumping)
     otp_max_per_day: int = 300           # whole-site daily cap — protects your SMS balance

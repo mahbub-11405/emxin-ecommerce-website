@@ -56,7 +56,9 @@ class BulkSmsBdClient:
         except Exception: data={'raw':r.text[:300]}
         code=str(data.get('response_code','')) if isinstance(data,dict) else ''
         if code and code not in ('202','200'):  # e.g. 1007 = low balance, 1002 = sender id invalid
-            raise RuntimeError(f"BulkSMSBD error {code}: {data.get('error_message') or data.get('success_message') or data}")
+            msg=str(data.get('error_message') or data.get('success_message') or data)
+            if settings.bulksmsbd_api_key: msg=msg.replace(settings.bulksmsbd_api_key,'***')  # BulkSMSBD echoes the key in some errors
+            raise RuntimeError(f"BulkSMSBD error {code}: {msg}")
         return data
     async def send(self, phone: str, body: str, *_):
         async with httpx.AsyncClient(timeout=20) as c:
