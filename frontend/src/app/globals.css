@@ -421,7 +421,7 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 }
 @media (max-width:620px){
   .wrap,.container{padding:0 16px}
-  .hdr-row{height:64px}.hdr-nav{top:64px}.hdr-logo img{height:26px}.hdr-util{display:none}
+  .hdr-row{height:64px}.hdr-nav{top:64px}.hdr-logo img{height:26px}.hdr-util{display:none}.hdr-util.hdr-acc{display:flex}.hdr-util.hdr-acc small{display:none}
   .hero-shell{padding-top:12px}.hero{border-radius:20px}.hero-copy{padding:28px 20px 0}.hero-media{min-height:240px;padding:16px}.hero-tag{top:12px;right:12px}.hero-video{right:12px;bottom:12px}
   .trust{grid-template-columns:1fr}
   .block{margin-top:36px}.block-head{align-items:center}
@@ -734,3 +734,21 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .sp-box{max-width:520px}.sp-box form{display:grid;gap:12px}
 .sp-amt{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--soft);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
 .sp-amt div{display:grid}.sp-amt small{color:var(--muted);font-size:12px}.sp-amt s{color:var(--muted);font-size:15px}.sp-amt b{font-size:22px;color:var(--navy)}.sp-amt .save{margin-left:auto}
+
+/* mobile menu: search + account / track order (desktop shows these in the header bar) */
+.mnav-only{display:none}
+@media (max-width:980px){
+  .hdr-nav.open .mnav-only{display:flex}
+  .hdr-nav{max-height:calc(100dvh - 76px);overflow:auto}
+  .mnav-search{align-items:center;gap:8px;border:1px solid var(--line-2);background:var(--soft);border-radius:999px;padding:4px 4px 4px 14px;margin:8px 0 6px;color:var(--muted)}
+  .mnav-search input{flex:1;min-width:0;border:0;background:transparent;outline:none;font-size:16px;padding:8px 0}
+  .mnav-search .btn{border-radius:999px}
+  .mnav-links{flex-direction:column;margin-top:6px;background:var(--soft);border-radius:var(--r);padding:4px 12px}
+  .mnav-links a{display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line);font-weight:600;color:var(--navy)}
+  .mnav-links a:last-child{border-bottom:0}
+}
+@media (max-width:620px){.hdr-nav{max-height:calc(100dvh - 64px)}}
+
+/* order summary: amounts never break onto two lines */
+.sum-row>span:last-child,.sum-row>b:last-child,.sum-amt{white-space:nowrap;flex:none;text-align:right}
+.sum-row>span:first-child{min-width:0}.sum-note{display:block;font-weight:500;font-size:12px;opacity:.85}

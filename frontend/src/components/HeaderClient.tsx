@@ -14,18 +14,20 @@ export function CartBadge(){
 export function AccountLink(){
   const[label,setLabel]=useState('Account');
   useEffect(()=>{const u=()=>{try{setLabel(localStorage.getItem('customer_token')?'My Account':'Account')}catch{}};u();window.addEventListener('emxin:auth',u);return()=>window.removeEventListener('emxin:auth',u)},[]);
-  return <Link className="hdr-util" href={label==='Account'?'/login':'/account'} title={label==='Account'?'Login / Register':'My Account'}><Icon name="userSmall" size={19}/><small>{label==='Account'?'Login':'Account'}</small></Link>;
+  return <Link className="hdr-util hdr-acc" aria-label={label==='Account'?'Login':'My Account'} href={label==='Account'?'/login':'/account'} title={label==='Account'?'Login / Register':'My Account'}><Icon name="userSmall" size={19}/><small>{label==='Account'?'Login':'Account'}</small></Link>;
 }
 
 export function NavLinks({categories}:{categories:any[]}){
   const path=usePathname()||'/';
   const[open,setOpen]=useState(false);
-  const[mobile,setMobile]=useState(false);
+  const[mobile,setMobile]=useState(false);const[logged,setLogged]=useState(false);
   useEffect(()=>{setOpen(false);setMobile(false)},[path]);
+  useEffect(()=>{const u=()=>{try{setLogged(!!localStorage.getItem('customer_token'))}catch{}};u();window.addEventListener('emxin:auth',u);return()=>window.removeEventListener('emxin:auth',u)},[]);
   const is=(href:string)=>href==='/'?path==='/':path.startsWith(href);
   return <>
     <button className="hdr-burger" aria-label="Open menu" aria-expanded={mobile} onClick={()=>setMobile(!mobile)}><Icon name={mobile?'close':'menu'} size={24}/></button>
     <nav className={'hdr-nav'+(mobile?' open':'')} aria-label="Main">
+      <form action="/shop" className="mnav-only mnav-search" role="search" onSubmit={()=>setMobile(false)}><Icon name="search" size={18}/><input name="q" placeholder="Search products..." aria-label="Search products"/><button className="btn btn-sm">Search</button></form>
       <Link className={is('/')?'active':''} href="/">Home</Link>
       <Link className={is('/shop')&&!open?'active':''} href="/shop">Shop</Link>
       <div className="mega" onMouseEnter={()=>setOpen(true)} onMouseLeave={()=>setOpen(false)}>
@@ -40,6 +42,11 @@ export function NavLinks({categories}:{categories:any[]}){
       </div>
       <Link className={is('/new-collection')?'active':''} href="/new-collection">New Collection</Link>
       <Link className={is('/offers')?'active':''} href="/offers">Offers</Link>
+      <div className="mnav-only mnav-links">
+        <Link href={logged?'/account':'/login'}><Icon name="userSmall" size={19}/>{logged?'My Account':'Login / Register'}</Link>
+        <Link href="/track-order"><Icon name="track" size={19}/>Track Order</Link>
+        <Link href="/wishlist"><Icon name="heart" size={19}/>Wishlist</Link>
+      </div>
       <Link className="hdr-dealer" href="/dealer">Become a Dealer</Link>
     </nav>
   </>;

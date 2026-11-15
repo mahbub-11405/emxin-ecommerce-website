@@ -156,7 +156,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
           </div>)}</div></div></div>}
       <div className="sum-row"><span>Subtotal</span><span>৳ {est.sub.toLocaleString('en-IN')}</span></div>
       {est.c>0&&<div className="sum-row good"><span>Coupon</span><span>− ৳ {Math.round(est.c).toLocaleString('en-IN')}</span></div>}
-      {digital&&<div className="sum-row good strong"><span>Digital payment discount ({pct}% on products)</span><span>− ৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</span></div>}
+      {digital&&<div className="sum-row good strong"><span>bKash / Nagad discount <small className="sum-note">{pct}% on products</small></span><span className="sum-amt">− ৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</span></div>}
       <div className="sum-row"><span>Delivery ({f.district})</span><span>৳ {est.del}</span></div>
       {quote?.estimated_shipping>0&&<div className="sum-row"><span>Extra shipping (weight)</span><span>৳ {Math.round(quote.estimated_shipping).toLocaleString('en-IN')}</span></div>}
       {quote?.bulk_discount>0&&<div className="sum-row good"><span>Dealer discount</span><span>− ৳ {Math.round(quote.bulk_discount).toLocaleString('en-IN')}</span></div>}

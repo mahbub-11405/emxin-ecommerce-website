@@ -75,7 +75,7 @@ export default function Orders(){
   const[d,setD]=useState<any>(null);const[open,setOpen]=useState('');const[sel,setSel]=useState<string[]>([]);
   const load=useCallback(()=>{const s=new URLSearchParams({page:String(page),page_size:'25'});if(status)s.set('status',status);if(q)s.set('q',q);if(payment)s.set('payment',payment);if(method)s.set('method',method);if(start)s.set('start',start);if(end)s.set('end',end);api('/admin/orders/search?'+s).then(setD).catch(e=>toast.err(e.message))},[status,q,payment,method,start,end,page]);
   useEffect(()=>{const t=setTimeout(load,q?300:0);return()=>clearTimeout(t)},[load,q]);
-  useEffect(()=>{const o=new URLSearchParams(location.search).get('open');if(o)setOpen(o)},[]);
+  useEffect(()=>{const u=new URLSearchParams(location.search);const o=u.get('open');if(o)setOpen(o);const st=u.get('status');if(st&&STATUSES.includes(st))setStatus(st)},[]);
   const total=d?Object.values(d.by_status||{}).reduce((a:any,b:any)=>a+b,0) as number:0;
   return <Shell>
     <PageHead title="Orders" sub="bKash/Nagad orders: verify the TrxID → the order is confirmed and goes to the courier. COD orders: call the customer → confirm. Nothing reaches the courier before you confirm."><button className="btn btn-ghost" onClick={()=>d&&downloadCSV('emxin-orders.csv',d.rows,[['Order','order_id'],['Date',r=>dt(r.created_at)],['Customer','customer_name'],['Phone','phone'],['District','district'],['Items',r=>r.items.map((i:any)=>`${i.name} x${i.quantity}`).join('; ')],['Total',r=>r.pricing?.grand_total],['COD due',r=>r.pricing?.cod_due],['Payment',(r:any)=>payLabel(r)],['Payment status','payment_status'],['Status','order_status'],['Courier','courier']])}><Icon name="download" size={17}/>Export CSV</button></PageHead>

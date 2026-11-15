@@ -6,11 +6,11 @@ client = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=7000, tz_awa
 db = client[settings.mongodb_db_name]
 
 def _email_index(coll):
-    # Phone-only registration: many accounts have no email. A plain unique (or sparse) index would
-    # reject the second account whose email is missing/null, so only index real string emails.
+    # The mobile number is the account key (unique). Email is optional and NOT unique: one person can have
+    # several numbers (accounts) with the same email. Replace any old unique email index with a plain one.
     info=coll.index_information().get('email_1')
-    if info and not info.get('partialFilterExpression'): coll.drop_index('email_1')
-    coll.create_index('email', unique=True, partialFilterExpression={'email':{'$type':'string'}})
+    if info and (info.get('unique') or info.get('partialFilterExpression')): coll.drop_index('email_1'); info=None
+    if not info: coll.create_index('email')
 
 def ensure_indexes():
     _email_index(db.customers); _email_index(db.dealers)

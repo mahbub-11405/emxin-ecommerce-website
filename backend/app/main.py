@@ -270,15 +270,16 @@ def dhaka_day_bounds(days_back:int=0):
 def customer_register(body: CustomerRegister):
     email=body.email.lower().strip(); phone=normalize_bd_phone(body.phone)
     if not consume_phone_verification(phone,'customer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
-    if db.customers.find_one({'$or':[{'email':email},{'phone':phone}]}): raise HTTPException(409,'Email or phone already registered')
+    if db.customers.find_one({'phone':phone}): raise HTTPException(409,'This number is already registered. Please log in.')  # email may repeat
     doc=body.model_dump(exclude={'password'}); doc.update({'email':email,'phone':phone,'password_hash':hash_password(body.password),'account_type':'customer','lead_status':'New Lead','lead_priority':'Cold','total_orders':0,'total_purchase':0.0,'created_at':now(),'last_login_at':None,'last_active_at':now(),'assigned_sales_person':None,'sales_notes':[],'next_followup_at':None})
     r=db.customers.insert_one(doc)
     return {'access_token':create_token(str(r.inserted_id),'customer'),'customer':serialize({**doc,'_id':r.inserted_id,'password_hash':None})}
 
 @app.post('/api/v1/customers/login')
 def customer_login(body: Login):
-    c=db.customers.find_one({'email':body.email.lower().strip()})
-    if not c or not verify_password(body.password,c['password_hash']): raise HTTPException(401,'Invalid login')
+    # email is not unique (one email, several numbers): use the account whose password matches
+    c=next((x for x in db.customers.find({'email':body.email.lower().strip()}) if x.get('password_hash') and verify_password(body.password,x['password_hash'])),None)
+    if not c: raise HTTPException(401,'Invalid login')
     db.customers.update_one({'_id':c['_id']},{'$set':{'last_login_at':now(),'last_active_at':now()}})
     clean={k:v for k,v in c.items() if k!='password_hash'}
     return {'access_token':create_token(str(c['_id']),'customer'),'customer':serialize(clean)}
@@ -306,7 +307,6 @@ def customer_register_phone(body: PhoneRegister):
     phone=normalize_bd_phone(body.phone)
     if db.customers.find_one({'phone':phone}): raise HTTPException(409,'This number is already registered. Please log in.')
     email=body.email.lower().strip() if body.email else None
-    if email and db.customers.find_one({'email':email}): raise HTTPException(409,'This email is already used by another account.')
     if not consume_phone_verification(phone,'customer_register',body.verification_id): raise HTTPException(401,'Valid phone OTP verification required')
     doc={'name':body.name.strip(),'phone':phone,'phone_verified':True,'district':body.district,'address':body.address,'account_type':'customer','lead_status':'New Lead','lead_priority':'Cold','total_orders':0,'total_purchase':0.0,'created_at':now(),'last_login_at':now(),'last_active_at':now(),'assigned_sales_person':None,'sales_notes':[],'next_followup_at':None}
     if email: doc['email']=email
@@ -320,7 +320,6 @@ def customer_update_me(payload: dict, authorization: str|None=Header(None)):
     if payload.get('email'):
         email=str(payload['email']).lower().strip()
         if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',email): raise HTTPException(400,'Invalid email')
-        if db.customers.find_one({'email':email,'_id':{'$ne':ObjectId(auth['sub'])}}): raise HTTPException(409,'Email already in use')
         upd['email']=email
     if upd: db.customers.update_one({'_id':ObjectId(auth['sub'])},{'$set':upd})
     return {'ok':True}
@@ -384,8 +383,8 @@ def dealer_apply(body: DealerApply):
 
 @app.post('/api/v1/dealers/login')
 def dealer_login(body: Login):
-    d=db.dealers.find_one({'email':body.email.lower()})
-    if not d or not verify_password(body.password,d['password_hash']): raise HTTPException(401,'Invalid login')
+    d=next((x for x in db.dealers.find({'email':body.email.lower().strip()}) if x.get('password_hash') and verify_password(body.password,x['password_hash'])),None)
+    if not d: raise HTTPException(401,'Invalid login')
     return {'access_token':create_token(str(d['_id']),'dealer'),'dealer':serialize({k:v for k,v in d.items() if k!='password_hash'})}
 
 @app.get('/api/v1/dealer/dashboard')
