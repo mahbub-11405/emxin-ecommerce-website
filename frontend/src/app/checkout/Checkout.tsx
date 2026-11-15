@@ -82,7 +82,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
     <p>Your order ID is <b>{r.order_id}</b>. {m?'We are checking your payment now.':online?'Complete the online payment to finish your order.':'Our team will call you to confirm before dispatch.'}</p>
     {m&&<div className="mp-done"><Icon name="checkCircle" size={18}/><span><b>{m.channel_label} payment received for verification</b><br/>TrxID <b>{m.trx_id}</b> · {tkf(m.amount_expected)}{m.is_advance?' advance':''}. Once EMXIN verifies it, your order will be confirmed and handed to the courier. We will SMS you, and you can follow it in My Orders.</span></div>}
     <div className="od-sum">
-      {Number(p.payment_discount)>0&&<div className="sum-row good"><span>You saved (digital payment)</span><b>{tkf(p.payment_discount)}</b></div>}
+      {Number(p.payment_discount)>0&&<div className="sum-row good"><span>Advance Payment Discount</span><b>{tkf(p.payment_discount)}</b></div>}
       {m&&<div className="sum-row"><span>Sent by {m.channel_label} <small className="muted">(being verified)</small></span><b>{tkf(m.amount_expected)}</b></div>}
       {online&&<div className="sum-row total"><span>To pay online</span><b>{tkf(p.is_bulk?p.advance_required:p.grand_total)}</b></div>}
       {cod?<div className="sum-row total"><span>Pay on delivery</span><b>{tkf(p.cod_due)}</b></div>:m&&<div className="sum-row good strong"><span>Due on delivery</span><b>৳ 0</b></div>}
@@ -121,7 +121,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
           <small className="muted">Please send the exact amount. No separate save needed — the TrxID is sent with your order when you tap {logged?'Place Order':'Continue'} below{logged?'':' (it stays filled in while you verify your mobile)'}. EMXIN verifies it, then confirms your order and sends it to the courier.</small>
         </div>}
         {psOn&&<label className={'pay-opt'+(pay==='paystation'?' on':'')}><input type="radio" name="pay" checked={pay==='paystation'} onChange={()=>setPay('paystation')}/><Icon name="lockCard" size={26}/><span><b>Digital Payment {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Secure checkout by PayStation</small><PayMethods small/></span><em className="save">SAVE {pct}%</em></label>}
-        {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</b> by paying in advance — the {pct}% discount is on the product price (not delivery) for every bKash / Nagad / online payment.</span></div>}
+        {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</b> with the <b>Advance Payment Discount</b>: {pct}% off the product price (not delivery) whenever you pay before delivery.</span></div>}
         {!bulk&&<label className={'pay-opt'+(pay==='cod'?' on':'')}><input type="radio" name="pay" checked={pay==='cod'} onChange={()=>setPay('cod')}/><Icon name="truck" size={26}/><span><b>Cash on Delivery</b><small>Pay when you receive the parcel · no digital discount</small></span></label>}
         {pay==='cod'&&est.saving>0&&<p className="note-warn">Tip: pay by bKash / Nagad to save ৳ {est.saving.toLocaleString('en-IN')} on this order.</p>}
       </div>
@@ -156,7 +156,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
           </div>)}</div></div></div>}
       <div className="sum-row"><span>Subtotal</span><span>৳ {est.sub.toLocaleString('en-IN')}</span></div>
       {est.c>0&&<div className="sum-row good"><span>Coupon</span><span>− ৳ {Math.round(est.c).toLocaleString('en-IN')}</span></div>}
-      {digital&&<div className="sum-row good strong"><span>bKash / Nagad discount <small className="sum-note">{pct}% on products</small></span><span className="sum-amt">− ৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</span></div>}
+      {digital&&<div className="sum-row good strong"><span>Advance Payment Discount <small className="sum-note">{pct}% off products · paid before delivery</small></span><span className="sum-amt">− ৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</span></div>}
       <div className="sum-row"><span>Delivery ({f.district})</span><span>৳ {est.del}</span></div>
       {quote?.estimated_shipping>0&&<div className="sum-row"><span>Extra shipping (weight)</span><span>৳ {Math.round(quote.estimated_shipping).toLocaleString('en-IN')}</span></div>}
       {quote?.bulk_discount>0&&<div className="sum-row good"><span>Dealer discount</span><span>− ৳ {Math.round(quote.bulk_discount).toLocaleString('en-IN')}</span></div>}

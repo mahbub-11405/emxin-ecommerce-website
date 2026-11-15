@@ -30,7 +30,7 @@ function SwitchPay({o,onClose,onDone}:{o:any;onClose:()=>void;onDone:(msg:string
       {q&&!q.channels?.length&&<p className="form-err">bKash / Nagad payment is not available right now. Your order stays Cash on Delivery.</p>}
       {q&&q.channels?.length>0&&<form onSubmit={submit}>
         <div className="sp-amt"><div><small>{q.current_method==='cod'?'Cash on Delivery':'Before'}</small><s>{tkf(q.current_total)}</s></div><Icon name="arrowRight" size={18}/><div><small>Pay now {q.is_bulk?'(advance)':''}</small><b>{tkf(q.send_amount)}</b></div>{q.payment_discount>0&&<em className="save">SAVE {tkf(q.payment_discount)}</em>}</div>
-        {q.payment_discount>0&&<p className="tiny muted">{q.discount_percent}% off the product price (not delivery) for paying in advance.</p>}
+        {q.payment_discount>0&&<p className="tiny muted">Advance Payment Discount: {q.discount_percent}% off the product price (not delivery) for paying before delivery.</p>}
         {q.channels.length>1&&<div className="mp-tabs">{q.channels.map((c:any)=><button type="button" key={c.channel} className={'mp-tab '+c.channel+(f.channel===c.channel?' on':'')} onClick={()=>setF({...f,channel:c.channel})}>{c.label}</button>)}</div>}
         {ch&&<ol className="mp-steps">
           <li>Open the <b>{ch.label}</b> app → <b>Send Money</b></li>
