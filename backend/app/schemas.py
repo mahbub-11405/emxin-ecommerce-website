@@ -48,6 +48,7 @@ class CategoryInput(BaseModel):
     code: str=Field(default='',max_length=5,pattern=r'^[A-Za-z0-9]{0,5}$')  # short category code used in SKU / stock codes, e.g. SMG, SEG, SSG
     # dealer discount for products in this category: 'tiers' = 5/8/12/15 by order number, 'fixed' = never above dealer_percent, 'none' = no dealer discount
     dealer_mode: Literal['tiers','fixed','none']='tiers'; dealer_percent: float=Field(default=5,ge=0,le=50)
+    banner_url: str=''  # Product Details banner for every product in this category (a product can still set its own)
 class BrandInput(BaseModel):
     name: str; slug: Optional[str]=None; order: int=0; visible: bool=True; logo_url: str=''
 class StaffCreate(BaseModel):

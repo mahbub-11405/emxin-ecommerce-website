@@ -2,7 +2,7 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import Shell from '@/components/Shell';
 import Icon from '@/components/Icon';
-import {PageHead,Status,Drawer,Empty,Loading,toast,Field,Toggle,Confirm,Tabs} from '@/components/ui';
+import {PageHead,Status,Drawer,Empty,Loading,toast,Field,Toggle,Confirm,Tabs,ImageInput} from '@/components/ui';
 import {parseSpecs} from '@/lib/productText';
 import {api,put,del,postJSON,tk,downloadCSV,mediaFolder,slugify} from '@/lib/api';
 import {DropZone,MediaPicker} from '@/components/Media';
@@ -84,7 +84,7 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
       <MediaPicker open={pick} onClose={()=>setPick(false)} onPick={addMedia}/>
       <div className="media-grid">{f.media.map((m:any,i:number)=><div key={m.url+i} className={'media-it'+(drag===i?' dragging':'')+(over===i&&drag!==i?' over':'')} draggable onDragStart={e=>{setDrag(i);e.dataTransfer.effectAllowed='move'}} onDragOver={e=>{e.preventDefault();setOver(i)}} onDragLeave={()=>setOver(-1)} onDrop={e=>{e.preventDefault();moveTo(drag,i);setDrag(-1);setOver(-1)}} onDragEnd={()=>{setDrag(-1);setOver(-1)}}>{m.type==='video'?<video src={m.url} muted/>:<img src={m.url} alt="" draggable={false}/>}<span className="media-no">{i+1}</span>{i===coverIdx?<span className="cover">★ Cover</span>:m.type==='video'?<span className="cover vid">Video</span>:null}<div className="media-ops">{m.type==='image'&&i!==coverIdx&&<button type="button" onClick={()=>moveTo(i,0)} aria-label="Make cover" title="Make cover">★</button>}<button type="button" onClick={()=>move(i,-1)} aria-label="Move left"><Icon name="chevronLeft" size={15}/></button><button type="button" onClick={()=>move(i,1)} aria-label="Move right"><Icon name="chevronRight" size={15}/></button><button type="button" onClick={()=>setMedia(f.media.filter((_:any,j:number)=>j!==i))} aria-label="Remove"><Icon name="trash" size={15}/></button></div></div>)}</div>
       <Field label="Add media by URL"><div className="row"><input id="mu" placeholder="https://d123.cloudfront.net/…"/><button type="button" className="btn btn-soft btn-sm" onClick={()=>{const el=document.getElementById('mu') as HTMLInputElement;const u=el.value.trim();if(!/^https:\/\//.test(u))return toast.err('Use an https URL');setMedia([...f.media,{url:u,type:/\.(mp4|webm|mov)(\?|$)/i.test(u)?'video':'image'}]);el.value=''}}>Add</button></div></Field>
-      <Field label="Overview banner image URL" hint="Right side of Product Details tab. Empty = default “See More. Do More.” banner"><input value={f.promo_image_url} onChange={e=>set('promo_image_url',e.target.value)}/></Field>
+      <div className="span"><ImageInput label="Product page banner for this product only (right of “Product Overview”). Empty = the category’s banner, else the site default." folder={mediaFolder('product',f.slug||f.name,'banner')} value={f.promo_image_url||''} onChange={u=>set('promo_image_url',u)}/></div>
     </div>}
     {tab==='content'&&<div className="fgrid">
       <Field label="Description" span><textarea rows={5} value={f.description} onChange={e=>set('description',e.target.value)}/></Field>

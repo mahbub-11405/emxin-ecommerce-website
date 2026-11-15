@@ -4,7 +4,7 @@ import Shell from '@/components/Shell';
 import Icon from '@/components/Icon';
 import {PageHead,Drawer,Empty,Loading,toast,Field,Toggle,Confirm,ImageInput,Status} from '@/components/ui';
 import {api,put,del,postJSON,mediaFolder} from '@/lib/api';
-const BLANK={name:'',name_bn:'',slug:'',subtitle:'',order:0,visible:true,show_on_home:true,thumbnail_url:'',icon:'',code:'',dealer_mode:'tiers',dealer_percent:5};
+const BLANK={name:'',name_bn:'',slug:'',subtitle:'',order:0,visible:true,show_on_home:true,thumbnail_url:'',icon:'',code:'',dealer_mode:'tiers',dealer_percent:5,banner_url:''};
 export default function Categories(){
   const[rows,setRows]=useState<any[]|null>(null);const[f,setF]=useState<any>(null);const[orig,setOrig]=useState('');const[busy,setBusy]=useState(false);
   const load=()=>api('/admin/categories').then(setRows).catch(e=>toast.err(e.message));useEffect(()=>{load()},[]);
@@ -24,6 +24,7 @@ export default function Categories(){
       <Field label="Dealer discount" hint="Standard: 5% → 8% → 12% → 15% by approved order number (Settings → Dealer & Discounts). Fixed: never more than the % you set, on every order — e.g. power banks 5%. None: no dealer discount and no dealer offer shown on these products."><select value={f.dealer_mode||'tiers'} onChange={e=>setF({...f,dealer_mode:e.target.value})}><option value="tiers">Standard tiers (5 / 8 / 12 / 15%)</option><option value="fixed">Fixed maximum %</option><option value="none">No dealer discount</option></select></Field>
       {f.dealer_mode==='fixed'&&<Field label="Maximum dealer discount (%)" hint="Applies to every dealer order, 1st to 4th+."><input type="number" min={0} max={50} step="0.5" value={f.dealer_percent??5} onChange={e=>setF({...f,dealer_percent:Number(e.target.value)})}/></Field>}
       <ImageInput label="Tile image (transparent PNG works best)" folder={mediaFolder('category',f.slug||f.name)} value={f.thumbnail_url} onChange={u=>setF({...f,thumbnail_url:u})}/>
+      <ImageInput label="Product page banner (right of “Product Overview” on every product in this category — e.g. a power bank banner for Power Bank). Empty = the site default “See More. Do More.”" folder={mediaFolder('category',(f.slug||f.name),'banner')} value={f.banner_url||''} onChange={u=>setF({...f,banner_url:u})}/>
       <Field label="Image style" hint="Cut-out: product floats on the tile (use a PNG with transparent background). Photo: the picture fills the top of the tile (use for normal photos). Auto picks Cut-out for PNG files, Photo for JPG/WebP."><select value={f.image_fit||''} onChange={e=>setF({...f,image_fit:e.target.value})}><option value="">Auto</option><option value="contain">Cut-out (transparent PNG)</option><option value="cover">Photo (fill the tile)</option></select></Field>
       <Toggle checked={f.visible} onChange={v=>setF({...f,visible:v})} label="Visible on storefront"/><Toggle checked={f.show_on_home!==false} onChange={v=>setF({...f,show_on_home:v})} label="Show on homepage tiles"/>
       <button className="btn" disabled={busy}>{busy?'Saving…':'Save category'}</button></form>}</Drawer></Shell>;

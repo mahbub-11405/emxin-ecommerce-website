@@ -936,6 +936,7 @@ def replace_url_everywhere(old:str,new:str):
         if p.get('promo_image_url')==old: upd['promo_image_url']=new
         db.products.update_one({'_id':p['_id']},{'$set':upd})
     db.categories.update_many({'thumbnail_url':old},{'$set':{'thumbnail_url':new}})
+    db.categories.update_many({'banner_url':old},{'$set':{'banner_url':new}})
     db.brands.update_many({'logo_url':old},{'$set':{'logo_url':new}})
     db.media_versions.update_many({'url':old},{'$set':{'url':new}})
     hp=db.homepage.find_one({'key':'home'})
@@ -958,7 +959,8 @@ def media_plan()->list[dict]:
         for i,u in enumerate(imgs,1): claim(u,f'product/{slug}',i)
         for i,u in enumerate(vids,1): claim(u,f'product/{slug}',i,True)
         claim(p.get('promo_image_url'),f'product/{slug}/banner')
-    for c in db.categories.find({},{'slug':1,'thumbnail_url':1}).sort('order',1): claim(c.get('thumbnail_url'),f"category/{c['slug']}")
+    for c in db.categories.find({},{'slug':1,'thumbnail_url':1,'banner_url':1}).sort('order',1):
+        claim(c.get('thumbnail_url'),f"category/{c['slug']}"); claim(c.get('banner_url'),f"category/{c['slug']}/banner")
     for b in db.brands.find({},{'slug':1,'logo_url':1}): claim(b.get('logo_url'),f"brand/{b.get('slug') or 'brand'}")
     hp=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
     slots={'hero.image':'homepage/hero','hero.video_url':'homepage/hero-video','promo.image':'homepage/promo-banner','coming_soon.image':'homepage/coming-soon','banner.image':'homepage/banner',
@@ -1022,8 +1024,9 @@ def media_usage()->dict:
         urls=set(p.get('images') or [])|{m.get('url') for m in (p.get('media') or []) if isinstance(m,dict)}|{p.get('video_url')}
         for u in urls: add(u,{**it,'where':'Gallery'})
         add(p.get('promo_image_url'),{**it,'where':'Promo image'})
-    for c in db.categories.find({},{'slug':1,'name':1,'thumbnail_url':1}):
+    for c in db.categories.find({},{'slug':1,'name':1,'thumbnail_url':1,'banner_url':1}):
         add(c.get('thumbnail_url'),{'kind':'category','id':c['slug'],'label':c.get('name',''),'where':'Category tile'})
+        add(c.get('banner_url'),{'kind':'category','id':c['slug'],'label':c.get('name',''),'where':'Product page banner'})
     for b in db.brands.find({},{'slug':1,'name':1,'logo_url':1}):
         add(b.get('logo_url'),{'kind':'brand','id':b.get('slug'),'label':b.get('name',''),'where':'Brand logo'})
     def walk(v,path):
@@ -1096,7 +1099,7 @@ def media_library_delete(media_id:str,authorization: str|None=Header(None)):
     if not ObjectId.is_valid(media_id): raise HTTPException(400,'Invalid id')
     m=db.media_library.find_one({'_id':ObjectId(media_id)})
     if not m: raise HTTPException(404,'Not found')
-    in_use=db.products.find_one({'$or':[{'images':m['url']},{'media.url':m['url']},{'video_url':m['url']},{'promo_image_url':m['url']}]},{'name':1}) or db.categories.find_one({'thumbnail_url':m['url']},{'name':1})
+    in_use=db.products.find_one({'$or':[{'images':m['url']},{'media.url':m['url']},{'video_url':m['url']},{'promo_image_url':m['url']}]},{'name':1}) or db.categories.find_one({'$or':[{'thumbnail_url':m['url']},{'banner_url':m['url']}]},{'name':1})
     if in_use: raise HTTPException(409,f"In use by {in_use.get('name','an item')}. Remove it there first.")
     hp=db.homepage.find_one({'key':'home'}) or {}
     if m['url'] in str(hp): raise HTTPException(409,'In use on the homepage. Replace it in CMS / Homepage first.')

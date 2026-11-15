@@ -19,5 +19,5 @@ export default async function Product({params}:{params:Promise<{slug:string}>}){
   const mode=cat.dealer_mode||'tiers';const first=tiersAll[0]||Number(cfg.bulk_discount_percent||5);
   const dealerPercent=mode==='none'?0:mode==='fixed'?Math.min(first,Number(cat.dealer_percent??first)):first;
   const dealerTiers=mode==='tiers'?tiersAll:mode==='fixed'?[Number(cat.dealer_percent??first)]:[];
-  return <main className="wrap section-sm"><ProductViewTracker id={p._id} name={p.name}/><ProductDetails product={p} bulkThreshold={Number(cfg.bulk_threshold_qty||20)} dealerPercent={dealerPercent} dealerTiers={dealerTiers} dealerFixed={mode==='fixed'} offer={offer?.code?offer:null} defaultBanner={site.branding?.product_banner_url||''}/></main>;
+  return <main className="wrap section-sm"><ProductViewTracker id={p._id} name={p.name}/><ProductDetails product={p} bulkThreshold={Number(cfg.bulk_threshold_qty||20)} dealerPercent={dealerPercent} dealerTiers={dealerTiers} dealerFixed={mode==='fixed'} offer={offer?.code?offer:null} defaultBanner={cat.banner_url||site.branding?.product_banner_url||''}/></main>;
 }
