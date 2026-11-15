@@ -22,8 +22,10 @@ def t_dealer_applied() -> str:
     return 'EMXIN: Your dealer application is received. We will review it and SMS you when it is approved. Thank you.'
 def t_dealer_approved(code: str) -> str:
     return f'EMXIN: Congratulations! Your dealer account is approved. Dealer ID: {code}. Use this ID when you order or call us. {settings.site_domain}/dealer'
-def t_dealer_rejected() -> str:
-    return 'EMXIN: Sorry, your dealer application was not approved at this time. Please call us for details.'
+def t_dealer_rejected(reason: str='') -> str:
+    reason=' '.join(str(reason or '').split()).rstrip('.')[:90]
+    why=f' Reason: {reason}.' if reason else ''
+    return f'EMXIN: Sorry, your dealer application was not approved.{why} You can apply again at {settings.site_domain}/dealer or call us.'
 def t_order_confirmed(o: dict) -> str:
     p=o.get('pricing') or {}; due=float(p.get('cod_due') or 0); paid=float(p.get('grand_total') or 0)-due
     money=(f'Paid {tk(paid)}, due {tk(due)} on delivery.' if paid>0 and due>0 else f'Pay {tk(due)} on delivery.' if due>0 else f'Paid {tk(paid)}.')

@@ -13,6 +13,7 @@ const SA=['super_admin'],MGR=['super_admin','admin'];
 const NAV:Item[]=[
   {href:'/dashboard',label:'Dashboard',icon:'dashboard'},
   {href:'/orders',label:'Orders',icon:'orders',badge:'orders_pending',roles:[...MGR,'sales','support','inventory']},
+  {href:'/courier',label:'Courier',icon:'truck',badge:'courier_attention',roles:[...MGR,'sales','support','inventory']},
   {href:'/products',label:'Products',icon:'products',roles:[...MGR,'inventory']},
   {href:'/categories',label:'Categories',icon:'categories',roles:[...MGR,'inventory']},
   {href:'/media',label:'Media Library',icon:'upload',roles:[...MGR,'inventory','marketing']},
@@ -23,6 +24,7 @@ const NAV:Item[]=[
   {href:'/marketing',label:'Marketing',icon:'marketing',roles:[...MGR,'marketing']},
   {href:'/homepage-builder',label:'CMS / Homepage',icon:'cms',roles:[...MGR,'marketing'],children:[{href:'/homepage-builder',label:'Homepage Builder'},{href:'/homepage-builder?tab=pages',label:'Policy Pages'}]},
   {href:'/reports',label:'Reports & Analytics',icon:'reports',roles:[...MGR,'sales','marketing'],children:[{href:'/reports',label:'Sales Reports'},{href:'/payments',label:'Payments',roles:[...MGR,'sales']},{href:'/ledger',label:'Ledger',roles:MGR}]},
+  {href:'/recycle-bin',label:'Recycle Bin',icon:'trash',roles:MGR},
   {href:'/settings',label:'Settings',icon:'settings',roles:MGR,children:[{href:'/settings',label:'Store Settings'},{href:'/staff',label:'Staff Accounts',roles:SA},{href:'/audit-log',label:'Audit Log',roles:SA}]},
 ];
 export const ROLE_LABEL:Record<string,string>={super_admin:'Super Admin',admin:'Admin',sales:'Sales',marketing:'Marketing',inventory:'Inventory',support:'Support'};

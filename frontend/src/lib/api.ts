@@ -26,7 +26,7 @@ export async function getJSON(path:string){
 export async function postJSON(path:string,body:any,token?:string){
   const r=await fetch(API+path,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));
-  if(!r.ok)throw new Error(typeof j.detail==='string'?j.detail:Array.isArray(j.detail)?j.detail.map((d:any)=>d.msg).join(', '):'Request failed');
+  if(!r.ok){const e:any=new Error(typeof j.detail==='string'?j.detail:Array.isArray(j.detail)?j.detail.map((d:any)=>d.msg).join(', '):'Request failed');e.status=r.status;throw e}
   return j;
 }
 /** Safe server-side fetch: returns fallback instead of throwing so pages always render. */
@@ -37,3 +37,14 @@ export const priceOf=(p:any)=>Number(p?.sale_price||p?.price||0);
 export const discountPct=(p:any)=>p?.sale_price&&Number(p.price)>Number(p.sale_price)?Math.round((1-Number(p.sale_price)/Number(p.price))*100):0;
 export const firstImage=(p:any)=>p?.images?.[0]||p?.media?.find((m:any)=>m.type==='image')?.url||'';
 export const isHttp=(s:any)=>typeof s==='string'&&/^https?:\/\//i.test(s);
+
+/** How the customer pays/paid: "bKash", "Nagad", "Cash on Delivery", "Bank transfer", "Online payment". */
+export function payLabel(o:any):string{
+  const ch=String(o?.manual_payment?.channel||o?.payment_channel||'').toLowerCase();
+  const NAMES:Record<string,string>={bkash:'bKash',nagad:'Nagad',rocket:'Rocket',upay:'Upay',card:'Card',bank:'Bank transfer',cod:'Cash on Delivery'};
+  if(o?.payment_method==='manual')return (NAMES[ch]||'bKash / Nagad')+' Send Money';
+  if(o?.payment_method==='cod')return 'Cash on Delivery';
+  if(o?.payment_method==='bank')return 'Bank transfer';
+  if(o?.payment_method==='paystation')return NAMES[ch]?NAMES[ch]+' (online)':'Online payment';
+  return NAMES[ch]||String(o?.payment_method||'');
+}

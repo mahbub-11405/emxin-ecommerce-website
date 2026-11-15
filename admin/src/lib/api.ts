@@ -9,7 +9,8 @@ export async function api(path:string,opts:any={}){
 }
 export async function postJSON(path:string,body:any){return api(path,{method:'POST',body:JSON.stringify(body)})}
 export const put=(path:string,body:any)=>api(path,{method:'PUT',body:JSON.stringify(body)});
-export const del=(path:string)=>api(path,{method:'DELETE'});
+/** Only called after the admin typed DELETE (askDelete); the backend checks confirm=delete too. Items go to the Recycle Bin. */
+export const del=(path:string)=>api(path+(path.includes('?')?'&':'?')+'confirm=delete',{method:'DELETE'});
 export const tk=(n:any)=>'৳ '+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:0});
 export const num=(n:any)=>Number(n||0).toLocaleString('en-IN');
 export const dt=(s:any)=>s?new Date(s).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
@@ -59,3 +60,15 @@ export function downloadCSV(name:string,rows:any[],cols:[string,string|((r:any)=
   const lines=[cols.map(c=>esc(c[0])).join(','),...rows.map(r=>cols.map(([,k])=>esc(typeof k==='function'?k(r):r[k])).join(','))];
   const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);
 }
+
+/** How the customer pays/paid: "bKash Send Money", "Nagad Send Money", "Cash on Delivery", "Bank transfer", "Online payment". */
+export function payLabel(o:any):string{
+  const ch=String(o?.manual_payment?.channel||o?.payment_channel||'').toLowerCase();
+  const NAMES:Record<string,string>={bkash:'bKash',nagad:'Nagad',rocket:'Rocket',upay:'Upay',card:'Card',bank:'Bank transfer',cod:'Cash on Delivery',other:'Other'};
+  if(o?.payment_method==='manual')return (NAMES[ch]||'bKash / Nagad')+' Send Money';
+  if(o?.payment_method==='cod')return ch&&ch!=='cod'&&NAMES[ch]?NAMES[ch]:'Cash on Delivery';
+  if(o?.payment_method==='bank')return 'Bank transfer';
+  if(o?.payment_method==='paystation')return NAMES[ch]?NAMES[ch]+' (PayStation)':'Online (PayStation)';
+  return NAMES[ch]||String(o?.payment_method||'—');
+}
+export const switchedLabel=(o:any)=>o?.switched_from==='cod'?'Switched from COD':o?.switched_from==='paystation'?'Switched from online':'';

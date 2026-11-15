@@ -41,8 +41,9 @@ def calculate(items, products_by_id, district: str, payment_method: str, coupon=
     # Retail prepaid/digital orders receive a fixed configurable discount.
     # Bulk/dealer orders use their separate bulk pricing + advance policy and do not stack this retail benefit.
     digital_discount_percent=float(cfg.get('digital_payment_discount_percent',settings.digital_payment_discount_percent))
-    # Business rule: every digital (PayStation) payment always gets the configured discount — retail and bulk.
-    payment_discount=float(round(gross_total*digital_discount_percent/100)) if payment_method in ('paystation','manual') else 0.0
+    # Business rule: every digital payment (PayStation / bKash / Nagad) gets the discount — retail and bulk —
+    # on the product price only (after dealer + coupon discounts), never on delivery or shipping.
+    payment_discount=float(round(product_net*digital_discount_percent/100)) if payment_method in ('paystation','manual') else 0.0
     grand=float(round(gross_total-payment_discount))  # whole taka: PayStation requires integer amounts
     advance_percent=float(cfg.get('bulk_advance_percent',settings.bulk_advance_percent)) if is_bulk else 0
     if is_bulk:

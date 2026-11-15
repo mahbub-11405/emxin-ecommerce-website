@@ -43,7 +43,7 @@ SUCCESS_STATUSES = ('Confirmed', 'Processing', 'Sent to Courier', 'Delivered', '
 RELEASED_STATUSES = ('Cancelled', 'Returned')
 PAYMENT_LABELS = {
     'cod': 'Cash on Delivery (COD)', 'bkash': 'bKash', 'nagad': 'Nagad', 'rocket': 'Rocket',
-    'card': 'Card', 'bank': 'Bank Transfer', 'paystation': 'Digital (PayStation)', 'other': 'Other',
+    'card': 'Card', 'bank': 'Bank Transfer', 'paystation': 'Online (PayStation)', 'other': 'Other',
 }
 
 
@@ -141,10 +141,38 @@ def order_amount_paid(o):
 
 
 def payment_key(o):
-    ch = o.get('payment_channel')
-    if ch:
-        return ch
-    return o.get('payment_method') or 'other'
+    """bkash / nagad / cod / bank … — the provider, never a generic "digital"."""
+    m = o.get('payment_method')
+    if m == 'manual':
+        return (o.get('manual_payment') or {}).get('channel') or o.get('payment_channel') or 'bkash'
+    if m == 'cod':
+        return 'cod'
+    return o.get('payment_channel') or m or 'other'
+
+
+def money_split(orders):
+    """Order value by how it is paid. A bulk order's advance counts under bKash/Nagad, the rest under COD."""
+    rows = {}
+    def add(k, amount, received, n=1):
+        r = rows.setdefault(k, {'key': k, 'label': PAYMENT_LABELS.get(k, k.title()), 'amount': 0.0, 'received': 0.0, 'orders': 0})
+        r['amount'] += amount; r['received'] += received; r['orders'] += n
+    for o in orders:
+        if o.get('order_status') in RELEASED_STATUSES:
+            continue
+        p = o.get('pricing') or {}
+        total = float(p.get('grand_total') or 0); cod = float(p.get('cod_due') or 0) if o.get('payment_method') != 'cod' else total
+        pre = max(0.0, total - cod)
+        st = o.get('payment_status')
+        if pre > 0:
+            add(payment_key(o) if o.get('payment_method') != 'cod' else 'other', pre, pre if st in PAID_STATUSES + ('Advance Paid',) else 0.0)
+        if cod > 0:
+            add('cod', cod, cod if st == 'COD Collected' else 0.0, 1 if pre == 0 else 0)
+    items = sorted(rows.values(), key=lambda r: -r['amount'])
+    total = sum(r['amount'] for r in items)
+    for r in items:
+        r['amount'] = round(r['amount'], 2); r['received'] = round(r['received'], 2)
+        r['percent'] = round(r['amount'] / total * 100, 1) if total else 0
+    return {'items': items, 'total': round(total, 2), 'received': round(sum(r['received'] for r in items), 2)}
 
 
 def period_stats(s, e, bucket=None):
@@ -154,7 +182,7 @@ def period_stats(s, e, bucket=None):
         visitors = len(db.analytics_events.distinct('session_id', {'event_type': 'page_view', 'created_at': {'$gte': s, '$lt': e}}))
     orders = list(db.orders.find({'created_at': {'$gte': s, '$lt': e}},
                                  {'order_status': 1, 'payment_status': 1, 'payment_method': 1, 'payment_channel': 1,
-                                  'pricing': 1, 'created_at': 1}))
+                                  'manual_payment.channel': 1, 'pricing': 1, 'created_at': 1}))
     pur_series = [0] * n
     sales_series = [0.0] * n
     order_series = [0] * n
@@ -185,7 +213,7 @@ def period_stats(s, e, bucket=None):
         'visitors': visitors, 'orders': len(orders), 'purchases': purchases, 'paid_orders': paid,
         'cod_orders': cod, 'sales': round(sales, 2),
         'conversion': round(purchases / visitors * 100, 2) if visitors else 0.0,
-        'methods': methods,
+        'methods': methods, 'money': money_split(orders),
         'series': {'visitors': vis_series, 'purchases': pur_series, 'sales': [round(x, 2) for x in sales_series],
                    'orders': order_series},
     }
@@ -248,6 +276,8 @@ def dashboard_v2(range: str = 'today', start: str | None = None, end: str | None
         'glance': {'visitors': cur['visitors'], 'product_views': funnel['product_view'], 'add_to_cart': funnel['add_to_cart'],
                    'checkout_started': funnel['checkout_started'], 'orders_placed': cur['orders'], 'successful_purchases': cur['purchases']},
         'payment_methods': {'total': sum(cur['methods'].values()), 'items': methods},
+        'money': cur['money'],
+        'courier': courier_summary(s, e),
         'summary': summary,
         'recent_orders': serialize(recent),
         'low_stock': serialize(low_stock),
@@ -255,9 +285,27 @@ def dashboard_v2(range: str = 'today', start: str | None = None, end: str | None
     }
 
 
+def courier_summary(s, e):
+    """Courier side of the dashboard: parcels on the way, delivered / cancelled by the courier in this period."""
+    active = ['in_review', 'pending', 'hold', 'delivered_approval_pending', 'partial_delivered_approval_pending', 'cancelled_approval_pending', 'unknown_approval_pending', 'unknown']
+    on_way = db.orders.count_documents({'courier': {'$nin': [None, '']}, 'courier_status': {'$in': active}})
+    hold = db.orders.count_documents({'courier': {'$nin': [None, '']}, 'courier_status': 'hold'})
+    delivered = db.orders.count_documents({'courier_status': {'$in': ['delivered', 'partial_delivered']}, 'courier_updated_at': {'$gte': s, '$lt': e}})
+    cancelled = list(db.orders.find({'courier_status': {'$in': ['cancelled', 'cancelled_approval_pending']}, 'order_status': {'$nin': list(RELEASED_STATUSES)}},
+                                    {'order_id': 1, 'customer_name': 1, 'courier': 1, 'courier_status': 1, 'courier_updated_at': 1, 'pricing.grand_total': 1,
+                                     'courier_events': {'$slice': -1}}).sort('courier_updated_at', -1).limit(8))
+    cancelled_period = db.orders.count_documents({'courier_status': 'cancelled', 'courier_cancelled_at': {'$gte': s, '$lt': e}})
+    ready = db.orders.count_documents({'order_status': {'$in': ['Confirmed', 'Approved']}, 'courier': {'$in': [None, '']}})
+    return {'on_the_way': on_way, 'on_hold': hold, 'delivered': delivered, 'cancelled': cancelled_period, 'ready_to_send': ready,
+            'cancelled_list': serialize([{'order_id': o['order_id'], 'customer_name': o.get('customer_name'), 'courier': o.get('courier'),
+                                          'status': o.get('courier_status'), 'at': o.get('courier_updated_at'), 'amount': (o.get('pricing') or {}).get('grand_total'),
+                                          'message': ((o.get('courier_events') or [{}])[-1]).get('message', '')} for o in cancelled])}
+
+
 def nav_counts():
     return {
         'orders_pending': db.orders.count_documents({'order_status': 'Pending Confirmation'}),
+        'courier_attention': db.orders.count_documents({'courier_status': {'$in': ['cancelled', 'cancelled_approval_pending', 'hold']}, 'order_status': {'$nin': list(RELEASED_STATUSES)}}),
         'quantity_requests_new': db.quantity_requests.count_documents({'status': 'New'}),
         'dealers_pending': db.dealers.count_documents({'status': 'Pending'}),
         'reviews_pending': db.reviews.count_documents({'status': 'pending'}),
@@ -424,8 +472,10 @@ def admin_product(product_id: str, authorization: str | None = Header(None)):
 
 
 @router.delete('/api/v1/admin/products/{product_id}')
-def delete_product(product_id: str, authorization: str | None = Header(None)):
+def delete_product(product_id: str, confirm: str = '', authorization: str | None = Header(None)):
     actor = allow(authorization, 'catalog')
+    from .recycle import move_to_bin, check_confirm
+    check_confirm(confirm)
     oid = to_oid(product_id, 'product id')
     p = db.products.find_one({'_id': oid})
     if not p:
@@ -434,8 +484,7 @@ def delete_product(product_id: str, authorization: str | None = Header(None)):
         db.products.update_one({'_id': oid}, {'$set': {'status': 'hidden', 'updated_at': now()}})
         audit(actor, 'product_hidden', product_id, {'reason': 'has_orders'})
         return {'ok': True, 'hidden': True, 'message': 'Product has orders, so it was hidden instead of deleted.'}
-    db.products.delete_one({'_id': oid})
-    audit(actor, 'product_deleted', product_id, {'name': p.get('name')})
+    move_to_bin('product', 'products', p, actor, p.get('name', ''), p.get('sku') or p.get('slug', ''))
     return {'ok': True, 'deleted': True}
 
 
@@ -496,13 +545,16 @@ def update_category(slug: str, body: CategoryInput, authorization: str | None = 
 
 
 @router.delete('/api/v1/admin/categories/{slug}')
-def delete_category(slug: str, authorization: str | None = Header(None)):
+def delete_category(slug: str, confirm: str = '', authorization: str | None = Header(None)):
     actor = allow(authorization, 'catalog')
+    from .recycle import move_to_bin, check_confirm
+    check_confirm(confirm)
     used = db.products.count_documents({'category_slug': slug})
     if used:
         raise HTTPException(409, f'{used} product(s) use this category. Move them first or hide the category.')
-    db.categories.delete_one({'slug': slug})
-    audit(actor, 'category_deleted', slug)
+    c = db.categories.find_one({'slug': slug})
+    if c:
+        move_to_bin('category', 'categories', c, actor, c.get('name', slug), slug)
     return {'ok': True}
 
 
@@ -533,13 +585,16 @@ def update_brand(slug: str, body: BrandInput, authorization: str | None = Header
 
 
 @router.delete('/api/v1/admin/brands/{slug}')
-def delete_brand(slug: str, authorization: str | None = Header(None)):
+def delete_brand(slug: str, confirm: str = '', authorization: str | None = Header(None)):
     actor = allow(authorization, 'catalog')
+    from .recycle import move_to_bin, check_confirm
+    check_confirm(confirm)
     used = db.products.count_documents({'brand_slug': slug})
     if used:
         raise HTTPException(409, f'{used} product(s) use this brand. Move them first or hide the brand.')
-    db.brands.delete_one({'slug': slug})
-    audit(actor, 'brand_deleted', slug)
+    b = db.brands.find_one({'slug': slug})
+    if b:
+        move_to_bin('brand', 'brands', b, actor, b.get('name', slug), slug)
     return {'ok': True}
 
 
@@ -608,10 +663,13 @@ def update_coupon(code: str, body: CouponInput, authorization: str | None = Head
 
 
 @router.delete('/api/v1/admin/coupons/{code}')
-def delete_coupon(code: str, authorization: str | None = Header(None)):
+def delete_coupon(code: str, confirm: str = '', authorization: str | None = Header(None)):
     actor = allow(authorization, 'coupons')
-    db.coupons.delete_one({'code': code.upper()})
-    audit(actor, 'coupon_deleted', code.upper())
+    from .recycle import move_to_bin, check_confirm
+    check_confirm(confirm)
+    c = db.coupons.find_one({'code': code.upper()})
+    if c:
+        move_to_bin('coupon', 'coupons', c, actor, c['code'], c.get('label') or c.get('description') or '')
     return {'ok': True}
 
 
@@ -753,10 +811,13 @@ def moderate_review(review_id: str, payload: dict, authorization: str | None = H
 
 
 @router.delete('/api/v1/admin/reviews/{review_id}')
-def delete_review(review_id: str, authorization: str | None = Header(None)):
-    allow(authorization, 'reviews')
-    r = db.reviews.find_one_and_delete({'_id': to_oid(review_id, 'review id')})
+def delete_review(review_id: str, confirm: str = '', authorization: str | None = Header(None)):
+    actor = allow(authorization, 'reviews')
+    from .recycle import move_to_bin, check_confirm
+    check_confirm(confirm)
+    r = db.reviews.find_one({'_id': to_oid(review_id, 'review id')})
     if r:
+        move_to_bin('review', 'reviews', r, actor, f"{r.get('rating', '')}★ {r.get('name') or r.get('customer_name') or 'Review'}", r.get('product_name', ''))
         recompute_rating(r['product_id'])
     return {'ok': True}
 
@@ -810,17 +871,20 @@ def dealer_status(dealer_id: str, payload: dict, authorization: str | None = Hea
     d = db.dealers.find_one({'_id': oid})
     if not d:
         raise HTTPException(404, 'Dealer not found')
-    upd = {'status': status, 'updated_at': now(), 'status_note': str(payload.get('note', ''))[:500]}
+    note = str(payload.get('note', '')).strip()[:500]
+    upd = {'status': status, 'updated_at': now(), 'status_note': note}
     if status == 'Active':
         upd['discount_approved'] = True
-    db.dealers.update_one({'_id': oid}, {'$set': upd})
+    hist = {'$push': {'status_history': {'at': now(), 'status': status, 'note': note, 'by': actor.get('sub')}}}
+    db.dealers.update_one({'_id': oid}, {'$set': upd, **hist})
     from .notify import queue_sms, ensure_dealer_code, t_dealer_approved, t_dealer_rejected
     if status == 'Active':
         code = ensure_dealer_code(d)  # EMX-DLR-70001, 70002, … given once
         if d.get('status') != 'Active':
             queue_sms(f'dealer-approved-{dealer_id}', d['phone'], t_dealer_approved(code), 'dealer')
     elif status == 'Rejected' and d.get('status') != 'Rejected':
-        queue_sms(f'dealer-rejected-{dealer_id}', d['phone'], t_dealer_rejected(), 'dealer')
+        n = int(d.get('applications') or 1)  # a dealer can re-apply after rejection; each rejection gets its own SMS
+        queue_sms(f'dealer-rejected-{dealer_id}-{n}', d['phone'], t_dealer_rejected(note), 'dealer')
     audit(actor, 'dealer_status', dealer_id, {'status': status})
     return {'ok': True}
 

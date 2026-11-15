@@ -20,7 +20,7 @@ type ToastT={id:number;kind:'ok'|'err';text:string};
 let push:(t:Omit<ToastT,'id'>)=>void=()=>{};
 export const toast={ok:(text:string)=>push({kind:'ok',text}),err:(text:string)=>push({kind:'err',text})};
 export function Toaster(){const[list,setList]=useState<ToastT[]>([]);useEffect(()=>{push=t=>{const id=Date.now()+Math.random();setList(l=>[...l,{...t,id}]);setTimeout(()=>setList(l=>l.filter(x=>x.id!==id)),4200)}},[]);
-  return <div className="toasts" aria-live="polite">{list.map(t=><div key={t.id} className={'toast '+t.kind}><Icon name={t.kind==='ok'?'checkCircle':'info'} size={18}/>{t.text}</div>)}</div>}
+  return <><div className="toasts" aria-live="polite">{list.map(t=><div key={t.id} className={'toast '+t.kind}><Icon name={t.kind==='ok'?'checkCircle':'info'} size={18}/>{t.text}</div>)}</div><DeleteHost/></>}
 
 export function Field({label,hint,children,span}:{label:string;hint?:string;children:React.ReactNode;span?:boolean}){return <label className={'fld'+(span?' span':'')}><span>{label}</span>{children}{hint&&<small>{hint}</small>}</label>}
 export function Toggle({checked,onChange,label}:{checked:boolean;onChange:(v:boolean)=>void;label:string}){return <label className="tgl"><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/><i/><span>{label}</span></label>}
@@ -34,5 +34,26 @@ export function ImageInput({value,onChange,folder,label='Image',kind='image'}:{v
     <div className="row"><label className="btn btn-sm btn-soft">{busy>=0?`Uploading ${busy}%`:`Upload ${kind}`}<input hidden type="file" accept={kind==='video'?'video/*':'image/*'} disabled={busy>=0} onChange={e=>{up(e.target.files?.[0]);e.target.value=''}}/></label><button type="button" className="btn btn-sm btn-ghost" onClick={()=>setPick(true)}>From library</button>{value&&<button type="button" className="btn btn-sm btn-ghost" onClick={()=>onChange('')}>Remove</button>}</div>
     {err&&<small className="err">{err}</small>}</div><MediaPicker open={pick} onClose={()=>setPick(false)} multiple={false} type={kind} onPick={i=>onChange(i[0].url)}/></div>;
 }
-export function Confirm({text,onYes,children,cls='btn btn-sm btn-ghost danger'}:{text:string;onYes:()=>void;children:React.ReactNode;cls?:string}){return <button type="button" className={cls} onClick={()=>{if(window.confirm(text))onYes()}}>{children}</button>}
+/** Type-to-confirm box for every delete in the admin: the admin must type DELETE. Shown by askDelete(). */
+type AskT={title:string;text:string;forever?:boolean;resolve:(ok:boolean)=>void};
+let showAsk:(a:AskT)=>void=()=>{};
+export function askDelete(title:string,text='',forever=false):Promise<boolean>{return new Promise(resolve=>showAsk({title,text,forever,resolve}))}
+export function DeleteHost(){
+  const[a,setA]=useState<AskT|null>(null);const[v,setV]=useState('');
+  useEffect(()=>{showAsk=x=>{setV('');setA(x)}},[]);
+  const close=(ok:boolean)=>{a?.resolve(ok);setA(null);setV('')};
+  useEffect(()=>{if(!a)return;const k=(e:KeyboardEvent)=>{if(e.key==='Escape')close(false)};addEventListener('keydown',k);return()=>removeEventListener('keydown',k)},[a]);
+  if(!a)return null;const ok=v.trim().toLowerCase()==='delete';
+  return <div className="dlg" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t"><div className="dlg-bg" onClick={()=>close(false)}/>
+    <form className="dlg-box" onSubmit={e=>{e.preventDefault();if(ok)close(true)}}>
+      <span className="dlg-ic"><Icon name="trash" size={22}/></span>
+      <h3 id="dlg-t">{a.title}</h3>
+      {a.text&&<p className="dlg-text">{a.text}</p>}
+      <p className="dlg-note">{a.forever?<>This is <b>permanent</b> and cannot be undone.</>:<>It goes to the <b>Recycle Bin</b>. You can restore it from there with the same ID.</>}</p>
+      <label className="dlg-label">Type <b>DELETE</b> to confirm</label>
+      <input autoFocus value={v} onChange={e=>setV(e.target.value)} placeholder="DELETE" autoComplete="off" spellCheck={false} aria-label="Type DELETE to confirm"/>
+      <div className="dlg-act"><button type="button" className="btn btn-ghost" onClick={()=>close(false)}>Cancel</button><button className="btn btn-danger" disabled={!ok}><Icon name="trash" size={16}/>{a.forever?'Delete forever':'Delete'}</button></div>
+    </form></div>;
+}
+export function Confirm({text,onYes,children,cls='btn btn-sm btn-ghost danger',sub=''}:{text:string;onYes:()=>void;children:React.ReactNode;cls?:string;sub?:string}){return <button type="button" className={cls} onClick={async()=>{if(await askDelete(text,sub))onYes()}}>{children}</button>}
 export function Tabs({tabs,value,onChange}:{tabs:{key:string;label:string;count?:number}[];value:string;onChange:(k:string)=>void}){return <div className="tabs">{tabs.map(t=><button type="button" key={t.key} className={value===t.key?'on':''} onClick={()=>onChange(t.key)}>{t.label}{t.count!==undefined&&<em>{t.count}</em>}</button>)}</div>}

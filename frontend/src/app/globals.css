@@ -716,3 +716,21 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .flt-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:2px 0 14px}
 .flt-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #bcd0ff;background:#f5f8ff;color:var(--blue);border-radius:999px;padding:6px 12px;font-size:13.5px;font-weight:600}
 .flt-chip span{font-size:16px;line-height:1}.flt-chip:hover{background:#eaf0ff}
+
+/* dealer application messages */
+.dl-note{display:flex;gap:12px;align-items:flex-start;border-radius:var(--r);padding:12px 14px;margin-top:14px;border:1px solid;font-size:14.5px;line-height:1.5}
+.dl-note p{margin:0}.dl-note-ic{flex:none;display:grid;place-items:center;margin-top:1px}
+.dl-ok{background:var(--green-50);border-color:#b7ebc8;color:#14672f}
+.dl-err{background:#fef2f2;border-color:#fecaca;color:#b42318}
+.dl-info{background:var(--blue-50);border-color:var(--blue-100);color:var(--navy)}
+.dl-blocked{background:linear-gradient(135deg,#fff8e6,#fff3d1);border:1.5px solid #f5c451;color:#7a4b00;padding:16px 18px;box-shadow:0 8px 24px rgba(245,163,0,.14)}
+.dl-blocked .dl-note-ic{width:40px;height:40px;border-radius:50%;background:var(--amber);color:#fff}
+.dl-blocked b{display:block;font-size:16px;color:#5c3800;margin-bottom:2px}.dl-blocked p{color:#6b4300}.dl-blocked small{display:block;margin-top:6px;color:#8a5a00}
+.dl-done{text-align:center;padding:40px 24px}.dl-done h2{margin:12px 0 6px}.dl-done p{color:var(--muted);margin:0 auto 18px;max-width:380px}
+.dl-done-ic{display:inline-grid;place-items:center;width:68px;height:68px;border-radius:50%;background:var(--green-50);color:var(--green)}
+
+/* thank-you totals + pay-by-bKash modal */
+.order-done .od-sum{max-width:360px;margin:14px auto 18px;border-top:1px solid var(--line);padding-top:6px}.order-done .od-sum .sum-row{max-width:none;margin:8px 0}
+.sp-box{max-width:520px}.sp-box form{display:grid;gap:12px}
+.sp-amt{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--soft);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.sp-amt div{display:grid}.sp-amt small{color:var(--muted);font-size:12px}.sp-amt s{color:var(--muted);font-size:15px}.sp-amt b{font-size:22px;color:var(--navy)}.sp-amt .save{margin-left:auto}

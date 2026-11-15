@@ -4,11 +4,11 @@ import Link from 'next/link';
 import Shell from '@/components/Shell';
 import Icon from '@/components/Icon';
 import {Status,Loading} from '@/components/ui';
+import PayBadge from '@/components/PayBadge';
 import {api,tk,num,dt} from '@/lib/api';
 
 const RANGES=[['today','Today'],['yesterday','Yesterday'],['7d','Last 7 Days'],['30d','Last 30 Days']] as const;
-const METHOD_COLORS:Record<string,string>={cod:'#8b5cf6',bkash:'#22c55e',paystation:'#22c55e',nagad:'#f97316',bank:'#3b82f6',card:'#0ea5e9',rocket:'#a855f7',other:'#94a3b8'};
-const PAY_ICON:Record<string,{icon:string;cls:string;label:string}>={cod:{icon:'cube',cls:'pi-cod',label:'COD'},paystation:{icon:'lockCard',cls:'pi-digital',label:'Digital'},bkash:{icon:'bolt',cls:'pi-bkash',label:'bKash'},nagad:{icon:'bolt',cls:'pi-nagad',label:'Nagad'},bank:{icon:'ledger',cls:'pi-bank',label:'Bank'},card:{icon:'lockCard',cls:'pi-digital',label:'Card'}};
+const METHOD_COLORS:Record<string,string>={cod:'#8b5cf6',bkash:'#e2136e',paystation:'#64748b',nagad:'#f7941d',bank:'#3b82f6',card:'#0ea5e9',rocket:'#a855f7',other:'#94a3b8'};
 
 function Spark({data,color}:{data:number[];color:string}){
   const d=data?.length?data:[0,0];const max=Math.max(1,...d);const min=Math.min(...d);const w=96,h=40;
@@ -65,6 +65,22 @@ export default function Dashboard(){
       <div className="kpi"><span className="kpi-ico k-sky"><span className="tk">৳</span></span><div><small>{label}'s Sales (Paid)</small><b>{tk(c.sales.value)}</b><Change v={c.sales.change}/></div><Spark data={c.sales.spark} color="#3b6cf6"/></div>
       <div className="kpi"><span className="kpi-ico k-purple"><Icon name="cube" size={24}/></span><div><small>Total Orders ({label})</small><b>{num(c.orders.value)}</b><span className="chg flat">Paid: <b>{c.orders.paid}</b> &nbsp;|&nbsp; COD: <b>{c.orders.cod}</b></span></div><Spark data={c.orders.spark} color="#8b5cf6"/></div>
     </div>
+    <div className="dash-money">
+      <section className="card"><div className="card-h"><h2>Sales by payment ({label})</h2><Link className="lnk" href="/orders">Orders <Icon name="arrowRight" size={16}/></Link></div>
+        <div className="money"><div className="money-total"><div><small>Total order value</small><br/><b>{tk(d.money.total)}</b></div><small>Received so far: <b>{tk(d.money.received)}</b></small></div>
+          {d.money.total>0&&<div className="money-bar">{d.money.items.map((m:any)=><i key={m.key} title={`${m.label} ${m.percent}%`} style={{width:m.percent+'%',background:METHOD_COLORS[m.key]||'#94a3b8'}}/>)}</div>}
+          {d.money.items.length?d.money.items.map((m:any)=><div className="money-row" key={m.key}><PayBadge k={m.key}/><span className="amt">{tk(m.amount)}</span>
+            <span className="meta"><span>{m.orders} order{m.orders===1?'':'s'}</span><span>{m.percent}%</span><span>{m.key==='cod'?'Collected':'Verified'}: <b>{tk(m.received)}</b></span>{m.amount-m.received>0&&<span>{m.key==='cod'?'With courier / to collect':'To verify'}: <b>{tk(m.amount-m.received)}</b></span>}</span></div>)
+            :<p className="muted">No orders in this period.</p>}
+          <p className="tiny muted">Cancelled and returned orders are left out. A bulk order's advance counts under bKash / Nagad and the rest under COD.</p></div></section>
+      <section className="card"><div className="card-h"><h2>Courier</h2><Link className="lnk" href="/courier">Courier panel <Icon name="arrowRight" size={16}/></Link></div>
+        <div className="cour-kpis"><Link href="/courier"><small>On the way</small><b>{num(d.courier.on_the_way)}</b></Link><Link href="/courier" className={d.courier.on_hold?'warn':''}><small>On hold</small><b>{num(d.courier.on_hold)}</b></Link>
+          <div><small>Delivered ({label})</small><b>{num(d.courier.delivered)}</b></div><div className={d.courier.cancelled?'bad':''}><small>Cancelled by courier ({label})</small><b>{num(d.courier.cancelled)}</b></div></div>
+        {d.courier.ready_to_send>0&&<p className="tiny"><b>{d.courier.ready_to_send}</b> confirmed order(s) not sent to a courier yet.</p>}
+        {d.courier.cancelled_list?.length>0?<><p className="tiny muted">Cancelled / cancel requested — check and mark Returned when the parcel is back:</p><div className="cour-cx">{d.courier.cancelled_list.map((c:any)=><Link key={c.order_id} href={`/courier?open=${c.order_id}`}><span><b>#{c.order_id}</b> · {c.customer_name}{c.message&&<><br/><small>{c.message}</small></>}</span><span>{tk(c.amount)}</span></Link>)}</div></>
+          :<p className="muted tiny">No parcels cancelled by the courier.</p>}
+      </section>
+    </div>
     <div className="dash-mid">
       <section className="card"><div className="card-h"><h2>Visitors vs Purchases ({label})</h2><div className="legend"><span><i style={{background:'#3b6cf6'}}/>Visitors</span><span><i style={{background:'#22c55e'}}/>Purchases</span></div></div><LineChart labels={d.chart.labels} a={d.chart.visitors} b={d.chart.purchases}/></section>
       {glance&&<section className="card glance"><div className="card-h"><h2>{label} at a Glance</h2><button className="ib" aria-label="Hide" onClick={()=>setGlance(false)}><Icon name="close" size={18}/></button></div>
@@ -74,13 +90,13 @@ export default function Dashboard(){
       </section>}
       <section className="card"><div className="card-h"><h2>Orders by Payment Method ({label})</h2></div>
         <Donut items={d.payment_methods.items} total={d.payment_methods.total}/>
-        <div className="pm-list">{d.payment_methods.items.length?d.payment_methods.items.map((m:any)=><div key={m.key}><i style={{background:METHOD_COLORS[m.key]||'#94a3b8'}}/><span>{m.label}</span><b>{m.count} ({m.percent}%)</b></div>):<p className="muted">No orders in this period.</p>}</div>
+        <div className="pm-list">{d.payment_methods.items.length?d.payment_methods.items.map((m:any)=><div key={m.key}><i style={{background:METHOD_COLORS[m.key]||'#94a3b8'}}/><span><PayBadge k={m.key}/></span><b>{m.count} ({m.percent}%)</b></div>):<p className="muted">No orders in this period.</p>}</div>
       </section>
     </div>
     <div className="dash-bottom">
       <section className="card"><div className="card-h"><h2>Sales &amp; Visitors Summary</h2></div><table className="tbl summary"><thead><tr><th>Period</th><th>Visitors</th><th>Purchases</th><th>Conversion</th><th className="r">Sales (Paid)</th></tr></thead><tbody>{d.summary.map((r:any,i:number)=><tr key={r.period} className={i===0?'hl':''}><td><b>{r.period}</b></td><td>{num(r.visitors)}</td><td>{num(r.purchases)}</td><td>{r.conversion.toFixed(2)}%</td><td className="r"><b>{tk(r.sales)}</b></td></tr>)}</tbody></table></section>
       <section className="card"><div className="card-h"><h2>Recent Orders ({label})</h2><Link className="lnk" href="/orders">View All Orders <Icon name="arrowRight" size={16}/></Link></div>
-        <table className="tbl"><thead><tr><th>Order ID</th><th>Customer</th><th>Amount</th><th>Payment</th><th>Status</th></tr></thead><tbody>{d.recent_orders.length?d.recent_orders.map((o:any)=>{const pk=o.payment_channel||o.payment_method;const pi=PAY_ICON[pk]||PAY_ICON.paystation;return <tr key={o.order_id}><td><Link className="lnk" href={`/orders?open=${o.order_id}`}>#{o.order_id}</Link></td><td>{o.customer_name}</td><td>{tk(o.pricing?.grand_total)}</td><td><span className="pay"><span className={'pi '+pi.cls}><Icon name={pi.icon} size={13} stroke={2.2}/></span>{pk==='cod'?'COD':pi.label}</span></td><td><Status s={o.order_status}/></td></tr>}):<tr><td colSpan={5} className="muted">No orders yet.</td></tr>}</tbody></table></section>
+        <table className="tbl"><thead><tr><th>Order ID</th><th>Customer</th><th>Amount</th><th>Payment</th><th>Status</th></tr></thead><tbody>{d.recent_orders.length?d.recent_orders.map((o:any)=>{return <tr key={o.order_id}><td><Link className="lnk" href={`/orders?open=${o.order_id}`}>#{o.order_id}</Link></td><td>{o.customer_name}</td><td>{tk(o.pricing?.grand_total)}</td><td><PayBadge o={o}/></td><td><Status s={o.order_status}/></td></tr>}):<tr><td colSpan={5} className="muted">No orders yet.</td></tr>}</tbody></table></section>
     </div>
     {d.low_stock?.length>0&&<section className="card lowstock"><div className="card-h"><h2>Low stock alerts</h2><Link className="lnk" href="/products">Manage inventory <Icon name="arrowRight" size={16}/></Link></div><div className="ls-list">{d.low_stock.map((p:any)=><Link key={p._id} href={`/products?edit=${p._id}`}><b>{p.name}</b><span className={p.stock<=0?'out':''}>{p.stock<=0?'Out of stock':`${p.stock} left`}</span></Link>)}</div></section>}
     </>}

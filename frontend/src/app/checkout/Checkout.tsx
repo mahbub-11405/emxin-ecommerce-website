@@ -42,7 +42,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
     const sub=items.reduce((s,i)=>s+priceOf(byId[i.product_id])*i.quantity,0);
     let c=0;if(cp&&(!bulk||cp.allow_bulk)){c=cp.type==='percentage'?sub*cp.value/100:cp.value;if(cp.max_discount)c=Math.min(c,cp.max_discount);c=Math.min(c,sub)}
     const del=Number(f.district.toLowerCase()==='dhaka'?settings.dhaka_delivery_charge??70:settings.outside_dhaka_delivery_charge??130);
-    const gross=sub-c+del;const saving=Math.round(gross*pct/100);
+    const gross=sub-c+del;const saving=Math.round((sub-c)*pct/100); // digital discount: products only, not delivery
     const total=pay!=='cod'?Math.round(gross-saving):Math.round(gross);
     return {sub,c,del,saving,total,adv:bulk?Math.round(total*Number(settings.bulk_advance_percent??50)/100):0};
   },[items,byId,cp,bulk,f.district,pay,settings,pct]);
@@ -76,9 +76,18 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       else setState({kind:'err',text:err.message});
     }
   }
-  if(state.kind==='ok'){const r=state.order;const m=r.manual_payment;return <div className="panel order-done"><span className="done-ico"><Icon name="check" size={34} stroke={3}/></span><h2>Thank you! Order placed.</h2><p>Your order ID is <b>{r.order_id}</b>. {m?'We are checking your payment now.':'Our team will call you to confirm before dispatch.'}</p>
-    {m&&<div className="mp-done"><Icon name="checkCircle" size={18}/><span><b>{m.channel_label} payment received for verification</b><br/>TrxID <b>{m.trx_id}</b> · ৳ {Number(m.amount_expected).toLocaleString('en-IN')}{m.is_advance?' advance':''}. As soon as EMXIN verifies it, your order is confirmed and handed to the courier. You can follow it in My Orders.</span></div>}<div className="sum-row total"><span>{r.pricing.cod_due>0&&!r.pricing.advance_required?'Pay on delivery':'Payable'}</span><b>৳ {Number(r.pricing.grand_total).toLocaleString('en-IN')}</b></div>
-    {r.paystation&&!r.paystation.payment_url&&<p className="note-warn">{r.paystation.message} You can also pay from <Link href="/account">My Account</Link> once it is available.</p>}
+  if(state.kind==='ok'){const r=state.order;const m=r.manual_payment;const p=r.pricing||{};const tkf=(n:any)=>'৳ '+Math.round(Number(n)||0).toLocaleString('en-IN');
+    const online=!m&&r.paystation;const cod=Number(p.cod_due)>0;
+    return <div className="panel order-done"><span className="done-ico"><Icon name="check" size={34} stroke={3}/></span><h2>Thank you! Order placed.</h2>
+    <p>Your order ID is <b>{r.order_id}</b>. {m?'We are checking your payment now.':online?'Complete the online payment to finish your order.':'Our team will call you to confirm before dispatch.'}</p>
+    {m&&<div className="mp-done"><Icon name="checkCircle" size={18}/><span><b>{m.channel_label} payment received for verification</b><br/>TrxID <b>{m.trx_id}</b> · {tkf(m.amount_expected)}{m.is_advance?' advance':''}. Once EMXIN verifies it, your order will be confirmed and handed to the courier. We will SMS you, and you can follow it in My Orders.</span></div>}
+    <div className="od-sum">
+      {Number(p.payment_discount)>0&&<div className="sum-row good"><span>You saved (digital payment)</span><b>{tkf(p.payment_discount)}</b></div>}
+      {m&&<div className="sum-row"><span>Sent by {m.channel_label} <small className="muted">(being verified)</small></span><b>{tkf(m.amount_expected)}</b></div>}
+      {online&&<div className="sum-row total"><span>To pay online</span><b>{tkf(p.is_bulk?p.advance_required:p.grand_total)}</b></div>}
+      {cod?<div className="sum-row total"><span>Pay on delivery</span><b>{tkf(p.cod_due)}</b></div>:m&&<div className="sum-row good strong"><span>Due on delivery</span><b>৳ 0</b></div>}
+    </div>
+    {r.paystation&&!r.paystation.payment_url&&<p className="note-warn">{r.paystation.message} You can also pay from <Link href="/account">My Account</Link>.</p>}
     <div className="row-gap"><Link className="btn" href={`/track-order?order_id=${r.order_id}`}>Track order</Link><Link className="btn btn-outline" href="/account">My orders</Link></div></div>}
   if(state.kind==='redirect')return <div className="panel order-done"><span className="spinner"/><h2>Redirecting to secure payment…</h2><p className="muted">Complete the payment with bKash, Nagad, Rocket, Upay, card or internet banking on PayStation.</p></div>;
   if(!items.length)return <div className="empty-state panel"><Icon name="cart" size={40}/><h3>Your cart is empty</h3><Link className="btn" href="/shop">Browse products</Link></div>;
@@ -112,7 +121,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
           <small className="muted">Please send the exact amount. No separate save needed — the TrxID is sent with your order when you tap {logged?'Place Order':'Continue'} below{logged?'':' (it stays filled in while you verify your mobile)'}. EMXIN verifies it, then confirms your order and sends it to the courier.</small>
         </div>}
         {psOn&&<label className={'pay-opt'+(pay==='paystation'?' on':'')}><input type="radio" name="pay" checked={pay==='paystation'} onChange={()=>setPay('paystation')}/><Icon name="lockCard" size={26}/><span><b>Digital Payment {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Secure checkout by PayStation</small><PayMethods small/></span><em className="save">SAVE {pct}%</em></label>}
-        {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</b> by paying in advance — the {pct}% discount applies to every bKash / Nagad / online payment.</span></div>}
+        {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</b> by paying in advance — the {pct}% discount is on the product price (not delivery) for every bKash / Nagad / online payment.</span></div>}
         {!bulk&&<label className={'pay-opt'+(pay==='cod'?' on':'')}><input type="radio" name="pay" checked={pay==='cod'} onChange={()=>setPay('cod')}/><Icon name="truck" size={26}/><span><b>Cash on Delivery</b><small>Pay when you receive the parcel · no digital discount</small></span></label>}
         {pay==='cod'&&est.saving>0&&<p className="note-warn">Tip: pay by bKash / Nagad to save ৳ {est.saving.toLocaleString('en-IN')} on this order.</p>}
       </div>
@@ -147,8 +156,8 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
           </div>)}</div></div></div>}
       <div className="sum-row"><span>Subtotal</span><span>৳ {est.sub.toLocaleString('en-IN')}</span></div>
       {est.c>0&&<div className="sum-row good"><span>Coupon</span><span>− ৳ {Math.round(est.c).toLocaleString('en-IN')}</span></div>}
+      {digital&&<div className="sum-row good strong"><span>Digital payment discount ({pct}% on products)</span><span>− ৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</span></div>}
       <div className="sum-row"><span>Delivery ({f.district})</span><span>৳ {est.del}</span></div>
-      {digital&&<div className="sum-row good strong"><span>Advance payment discount ({pct}%)</span><span>− ৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</span></div>}
       {quote?.estimated_shipping>0&&<div className="sum-row"><span>Extra shipping (weight)</span><span>৳ {Math.round(quote.estimated_shipping).toLocaleString('en-IN')}</span></div>}
       {quote?.bulk_discount>0&&<div className="sum-row good"><span>Dealer discount</span><span>− ৳ {Math.round(quote.bulk_discount).toLocaleString('en-IN')}</span></div>}
       {bulk&&<div className="sum-row good"><span>Dealer / bulk discount</span><span>On confirmation</span></div>}

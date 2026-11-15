@@ -2,6 +2,10 @@
 import {useEffect,useState} from 'react';
 import {postJSON,API} from '@/lib/api';
 import {listenWebOTP} from '@/lib/webotp';
+import Link from 'next/link';
+import Icon from '@/components/Icon';
+
+type Msg={kind:'ok'|'err'|'info'|'blocked';text:string}|null;
 
 const T:any={
  en:{title:'Become a Dealer',sub:'Create your dealer profile in a few simple steps. You can log in and see your application status.',name:'Your Name',shop:'Shop / Business Name',phone:'Mobile Number',email:'Email (optional)',address:'Business Address',password:'Create Password',otp:'OTP Code',send:'Send OTP',verify:'Verify OTP',submit:'Submit Dealer Application',pending:'After submission your status will show Pending Review until EMXIN approves it.',
@@ -17,15 +21,21 @@ export default function Page(){
  const[lang,setLang]=useState<'en'|'bn'>('bn'); const t=T[lang];
  const[tiers,setTiers]=useState<number[]>([5,8,12,15]);const[threshold,setThreshold]=useState(20);
  useEffect(()=>{fetch(API+'/site-content').then(r=>r.ok?r.json():null).then(c=>{if(c?.dealer_tiers?.length)setTiers(c.dealer_tiers);if(c?.bulk_threshold_qty)setThreshold(c.bulk_threshold_qty)}).catch(()=>{})},[]);
- const[msg,setMsg]=useState(''); const[challenge,setChallenge]=useState(''); const[verification,setVerification]=useState(''); const[otp,setOtp]=useState('');
+ const[msg,setMsg]=useState<Msg>(null);const[done,setDone]=useState<{reapplied:boolean}|null>(null); const[challenge,setChallenge]=useState(''); const[verification,setVerification]=useState(''); const[otp,setOtp]=useState('');
  const[f,setF]=useState({name:'',shop_name:'',phone:'',email:'',address:'',password:'',business_type:'Retailer'});const[agree,setAgree]=useState(false);
- async function sendOtp(){try{const r=await postJSON('/auth/otp/request',{phone:f.phone,purpose:'dealer_register',language:lang});setChallenge(r.challenge_id);listenWebOTP(c=>setOtp(c));setMsg(r.test_code?`Test OTP: ${r.test_code}`:'OTP sent to your phone.')}catch(e:any){setMsg(e.message)}}
- async function verifyOtp(){try{const r=await postJSON('/auth/otp/verify',{phone:f.phone,purpose:'dealer_register',code:otp});setVerification(r.verification_id);setMsg(lang==='bn'?'মোবাইল নম্বর যাচাই হয়েছে।':'Phone verified.')}catch(e:any){setMsg(e.message)}}
- async function go(e:any){e.preventDefault();if(!agree){setMsg(t.must);return}try{const r=await postJSON('/dealers/apply',{...f,otp_verification_id:verification||null,preferred_language:lang,terms_accepted:true});setMsg(`${t.pending} (${r.status})`)}catch(e:any){setMsg(e.message)}}
+ async function sendOtp(){try{const r=await postJSON('/auth/otp/request',{phone:f.phone,purpose:'dealer_register',language:lang});setChallenge(r.challenge_id);listenWebOTP(c=>setOtp(c));setMsg({kind:'info',text:r.test_code?`Test OTP: ${r.test_code}`:(lang==='bn'?'আপনার ফোনে OTP পাঠানো হয়েছে।':'OTP sent to your phone.')})}catch(e:any){setMsg({kind:e.status===409?'blocked':'err',text:e.message})}}
+ async function verifyOtp(){try{const r=await postJSON('/auth/otp/verify',{phone:f.phone,purpose:'dealer_register',code:otp});setVerification(r.verification_id);setMsg({kind:'ok',text:lang==='bn'?'মোবাইল নম্বর যাচাই হয়েছে।':'Phone verified.'})}catch(e:any){setMsg({kind:'err',text:e.message})}}
+ async function go(e:any){e.preventDefault();if(!agree){setMsg({kind:'err',text:t.must});return}try{const r=await postJSON('/dealers/apply',{...f,otp_verification_id:verification||null,preferred_language:lang,terms_accepted:true});setMsg(null);setDone({reapplied:!!r.reapplied});window.scrollTo({top:0,behavior:'smooth'})}catch(e:any){setMsg({kind:e.status===409?'blocked':'err',text:e.message})}}
  return <main className="container section"><div style={{display:'flex',justifyContent:'flex-end'}}><button className="btn secondary" onClick={()=>setLang(lang==='bn'?'en':'bn')}>{lang==='bn'?'English':'বাংলা'}</button></div><div className="two"><div><div className="eyebrow">EMXIN DEALER</div><h1>{t.title}</h1><p className="muted">{t.sub}</p><div className="panel" id="benefits"><h2>{t.benefits}</h2><p className="muted">{t.min(threshold)}</p><div className="dealer-tiers">{tiers.map((x:number,i:number)=><div key={i}>{t.nth(i,i===tiers.length-1&&tiers.length>1)} <b>{x}%</b></div>)}</div><small className="muted">{t.note}</small></div>
- <div className="panel dealer-terms" id="terms"><h2>{t.terms}</h2><ol>{t.terms_list.map((x:string,i:number)=><li key={i}><span>{i+1}</span><p>{x}</p></li>)}</ol></div></div><form className="panel" onSubmit={go}><h2>{t.title}</h2>
+ <div className="panel dealer-terms" id="terms"><h2>{t.terms}</h2><ol>{t.terms_list.map((x:string,i:number)=><li key={i}><span>{i+1}</span><p>{x}</p></li>)}</ol></div></div>{done?<div className="panel dl-done"><span className="dl-done-ic"><Icon name="checkCircle" size={34}/></span><h2>{lang==='bn'?(done.reapplied?'আপনার নতুন আবেদন জমা হয়েছে':'আবেদন জমা হয়েছে'):(done.reapplied?'Your new application is in':'Application received')}</h2><p>{lang==='bn'?'EMXIN আপনার তথ্য যাচাই করবে। অনুমোদন হলে Dealer ID সহ SMS পাবেন।':'EMXIN will review your details. You will get an SMS with your Dealer ID once it is approved.'}</p><Link className="btn" href="/shop">{lang==='bn'?'প্রোডাক্ট দেখুন':'Browse products'}</Link></div>:<form className="panel" onSubmit={go}><h2>{t.title}</h2>
  {[['name',t.name],['shop_name',t.shop],['phone',t.phone],['email',t.email],['address',t.address],['password',t.password]].map(([k,l])=><div className="field" key={k}><label>{l}</label><input type={k==='password'?'password':'text'} required={!['email'].includes(k)} value={(f as any)[k]} onChange={e=>setF({...f,[k]:e.target.value})}/></div>)}
  <div className="field"><label>{t.otp}</label><div className="otp-row"><input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,''))} placeholder="6 digit" inputMode="numeric" autoComplete="one-time-code" maxLength={6}/><button type="button" className="btn secondary" onClick={sendOtp}>{t.send}</button><button type="button" className="btn secondary" disabled={!challenge} onClick={verifyOtp}>{t.verify}</button></div></div>
  <label className="dealer-agree"><input type="checkbox" checked={agree} onChange={e=>setAgree(e.target.checked)}/><span>{t.agree} <a href="#terms">{lang==='bn'?'শর্তাবলী দেখুন':'View terms'}</a></span></label>
- <button className="btn" disabled={!agree||!verification}>{t.submit}</button>{!verification&&<small className="muted">{lang==='bn'?'আবেদন জমা দিতে আগে মোবাইল নম্বর OTP দিয়ে যাচাই করুন।':'Verify your mobile number with OTP before submitting.'}</small>}{msg&&<p className="summary">{msg}</p>}</form></div></main>
+ <button className="btn" disabled={!agree||!verification}>{t.submit}</button>{!verification&&<small className="muted">{lang==='bn'?'আবেদন জমা দিতে আগে মোবাইল নম্বর OTP দিয়ে যাচাই করুন।':'Verify your mobile number with OTP before submitting.'}</small>}{msg&&<Notice m={msg} lang={lang}/>}</form>}</div></main>
+}
+
+function Notice({m,lang}:{m:NonNullable<Msg>;lang:'en'|'bn'}){
+ if(m.kind==='blocked')return <div className="dl-note dl-blocked" role="alert"><span className="dl-note-ic"><Icon name="info" size={22}/></span><div><b>{lang==='bn'?'এই নম্বর দিয়ে নতুন আবেদন করা যাবে না':'This number cannot apply again'}</b><p>{m.text}</p><small>{lang==='bn'?'অন্য নম্বর দিয়ে আবেদন করতে চাইলে উপরে নম্বরটি বদলান।':'To apply with a different number, change the mobile number above.'}</small></div></div>;
+ const ic=m.kind==='ok'?'checkCircle':m.kind==='err'?'xCircle':'info';
+ return <div className={'dl-note dl-'+m.kind} role={m.kind==='err'?'alert':'status'}><span className="dl-note-ic"><Icon name={ic} size={20}/></span><p>{m.text}</p></div>;
 }

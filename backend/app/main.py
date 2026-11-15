@@ -21,10 +21,14 @@ settings=get_settings()
 app=FastAPI(title='EMXIN REST API',version='1.0.0',openapi_url='/api/v1/openapi.json',docs_url='/docs')
 app.add_middleware(CORSMiddleware,allow_origins=settings.origins,allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 app.include_router(v2_router)
+from .courier import router as courier_router, steadfast_create, start_courier_sync
+app.include_router(courier_router)
+from .recycle import router as recycle_router
+app.include_router(recycle_router)
 
 @app.on_event('startup')
 def startup():
-    client.admin.command('ping'); ensure_indexes(); start_sms_worker()
+    client.admin.command('ping'); ensure_indexes(); start_sms_worker(); start_courier_sync(); paystation_orders_to_cod()
     if not db.admins.find_one({'email':settings.initial_admin_email.lower()}):
         db.admins.insert_one({'email':settings.initial_admin_email.lower(),'password_hash':hash_password(settings.initial_admin_password),'role':'super_admin','created_at':now()})
     if not db.settings.find_one({'key':'commerce'}):
@@ -58,6 +62,20 @@ def client_ip(request: Request) -> str:
 def otp_message(code: str) -> str:
     return settings.otp_sms_template.replace('\\n','\n').format(OTP=code,MINUTES=max(1,settings.otp_expire_seconds//60),DOMAIN=settings.site_domain)
 
+def dealer_block(phone: str, lang: str='bn'):
+    """Why this number cannot apply as a dealer (None = it can: new number or a rejected application)."""
+    d=db.dealers.find_one({'phone':phone},{'status':1,'dealer_code':1})
+    if not d or d.get('status')=='Rejected': return None
+    st=d.get('status'); bn=lang=='bn'; code=d.get('dealer_code')
+    if st=='Active':
+        return ('এই নম্বরটি ইতিমধ্যে EMXIN ডিলার হিসেবে অনুমোদিত'+(f' (Dealer ID: {code})' if code else '')+'। নতুন আবেদনের দরকার নেই।') if bn else \
+               ('This number is already an approved EMXIN dealer'+(f' (Dealer ID: {code})' if code else '')+'. No need to apply again.')
+    if st=='Suspended':
+        return 'এই নম্বরের ডিলার অ্যাকাউন্টটি সাময়িকভাবে বন্ধ আছে। বিস্তারিত জানতে EMXIN-এ কল করুন।' if bn else \
+               'The dealer account for this number is suspended. Please call EMXIN for details.'
+    return 'এই নম্বর দিয়ে আপনার আবেদন আগেই জমা হয়েছে এবং এখন যাচাই চলছে। অনুমোদন হলে আমরা SMS-এ জানাব।' if bn else \
+           'You have already applied with this number and it is under review. We will SMS you once it is approved.'
+
 @app.post('/api/v1/auth/otp/request')
 async def request_otp(body: OTPRequest, request: Request):
     phone=normalize_bd_phone(body.phone); now_dt=now(); ip=client_ip(request)
@@ -65,6 +83,8 @@ async def request_otp(body: OTPRequest, request: Request):
         raise HTTPException(404,'No account found for this number. Please register first.')
     if body.purpose=='customer_register' and db.customers.find_one({'phone':phone},{'_id':1}):
         raise HTTPException(409,'This number is already registered. Please log in.')
+    if body.purpose=='dealer_register' and (why:=dealer_block(phone,body.language)):
+        raise HTTPException(409,why)  # checked before the OTP so no SMS credit is spent
     if settings.app_env=='production' and not settings.sms_enabled:
         raise HTTPException(503,'SMS verification is not available right now. Please try again later.')
     # ---- limits: 60 s between sends · 5 per number per hour · per-IP and daily caps (each send, incl. resend, costs 1 SMS)
@@ -345,14 +365,22 @@ def quantity_request(body: QuantityRequest):
 
 @app.post('/api/v1/dealers/apply')
 def dealer_apply(body: DealerApply):
-    if not consume_phone_verification(body.phone,'dealer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
     phone=normalize_bd_phone(body.phone)
-    if db.dealers.find_one({'phone':phone}): raise HTTPException(409,'Phone already registered')
+    if why:=dealer_block(phone,body.preferred_language): raise HTTPException(409,why)
     if not body.terms_accepted: raise HTTPException(400,'Please read and accept the dealer order terms')
-    doc=body.model_dump(exclude={'password'}); doc['phone']=phone; doc['terms_accepted_at']=now(); doc.update({'password_hash':hash_password(body.password),'status':'Pending','discount_percent':settings.bulk_discount_percent,'created_at':now(),'total_orders':0,'total_purchase':0})
-    r=db.dealers.insert_one(doc)
-    queue_sms('dealer-applied-'+str(r.inserted_id),phone,t_dealer_applied(),'dealer')
-    return {'dealer_id':str(r.inserted_id),'status':'Pending','sms_queued':True}
+    if not consume_phone_verification(body.phone,'dealer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
+    doc=body.model_dump(exclude={'password'}); doc['phone']=phone; doc['terms_accepted_at']=now(); doc.update({'password_hash':hash_password(body.password),'status':'Pending','updated_at':now()})
+    old=db.dealers.find_one({'phone':phone})
+    if old:  # rejected before: the same record becomes a fresh application (keeps dealer ID, orders and history)
+        n=int(old.get('applications') or 1)+1
+        doc.update({'applications':n,'reapplied_at':now(),'status_note':''})
+        db.dealers.update_one({'_id':old['_id']},{'$set':doc,'$push':{'status_history':{'at':now(),'status':'Pending','note':f'Applied again (application #{n})'}}})
+        dealer_id=str(old['_id'])
+    else:
+        n=1; doc.update({'applications':1,'discount_percent':settings.bulk_discount_percent,'created_at':now(),'total_orders':0,'total_purchase':0})
+        dealer_id=str(db.dealers.insert_one(doc).inserted_id)
+    queue_sms(f'dealer-applied-{dealer_id}'+(f'-{n}' if n>1 else ''),phone,t_dealer_applied(),'dealer')
+    return {'dealer_id':dealer_id,'status':'Pending','reapplied':n>1,'sms_queued':True}
 
 @app.post('/api/v1/dealers/login')
 def dealer_login(body: Login):
@@ -592,18 +620,102 @@ async def retry_payment(order_id:str, authorization: str|None=Header(None)):
     if not o: raise HTTPException(404,'Order not found')
     if o.get('order_status') in ('Cancelled','Returned'): raise HTTPException(409,'This order was cancelled')
     if o.get('payment_status') in PAID_STATES: raise HTTPException(409,'This order is already paid')
+    if not settings.paystation_enabled:  # nothing is changed on the order; the page offers bKash / Nagad Send Money instead
+        return {'configured':False,'send_money':True,'message':'Online card payment is not available right now. Pay by bKash / Nagad Send Money instead.'}
     if o.get('payment_method')!='paystation':
-        # customer switches a COD order to digital: re-price with the 2% digital discount
-        cfg=commerce_settings()
-        items=[{'product_id':i['product_id'],'quantity':i['quantity']} for i in o['items']]
-        pmap={str(p['_id']):p for p in db.products.find({'_id':{'$in':[ObjectId(i['product_id']) for i in o['items']]}})}
-        prev=o.get('pricing') or {}
-        cfg['bulk_discount_percent']=(prev.get('bulk_discount',0)/prev['subtotal']*100) if prev.get('subtotal') else 0
-        coupon=db.coupons.find_one({'code':o.get('coupon_code')}) if o.get('coupon_code') else None
-        pricing=calculate(items,pmap,o.get('district',''),'paystation',coupon,cfg)
-        db.orders.update_one({'_id':o['_id']},{'$set':{'payment_method':'paystation','pricing':pricing,'payment_status':'Pending Advance Payment' if pricing['is_bulk'] else 'Pending Payment','updated_at':now()},'$push':{'timeline':{'at':now(),'note':'Customer switched to digital payment','role':'customer'}}})
+        if o.get('order_status')!='Pending Confirmation': raise HTTPException(409,'This order is already confirmed. Please pay on delivery.')
+        pricing=reprice_order(o,'paystation')
+        db.orders.update_one({'_id':o['_id']},{'$set':{'payment_method':'paystation','switched_from':o.get('payment_method'),'pricing':pricing,'courier_billing_mode':'merchant_periodic_bill' if not pricing.get('cod_due') else 'deduct_from_cod_collection','payment_status':'Pending Advance Payment' if pricing['is_bulk'] else 'Pending Payment','updated_at':now()},'$push':{'timeline':{'at':now(),'note':'Customer switched from Cash on Delivery to online payment','role':'customer'}}})
         o=db.orders.find_one({'_id':o['_id']})
     return await start_paystation(o)
+
+def paystation_orders_to_cod():
+    """EMXIN takes bKash / Nagad Send Money and COD only. Unpaid PayStation orders (from the old "Pay online" button) become COD again."""
+    if settings.paystation_enabled: return
+    for o in db.orders.find({'payment_method':'paystation','payment_status':{'$nin':list(PAID_STATES)},'order_status':{'$nin':['Cancelled','Returned']}}):
+        try:
+            pricing=reprice_order(o,'cod')
+            if pricing.get('is_bulk'): continue  # bulk needs an advance: leave for Admin
+            old=float((o.get('pricing') or {}).get('grand_total') or 0)
+            db.orders.update_one({'_id':o['_id'],'payment_method':'paystation'},{'$set':{'payment_method':'cod','pricing':pricing,'payment_status':'Unpaid','payment_channel':'cod','courier_billing_mode':'deduct_from_cod_collection','updated_at':now()},
+                '$push':{'timeline':{'at':now(),'payment_status':'Unpaid','note':'Online payment is not used: order set back to Cash on Delivery','role':'system'}}})
+            if o.get('customer_id'): db.customers.update_one({'_id':ObjectId(o['customer_id'])},{'$inc':{'total_purchase':float(pricing['grand_total'])-old}})
+        except Exception as e: log.warning('paystation→cod %s: %s',o.get('order_id'),e)
+
+def reprice_order(o:dict,method:str)->dict:
+    """Same items, coupon and dealer pricing as when the order was placed, with a different payment method."""
+    items=[{'product_id':i['product_id'],'quantity':i['quantity']} for i in o['items']]
+    pmap={str(p['_id']):p for p in db.products.find({'_id':{'$in':[ObjectId(i['product_id']) for i in o['items']]}})}
+    for i in o['items']:  # a product edited/removed since: keep the price the customer ordered at
+        pm=pmap.setdefault(i['product_id'],{'price':i['unit_price']}); pm['sale_price']=i['unit_price']; pm['price']=i['unit_price']
+    _,cfg=order_pricing_cfg(o.get('phone'),o.get('dealer_opt_in'),sum(i['quantity'] for i in items))
+    coupon=db.coupons.find_one({'code':o.get('coupon_code')}) if o.get('coupon_code') else None
+    prev=o.get('pricing') or {}
+    pricing=calculate(items,pmap,o.get('district',''),method,coupon,cfg)
+    pricing['dealer_discount_requires_approval']=prev.get('dealer_discount_requires_approval',False)
+    return pricing
+
+def change_allowed(o:dict):
+    if o.get('order_status')!='Pending Confirmation': raise HTTPException(409,'This order is already confirmed by EMXIN, so the payment method cannot be changed now.')
+    if o.get('payment_status') in PAID_STATES: raise HTTPException(409,'This order is already paid')
+    if (o.get('manual_payment') or {}).get('status')=='pending': raise HTTPException(409,'Your payment is already being verified')
+
+PAY_LABEL={'cod':'Cash on Delivery','paystation':'online payment','manual':'Send Money','bank':'bank transfer'}
+
+@app.post('/api/v1/admin/orders/{order_id}/payment-to-cod')
+def admin_payment_to_cod(order_id:str,authorization: str|None=Header(None)):
+    """Admin: an unpaid online order becomes Cash on Delivery again (re-priced without the digital discount)."""
+    actor=require_role(authorization,ORDER_WRITE)
+    o=db.orders.find_one({'order_id':order_id})
+    if not o: raise HTTPException(404,'Order not found')
+    change_allowed(o)
+    pricing=reprice_order(o,'cod')
+    if pricing.get('is_bulk'): raise HTTPException(400,'Bulk orders need an advance payment')
+    old_total=float((o.get('pricing') or {}).get('grand_total') or 0)
+    db.orders.update_one({'_id':o['_id']},{'$set':{'payment_method':'cod','pricing':pricing,'payment_status':'Unpaid','payment_channel':'cod','courier_billing_mode':'deduct_from_cod_collection','updated_at':now()},'$unset':{'manual_payment':''},
+        '$push':{'timeline':{'at':now(),'payment_status':'Unpaid','note':'Payment changed to Cash on Delivery by EMXIN','role':'admin'}}})
+    if o.get('customer_id'): db.customers.update_one({'_id':ObjectId(o['customer_id'])},{'$inc':{'total_purchase':float(pricing['grand_total'])-old_total}})
+    return serialize(db.orders.find_one({'_id':o['_id']}))
+
+@app.get('/api/v1/orders/{order_id}/payment-options')
+def payment_options(order_id:str,authorization: str|None=Header(None)):
+    """What a customer would pay by bKash / Nagad for this order (before sending money), and where to send it."""
+    ident=require_role(authorization,('customer',))
+    o=db.orders.find_one({'order_id':order_id,'customer_id':ident['sub']})
+    if not o: raise HTTPException(404,'Order not found')
+    change_allowed(o)
+    pr=reprice_order(o,'manual'); now_amount=float((o.get('pricing') or {}).get('grand_total') or 0)
+    accs=commerce_settings().get('payment_accounts') or {}
+    channels=[{'channel':k,'label':CHANNEL_LABEL[k],'number':a.get('number'),'account_type':a.get('account_type','personal')} for k,a in accs.items() if k in CHANNEL_LABEL and a.get('enabled') and a.get('number')]
+    return {'order_id':order_id,'current_method':o.get('payment_method'),'current_total':now_amount,'channels':channels,'paystation_enabled':bool(settings.paystation_enabled),
+            'send_amount':float(pr['advance_required'] if pr.get('is_bulk') else pr['grand_total']),'grand_total':pr['grand_total'],'payment_discount':pr['payment_discount'],
+            'discount_percent':pr.get('digital_payment_discount_percent',0),'is_bulk':pr.get('is_bulk',False),'cod_due':pr.get('cod_due',0),'can_use_cod':not pr.get('is_bulk')}
+
+@app.post('/api/v1/orders/{order_id}/change-payment')
+def change_payment(order_id:str,body:PaymentChange,authorization: str|None=Header(None)):
+    """Before EMXIN confirms, the customer can pay a COD order by bKash / Nagad (EMXIN verifies the TrxID), or go back to COD."""
+    ident=require_role(authorization,('customer',))
+    o=db.orders.find_one({'order_id':order_id,'customer_id':ident['sub']})
+    if not o: raise HTTPException(404,'Order not found')
+    change_allowed(o)
+    prev=o.get('payment_method'); old_total=float((o.get('pricing') or {}).get('grand_total') or 0)
+    if body.method=='cod':
+        pricing=reprice_order(o,'cod')
+        if pricing.get('is_bulk'): raise HTTPException(400,'Bulk orders need an advance payment by bKash / Nagad')
+        upd={'payment_method':'cod','pricing':pricing,'payment_status':'Unpaid','payment_channel':'cod','courier_billing_mode':'deduct_from_cod_collection','updated_at':now()}
+        note=f"Customer changed payment from {PAY_LABEL.get(prev,prev)} to Cash on Delivery"; unset={'manual_payment':''}
+    else:
+        pricing=reprice_order(o,'manual')
+        mp=manual_payment_doc(body.channel,body.trx_id,body.sender_number,pricing,order_id)
+        st='Awaiting Advance Verification' if pricing.get('is_bulk') else 'Awaiting Verification'
+        upd={'payment_method':'manual','switched_from':prev,'pricing':pricing,'manual_payment':mp,'payment_channel':mp['channel'],'payment_status':st,
+             'courier_billing_mode':'deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill','updated_at':now()}
+        note=f"Customer switched from {PAY_LABEL.get(prev,prev)} to {mp['channel_label']} Send Money · TrxID {mp['trx_id']} · ৳{mp['amount_expected']:,.0f} (to verify)"; unset={}
+    db.orders.update_one({'_id':o['_id']},{'$set':upd,**({'$unset':unset} if unset else {}),'$push':{'timeline':{'at':now(),'payment_status':upd['payment_status'],'note':note,'role':'customer'}}})
+    delta=float(pricing['grand_total'])-old_total
+    if delta and o.get('customer_id'): db.customers.update_one({'_id':ObjectId(o['customer_id'])},{'$inc':{'total_purchase':delta}})
+    n=db.orders.find_one({'_id':o['_id']})
+    return {'ok':True,'order_id':order_id,'payment_method':n['payment_method'],'payment_status':n['payment_status'],'pricing':n['pricing'],'manual_payment':n.get('manual_payment')}
 
 @app.post('/api/v1/payments/paystation/ipn')
 async def paystation_ipn(payload: dict):
@@ -714,18 +826,19 @@ async def confirm_order(order_id:str,authorization: str|None=Header(None)):
     if o.get('order_status') in ('Sent to Courier','Delivered','Cancelled'):
         return serialize(o)
     if manual_unverified(o): raise HTTPException(409,'Verify the bKash/Nagad payment first')
+    if o.get('payment_method')=='paystation' and o.get('payment_status') not in PAID_STATES:
+        raise HTTPException(409,'The online payment is not done yet (COD would be ৳0). Use "Switch to Cash on Delivery" first, or wait for the payment.')
     db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Confirmed','confirmed_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Confirmed','note':'Order confirmed by EMXIN'}}})
     queue_sms('order-confirmed-'+order_id,o['phone'],t_order_confirmed(o),'order',order_id=order_id)
     # Business rule: after EMXIN calls the customer and Admin confirms, create the default
     # Steadfast consignment automatically. Nothing is sent to courier before this click.
     if settings.courier_default=='steadfast' and settings.steadfast_enabled:
         refreshed=db.orders.find_one({'_id':o['_id']})
-        try:
-            data=await SteadfastClient().create_order(refreshed)
-            db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Sent to Courier','courier':'steadfast','courier_data':data,'courier_created_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Sent to Courier','note':'Steadfast consignment created'}}})
-            db.ledger.insert_one({'order_id':order_id,'type':'courier_created','amount':0,'payment_method':refreshed.get('payment_method'),'courier':'steadfast','cod_amount':refreshed.get('pricing',{}).get('cod_due',0),'courier_billing_mode':refreshed.get('courier_billing_mode'),'created_at':now()})
-        except IntegrationNotConfigured:
-            pass
+        try: await steadfast_create(refreshed)
+        except IntegrationNotConfigured: pass
+        except Exception as e:  # order stays Confirmed; Admin can press "Send to Steadfast" again
+            log.error('Steadfast create failed for %s: %s',order_id,str(e)[:300])
+            db.orders.update_one({'_id':o['_id']},{'$push':{'timeline':{'at':now(),'note':f'Steadfast did not accept the parcel: {str(e)[:160]}','role':'system'}}})
     return serialize(db.orders.find_one({'_id':o['_id']}))
 
 @app.post('/api/v1/admin/orders/{order_id}/cancel')
@@ -744,9 +857,13 @@ async def send_courier(order_id:str,courier:str='steadfast',authorization: str|N
     if not o: raise HTTPException(404,'Order not found')
     if o['order_status'] not in ('Confirmed','Approved'): raise HTTPException(409,'Confirm the customer/order first')
     if manual_unverified(o): raise HTTPException(409,'Verify the bKash/Nagad payment first')
+    if courier=='steadfast':
+        try: data=await steadfast_create(o)
+        except IntegrationNotConfigured as e: raise HTTPException(503,str(e))
+        except Exception as e: raise HTTPException(502,f'Steadfast did not accept the parcel: {str(e)[:200]}')
+        return {'ok':True,'courier':courier,'data':data}
     try:
-        if courier=='steadfast': data=await SteadfastClient().create_order(o)
-        elif courier=='pathao': data=await PathaoClient().create_order(o)
+        if courier=='pathao': data=await PathaoClient().create_order(o)
         else: raise HTTPException(400,'Unsupported courier')
     except IntegrationNotConfigured as e: raise HTTPException(503,str(e))
     db.orders.update_one({'order_id':order_id},{'$set':{'order_status':'Sent to Courier','courier':courier,'courier_data':data,'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Sent to Courier','note':f'{courier.title()} consignment created'}}})
@@ -1096,8 +1213,10 @@ def media_use(body: MediaUse,authorization: str|None=Header(None)):
     return {'ok':True,'message':HOME_SLOTS.get(path,path)+' updated'}
 
 @app.delete('/api/v1/admin/media/library/{media_id}')
-def media_library_delete(media_id:str,authorization: str|None=Header(None)):
+def media_library_delete(media_id:str,confirm:str='',authorization: str|None=Header(None)):
     actor=admin(authorization)
+    from .recycle import move_to_bin, check_confirm
+    check_confirm(confirm)
     if not ObjectId.is_valid(media_id): raise HTTPException(400,'Invalid id')
     m=db.media_library.find_one({'_id':ObjectId(media_id)})
     if not m: raise HTTPException(404,'Not found')
@@ -1105,12 +1224,9 @@ def media_library_delete(media_id:str,authorization: str|None=Header(None)):
     if in_use: raise HTTPException(409,f"In use by {in_use.get('name','an item')}. Remove it there first.")
     hp=db.homepage.find_one({'key':'home'}) or {}
     if m['url'] in str(hp): raise HTTPException(409,'In use on the homepage. Replace it in CMS / Homepage first.')
-    try: s3_client().delete_object(Bucket=settings.aws_s3_bucket,Key=m['key'])
-    except HTTPException: pass
-    except Exception as e: raise HTTPException(502,f'S3 delete failed: {str(e)[:120]}')
-    db.media_library.delete_one({'_id':m['_id']})
-    db.audit_logs.insert_one({'actor_id':actor['sub'],'actor_role':actor.get('role'),'action':'media_deleted','target_id':m['key'],'created_at':now()})
-    return {'ok':True}
+    # the file stays in S3 until it is deleted forever from the Recycle Bin, so a restore brings back the same URL
+    move_to_bin('media','media_library',m,actor,m.get('name') or m['key'].rsplit('/',1)[-1],m['key'])
+    return {'ok':True,'in_bin':True}
 
 @app.get('/api/v1/admin/staff')
 def list_staff(authorization: str|None=Header(None)):

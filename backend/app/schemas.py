@@ -16,6 +16,9 @@ class OrderQuote(BaseModel):
     items: list[OrderItem]; district: str='Dhaka'; payment_method: Literal['cod','paystation','manual']='cod'; coupon_code: Optional[str]=None; dealer_opt_in: bool=False
 class ManualPaymentSubmit(BaseModel):
     channel: Literal['bkash','nagad']; trx_id: str=Field(min_length=6,max_length=30); sender_number: str=Field(min_length=10,max_length=20)
+class PaymentChange(BaseModel):
+    """Customer changes how they pay before EMXIN confirms: COD → bKash/Nagad Send Money (2% off products), or back to COD."""
+    method: Literal['manual','cod']='manual'; channel: Optional[Literal['bkash','nagad']]=None; trx_id: Optional[str]=None; sender_number: Optional[str]=None
 class ManualPaymentReview(BaseModel):
     action: Literal['verify','reject']; amount_received: Optional[float]=None; note: str=''; confirm: bool=True
 class QuantityRequest(BaseModel):
