@@ -674,7 +674,7 @@ def delete_coupon(code: str, confirm: str = '', authorization: str | None = Head
 
 
 @router.get('/api/v1/coupons/validate')
-def validate_coupon(code: str, subtotal: float = 0):
+def validate_coupon(code: str, subtotal: float = 0, authorization: str | None = Header(None)):
     c = db.coupons.find_one({'code': code.strip().upper(), 'active': True})
     n = now()
     if not c or (c.get('starts_at') and n < c['starts_at'].replace(tzinfo=timezone.utc)) or (c.get('ends_at') and n > c['ends_at'].replace(tzinfo=timezone.utc)):
@@ -683,6 +683,9 @@ def validate_coupon(code: str, subtotal: float = 0):
         raise HTTPException(409, 'Coupon usage limit reached')
     if subtotal and subtotal < float(c.get('min_order') or 0):
         raise HTTPException(400, f"Minimum order ৳{c.get('min_order')} required for this coupon")
+    who = optional_customer(authorization)
+    if who and customer_used(c, who['sub']):
+        raise HTTPException(409, f"You have already used coupon {c['code']}. Each customer can use it once.")
     return {'code': c['code'], 'type': c['type'], 'value': c['value'], 'max_discount': c.get('max_discount'),
             'min_order': c.get('min_order', 0), 'description': c.get('description', ''), 'allow_bulk': bool(c.get('allow_bulk'))}
 
@@ -707,10 +710,20 @@ def live_coupons(extra: dict):
         yield c
 
 
+def customer_used(c, customer_id: str) -> bool:
+    limit = c.get('per_customer_limit', 1)
+    if not limit:
+        return False
+    cu = db.customers.find_one({'_id': ObjectId(customer_id)}, {'phone': 1}) if ObjectId.is_valid(customer_id) else None
+    who = [{'customer_id': customer_id}] + ([{'phone': cu['phone']}] if cu and cu.get('phone') else [])
+    return db.orders.count_documents({'coupon_code': c['code'], 'order_status': {'$nin': list(RELEASED_STATUSES)}, '$or': who}) >= int(limit)
+
+
 @router.get('/api/v1/coupons/available')
-def available_coupons(subtotal: float = 0):
-    """Coupons shown at checkout: active, in date, not used up, not secret. `eligible` says if this cart qualifies."""
-    out = [coupon_public(c, subtotal) for c in live_coupons({})][:20]
+def available_coupons(subtotal: float = 0, authorization: str | None = Header(None)):
+    """Coupons shown at checkout: active, in date, not used up, not secret, not already used by this customer."""
+    who = optional_customer(authorization)
+    out = [coupon_public(c, subtotal) for c in live_coupons({}) if not (who and customer_used(c, who['sub']))][:20]
     out.sort(key=lambda x: (not x['eligible'], x['min_order']))
     return out
 

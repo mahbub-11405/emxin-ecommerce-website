@@ -22,10 +22,19 @@ export function NavLinks({categories}:{categories:any[]}){
   const[open,setOpen]=useState(false);
   const[mobile,setMobile]=useState(false);const[logged,setLogged]=useState(false);
   useEffect(()=>{setOpen(false);setMobile(false)},[path]);
+  // Mobile menu open: freeze the page behind it (iPhone Safari needs the position:fixed trick, overflow:hidden alone is ignored)
+  useEffect(()=>{
+    if(!mobile)return;
+    const y=window.scrollY,b=document.body.style;const prev={position:b.position,top:b.top,left:b.left,right:b.right,width:b.width,overflow:b.overflow};
+    Object.assign(b,{position:'fixed',top:`-${y}px`,left:'0',right:'0',width:'100%',overflow:'hidden'});document.documentElement.classList.add('menu-open');
+    const k=(e:KeyboardEvent)=>{if(e.key==='Escape')setMobile(false)};addEventListener('keydown',k);
+    return()=>{Object.assign(b,prev);document.documentElement.classList.remove('menu-open');window.scrollTo(0,y);removeEventListener('keydown',k)};
+  },[mobile]);
   useEffect(()=>{const u=()=>{try{setLogged(!!localStorage.getItem('customer_token'))}catch{}};u();window.addEventListener('emxin:auth',u);return()=>window.removeEventListener('emxin:auth',u)},[]);
   const is=(href:string)=>href==='/'?path==='/':path.startsWith(href);
   return <>
     <button className="hdr-burger" aria-label="Open menu" aria-expanded={mobile} onClick={()=>setMobile(!mobile)}><Icon name={mobile?'close':'menu'} size={24}/></button>
+    {mobile&&<button type="button" className="hdr-scrim" aria-label="Close menu" onClick={()=>setMobile(false)}/>}
     <nav className={'hdr-nav'+(mobile?' open':'')} aria-label="Main">
       <form action="/shop" className="mnav-only mnav-search" role="search" onSubmit={()=>setMobile(false)}><Icon name="search" size={18}/><input name="q" placeholder="Search products..." aria-label="Search products"/><button className="btn btn-sm">Search</button></form>
       <Link className={is('/')?'active':''} href="/">Home</Link>

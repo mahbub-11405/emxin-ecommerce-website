@@ -23,7 +23,8 @@ def calculate(items, products_by_id, district: str, payment_method: str, coupon=
     bulk_discount_amount=round(bulk_discount_amount,2)
     after_bulk=subtotal-bulk_discount_amount
     coupon_discount=0.0
-    if coupon and (not is_bulk or coupon.get('allow_bulk')):
+    # A coupon is taken ONCE per order whatever the quantity, and also on bulk/dealer orders (on top of the dealer discount)
+    if coupon:
         if coupon.get('type')=='percentage':
             coupon_discount=after_bulk*float(coupon.get('value',0))/100
             cap=coupon.get('max_discount')

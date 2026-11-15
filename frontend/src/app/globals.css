@@ -752,3 +752,19 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 /* order summary: amounts never break onto two lines */
 .sum-row>span:last-child,.sum-row>b:last-child,.sum-amt{white-space:nowrap;flex:none;text-align:right}
 .sum-row>span:first-child{min-width:0}.sum-note{display:block;font-weight:500;font-size:12px;opacity:.85}
+
+/* mobile menu: only the menu scrolls; the page behind is frozen and dimmed (tap it to close) */
+.hdr-scrim{display:none}
+@media (max-width:980px){
+  .hdr-nav{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;z-index:60}
+  .hdr-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:76px;border:0;padding:0;background:rgba(11,24,56,.45);z-index:40;cursor:pointer}
+  html.menu-open .hdr{position:fixed;top:0;left:0;right:0;z-index:70}
+}
+@media (max-width:620px){.hdr-scrim{top:64px}}
+
+/* footer + contact: Messenger & Facebook */
+.soc-title{margin:14px 0 8px;font-size:13.5px;color:rgba(255,255,255,.75)}
+.soc{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.soc a{display:inline-flex!important;align-items:center;gap:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:7px 14px 7px 8px!important;color:#fff;font-weight:600;font-size:14px;transition:background .15s}
+.soc a:hover{background:rgba(255,255,255,.18)}.soc svg{flex:none;display:block}
+.soc-big{margin:20px 0 8px;gap:12px}.soc-big a{background:var(--soft);border:1px solid var(--line);color:var(--navy);padding:12px 22px 12px 12px!important;font-size:16px}.soc-big a:hover{background:#eef3ff;border-color:var(--blue-100)}

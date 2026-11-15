@@ -34,7 +34,7 @@ export default function Shell({children}:{children:React.ReactNode}){
   const[q,setQ]=useState('');const[res,setRes]=useState<any>(null);const[bell,setBell]=useState(false);const[notes,setNotes]=useState<any[]>([]);const[menu,setMenu]=useState(false);
   const searchRef=useRef<HTMLInputElement>(null);
   const signOut=()=>{if(!window.confirm('Log out of EMXIN Admin?'))return;try{localStorage.removeItem('admin_token')}catch{}router.push('/login')};
-  useEffect(()=>{api('/admin/me').then(setMe).catch(()=>{});const load=()=>api('/admin/counts').then(setCounts).catch(()=>{});load();const t=setInterval(load,60000);return()=>clearInterval(t)},[]);
+  useEffect(()=>{api('/admin/me').then(setMe).catch(()=>{});let q:any;const load=()=>api('/admin/counts').then(setCounts).catch(()=>{});const soon=()=>{clearTimeout(q);q=setTimeout(load,300)};load();const t=setInterval(load,60000);addEventListener('admin:changed',soon);addEventListener('focus',load);return()=>{clearInterval(t);clearTimeout(q);removeEventListener('admin:changed',soon);removeEventListener('focus',load)}},[]);
   useEffect(()=>{const g=NAV.find(n=>n.children?.some(c=>path.startsWith(c.href.split('?')[0])));if(g)setOpen(g.href);setMobile(false)},[path]);
   useEffect(()=>{const k=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();searchRef.current?.focus()}};addEventListener('keydown',k);return()=>removeEventListener('keydown',k)},[]);
   useEffect(()=>{if(q.trim().length<2){setRes(null);return}const t=setTimeout(()=>api('/admin/search?q='+encodeURIComponent(q.trim())).then(setRes).catch(()=>{}),250);return()=>clearTimeout(t)},[q]);

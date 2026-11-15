@@ -62,7 +62,8 @@ class MediaPresign(BaseModel):
 
 class CouponInput(BaseModel):
     code: str=Field(min_length=3,max_length=32); type: Literal['percentage','fixed']='fixed'; value: float=Field(gt=0)
-    max_discount: Optional[float]=None; min_order: float=0; usage_limit: Optional[int]=None; active: bool=True; allow_bulk: bool=False
+    max_discount: Optional[float]=None; min_order: float=0; usage_limit: Optional[int]=None; active: bool=True; allow_bulk: bool=True
+    per_customer_limit: Optional[int]=1  # how many orders one customer (account / mobile number) may use it on; empty = no limit
     starts_at: Optional[str]=None; ends_at: Optional[str]=None; description: str=''
     show_public: bool=True  # listed under “Available coupons” at checkout (off = secret code you share yourself)
     promote: bool=False      # featured on the website: offer bar on every page, product pages, cart & checkout

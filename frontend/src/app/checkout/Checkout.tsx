@@ -37,10 +37,13 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const qty=items.reduce((n,x)=>n+x.quantity,0);
   const threshold=Number(settings.bulk_threshold_qty||20);
   const bulk=qty>=threshold;
+  // retail orders: max N pcs of each product (bulk / dealer orders of 20+ pcs have no per-product cap)
+  const cap=Number(settings.retail_max_qty_per_product||5);
+  const overCap=!bulk?[...new Set(items.map(i=>i.product_id))].filter(id=>items.reduce((n,x)=>x.product_id===id?n+x.quantity:n,0)>cap):[];
   useEffect(()=>{if(bulk&&pay==='cod')setPay(chans.length?'manual':'paystation')},[bulk,pay]);
   const est=useMemo(()=>{
     const sub=items.reduce((s,i)=>s+priceOf(byId[i.product_id])*i.quantity,0);
-    let c=0;if(cp&&(!bulk||cp.allow_bulk)){c=cp.type==='percentage'?sub*cp.value/100:cp.value;if(cp.max_discount)c=Math.min(c,cp.max_discount);c=Math.min(c,sub)}
+    let c=0;if(cp){c=cp.type==='percentage'?sub*cp.value/100:cp.value;if(cp.max_discount)c=Math.min(c,cp.max_discount);c=Math.min(c,sub)}
     const del=Number(f.district.toLowerCase()==='dhaka'?settings.dhaka_delivery_charge??70:settings.outside_dhaka_delivery_charge??130);
     const gross=sub-c+del;const saving=Math.round((sub-c)*pct/100); // digital discount: products only, not delivery
     const total=pay!=='cod'?Math.round(gross-saving):Math.round(gross);
@@ -53,10 +56,10 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const acc=accs[mp.channel]||{};const chLabel=mp.channel==='nagad'?'Nagad':'bKash';
   const copy=(t:string)=>{try{navigator.clipboard?.writeText(t)}catch{}};
   const[offers,setOffers]=useState<any[]>([]);const[showOffers,setShowOffers]=useState(false);const[copied,setCopied]=useState('');
-  useEffect(()=>{if(!est.sub)return;const t=setTimeout(()=>fetch(`${API}/coupons/available?subtotal=${Math.round(est.sub)}`).then(r=>r.ok?r.json():[]).then(x=>setOffers(Array.isArray(x)?x:[])).catch(()=>{}),300);return()=>clearTimeout(t)},[est.sub]);
+  useEffect(()=>{if(!est.sub)return;const t=setTimeout(()=>fetch(`${API}/coupons/available?subtotal=${Math.round(est.sub)}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}}).then(r=>r.ok?r.json():[]).then(x=>setOffers(Array.isArray(x)?x:[])).catch(()=>{}),300);return()=>clearTimeout(t)},[est.sub]);
   const useOffer=(code:string)=>{setCoupon(code);setShowOffers(false);applyCoupon(code)};
   const copyCode=(code:string)=>{try{navigator.clipboard?.writeText(code)}catch{}setCopied(code);setTimeout(()=>setCopied(''),1500)};
-  async function applyCoupon(code?:string){const c=(code??coupon).trim().toUpperCase();setCpMsg('');setCp(null);if(!c)return;try{const r=await fetch(`${API}/coupons/validate?code=${encodeURIComponent(c)}&subtotal=${est.sub}`);const j=await r.json();if(!r.ok)throw new Error(j.detail);setCp(j);setCpMsg(`Coupon applied${j.description?': '+j.description:''}`)}catch(e:any){setCpMsg(e.message||'Invalid coupon')}}
+  async function applyCoupon(code?:string){const c=(code??coupon).trim().toUpperCase();setCpMsg('');setCp(null);if(!c)return;try{const r=await fetch(`${API}/coupons/validate?code=${encodeURIComponent(c)}&subtotal=${est.sub}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}});const j=await r.json();if(!r.ok)throw new Error(j.detail);setCp(j);setCpMsg(`Coupon applied${j.description?': '+j.description:''}`)}catch(e:any){setCpMsg(e.message||'Invalid coupon')}}
   async function go(e:React.FormEvent){
     e.preventDefault();
     const token=getToken();
@@ -140,6 +143,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
               <button type="button" aria-label="More" disabled={i.quantity>=max} onClick={()=>changeQty(k,i.quantity+1)}>+</button>
               <button type="button" className="co-rm" aria-label="Remove" title="Remove" onClick={()=>removeItem(k)}><Icon name="trash" size={15}/></button></div></div>
           <b className="co-line">৳ {(priceOf(p)*i.quantity).toLocaleString('en-IN')}</b></div>})}</div>
+      {overCap.length>0&&<p className="note-warn" role="alert">You can order up to <b>{cap} pcs of each product</b>. Reduce {overCap.map(id=>byId[id]?.name||'the item').join(', ')} to {cap}, or order {threshold}+ pcs in total as a bulk / dealer order.</p>}
       <Link className="co-editcart" href="/cart"><Icon name="cart" size={16}/>Edit cart · add more items<Icon name="arrowRight" size={15}/></Link>
       {!cp&&(()=>{const o=offers.find(x=>x.eligible);return o?<div className="co-offer-hint"><Icon name="percent" size={16} stroke={2.4}/><span>Offer for you: <b>{o.label}</b></span><button type="button" className="btn btn-sm" onClick={()=>useOffer(o.code)}>Apply {o.code}</button></div>:null})()}
       <div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={()=>applyCoupon()}>Apply</button></div>{cpMsg&&<small className={cp?'qr-okline':'qr-warn'}>{cpMsg}</small>}
@@ -148,7 +152,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
         <div className="co-modal-box"><div className="co-modal-head"><h3 id="offers-title">Available coupons</h3><button type="button" className="co-x" aria-label="Close" onClick={()=>setShowOffers(false)}>×</button></div>
           <p className="muted tiny">Tap <b>Apply</b> to use a coupon on this order, or copy the code.</p>
           <div className="co-offer-list">{offers.map(o=><div key={o.code} className={'co-offer'+(o.eligible?'':' off')}>
-            <div className="co-offer-top"><b>{o.label}</b>{o.allow_bulk&&<span className="co-tag">Bulk OK</span>}</div>
+            <div className="co-offer-top"><b>{o.label}</b></div>
             {o.description&&<p>{o.description}</p>}
             <small className="muted">{o.min_order>1?`Min. order ৳ ${Math.round(o.min_order).toLocaleString('en-IN')}`:'No minimum'}{o.ends_at?` · valid till ${new Date(new Date(o.ends_at).getTime()-1).toLocaleDateString('en-GB',{timeZone:'UTC'})}`:''}</small>
             {!o.eligible&&<small className="co-short">Add ৳ {Math.round(o.short_by).toLocaleString('en-IN')} more to use this</small>}
@@ -164,8 +168,8 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       <div className="sum-row total"><span>Total</span><b>৳ {(quote?Math.round(quote.grand_total):est.total).toLocaleString('en-IN')}</b></div>
       {bulk&&<div className="sum-row"><span>Pay now (advance)</span><b>৳ {(quote?Math.round(quote.advance_required):est.adv).toLocaleString('en-IN')}</b></div>}
       {state.kind==='err'&&<p className="form-err" role="alert">{state.text}</p>}
-      <button className="btn btn-lg btn-block" disabled={state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<>Continue — verify mobile <Icon name="arrowRight" size={18}/></>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {(bulk?est.adv:est.total).toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
-      <p className="muted tiny">The final amount is confirmed by our server. Nothing is sent to the courier until EMXIN confirms your order by phone.</p>
+      <button className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<>Continue — verify mobile <Icon name="arrowRight" size={18}/></>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {(bulk?est.adv:est.total).toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
+      <p className="muted tiny">By placing this order you agree to our <Link href="/terms" target="_blank">Terms</Link>, including that EMXIN may <Link href="/terms#order-cancellation" target="_blank">cancel an order affected by a system error</Link> and refund any payment in full. Nothing is sent to the courier until EMXIN confirms your order.</p>
     </aside>
   </form>;
 }

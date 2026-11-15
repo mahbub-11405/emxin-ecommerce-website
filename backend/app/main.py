@@ -175,8 +175,8 @@ def home():
 @app.get('/api/v1/site-content')
 def site_content():
     home=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
-    cfg=db.settings.find_one({'key':'commerce'},{'_id':0,'dealer_tiers':1,'bulk_threshold_qty':1,'digital_payment_discount_percent':1}) or {}
-    return {k:home.get(k,{}) for k in ('branding','links','trust','policies','dealer_benefits','announcement','footer','seo')}|{'dealer_tiers':cfg.get('dealer_tiers') or [5,8,12,15],'bulk_threshold_qty':cfg.get('bulk_threshold_qty',20),'digital_payment_discount_percent':cfg.get('digital_payment_discount_percent',2)}
+    cfg=db.settings.find_one({'key':'commerce'},{'_id':0,'dealer_tiers':1,'bulk_threshold_qty':1,'digital_payment_discount_percent':1,'retail_max_qty_per_product':1}) or {}
+    return {k:home.get(k,{}) for k in ('branding','links','trust','policies','dealer_benefits','announcement','footer','seo')}|{'dealer_tiers':cfg.get('dealer_tiers') or [5,8,12,15],'bulk_threshold_qty':cfg.get('bulk_threshold_qty',20),'digital_payment_discount_percent':cfg.get('digital_payment_discount_percent',2),'retail_max_qty_per_product':cfg.get('retail_max_qty_per_product',5)}
 
 @app.get('/api/v1/categories')
 def categories(): return serialize(list(db.categories.find({'visible':True}).sort('order',1)))
@@ -432,8 +432,26 @@ def order_quote(body: OrderQuote, authorization: str|None=Header(None)):
     items=[i.model_dump() for i in body.items if i.product_id in pmap]
     if not items: raise HTTPException(400,'No available products')
     coupon=valid_coupon(body.coupon_code)
+    if coupon and phone and coupon_used_up_by(coupon,phone): coupon=None
     _,cfg=order_pricing_cfg(phone,body.dealer_opt_in,sum(i['quantity'] for i in items))
     return calculate(items,pmap,body.district,body.payment_method,coupon,cfg)
+
+def coupon_used_up_by(coupon:dict,phone:str|None=None,customer_id:str|None=None)->bool:
+    """True when this customer (same account or same mobile number) already used the coupon its allowed number of times."""
+    limit=coupon.get('per_customer_limit',1)
+    if not limit: return False
+    who=[q for q in ([{'customer_id':customer_id}] if customer_id else [])+([{'phone':normalize_bd_phone(phone)}] if phone else [])]
+    if not who: return False
+    return db.orders.count_documents({'coupon_code':coupon['code'],'order_status':{'$nin':['Cancelled','Returned']},'$or':who})>=int(limit)
+
+def retail_qty_problem(items:list,cfg:dict)->str:
+    """Retail (not bulk) orders: at most N pieces of each product. Bulk (20+ pcs) / dealer orders have no per-product cap."""
+    cap=int(cfg.get('retail_max_qty_per_product') or 5); bulk=int(cfg.get('bulk_threshold_qty',settings.bulk_threshold_qty))
+    per={}
+    for i in items: per[i['product_id']]=per.get(i['product_id'],0)+int(i['quantity'])
+    if sum(per.values())>=bulk: return ''
+    over=[pid for pid,q in per.items() if q>cap]
+    return f'You can order up to {cap} pcs of each product. For more, order {bulk}+ pcs as a bulk / dealer order.' if over else ''
 
 # ---------- Manual bKash / Nagad "Send Money" payments ----------
 CHANNEL_LABEL={'bkash':'bKash','nagad':'Nagad'}
@@ -516,6 +534,8 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
     coupon=valid_coupon(body.coupon_code)
     if body.coupon_code and not coupon: raise HTTPException(400,'Coupon is invalid or expired')
     if coupon and coupon.get('usage_limit') and db.orders.count_documents({'coupon_code':coupon['code'],'order_status':{'$nin':['Cancelled','Returned']}})>=coupon['usage_limit']: raise HTTPException(409,'Coupon usage limit reached')
+    if coupon and coupon_used_up_by(coupon,body.phone,str(buyer['_id'])): raise HTTPException(409,f"You have already used coupon {coupon['code']}. Each customer can use it once.")
+    if (why:=retail_qty_problem([x.model_dump() for x in body.items],commerce_settings())): raise HTTPException(400,why)
     if coupon and coupon.get('min_order') and sum(float(pmap[i.product_id].get('sale_price') or pmap[i.product_id]['price'])*i.quantity for i in body.items)<float(coupon['min_order']): raise HTTPException(400,f"Minimum order ৳{coupon['min_order']} required for this coupon")
     dealer,cfg=order_pricing_cfg(body.phone,body.dealer_opt_in,sum(i.quantity for i in body.items))
     pricing=calculate([x.model_dump() for x in body.items],pmap,body.district,body.payment_method,coupon,cfg)
@@ -966,7 +986,7 @@ def update_homepage(payload:dict,authorization: str|None=Header(None)):
 @app.put('/api/v1/admin/settings/commerce')
 def update_commerce(payload:dict,authorization: str|None=Header(None)):
     manager(authorization)
-    permitted={'dhaka_delivery_charge','outside_dhaka_delivery_charge','estimated_shipping_from_qty','extra_shipping_per_kg','bulk_threshold_qty','bulk_discount_percent','bulk_advance_percent','digital_payment_discount_percent','payment_accounts','return_label','express_surcharge_by_district','dealer_tiers'}
+    permitted={'dhaka_delivery_charge','outside_dhaka_delivery_charge','estimated_shipping_from_qty','extra_shipping_per_kg','bulk_threshold_qty','bulk_discount_percent','bulk_advance_percent','digital_payment_discount_percent','payment_accounts','return_label','express_surcharge_by_district','dealer_tiers','retail_max_qty_per_product'}
     cleaned={k:v for k,v in payload.items() if k in permitted}
     for key in permitted & cleaned.keys():
         if key.endswith('_percent') and (not isinstance(cleaned[key],(int,float)) or not 0<=cleaned[key]<=100): raise HTTPException(400,f'Invalid {key}')

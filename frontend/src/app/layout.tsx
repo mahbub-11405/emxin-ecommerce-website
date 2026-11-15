@@ -4,6 +4,7 @@ import {safeJSON,isHttp} from '@/lib/api';
 import AnalyticsTracker from '@/components/AnalyticsTracker';
 import Icon from '@/components/Icon';
 import {CartBadge,AccountLink,NavLinks} from '@/components/HeaderClient';
+import Social from '@/components/Social';
 import {OfferBar,OfferPopup} from '@/components/Offer';
 
 export async function generateMetadata(){
@@ -40,7 +41,8 @@ export default async function Layout({children}:{children:React.ReactNode}){
     {children}
     <footer className="ftr"><div className="wrap ftr-grid">
       <div className="ftr-brand"><Link href="/"><img src={logoDark} alt="EMXIN Technologies"/></Link><p>{site.footer?.tagline||'Smart Gadgets. Smarter Living.'}</p>
-        <div className="ftr-social">{links.facebook_url&&<a href={links.facebook_url} aria-label="Facebook" target="_blank" rel="noopener"><Icon name="facebook" size={18}/></a>}{links.support_phone&&<a href={'tel:'+links.support_phone} aria-label="Call support"><Icon name="phone" size={18}/></a>}{links.support_email&&<a href={'mailto:'+links.support_email} aria-label="Email support"><Icon name="mail" size={18}/></a>}</div>
+        <p className="soc-title">Need help with an order? Message us:</p><Social links={links}/>
+        <div className="ftr-social">{links.support_phone&&<a href={'tel:'+links.support_phone} aria-label="Call support"><Icon name="phone" size={18}/></a>}{links.support_email&&<a href={'mailto:'+links.support_email} aria-label="Email support"><Icon name="mail" size={18}/></a>}</div>
       </div>
       <div><h4>Shop</h4>{(cats.length?cats:[{slug:'smart-glasses',name:'Smart Glasses'},{slug:'sunglasses',name:'Sunglasses'},{slug:'frames',name:'Frames'}]).slice(0,6).map((c:any)=><Link key={c.slug} href={`/shop?category=${c.slug}`}>{c.name}</Link>)}</div>
       <div><h4>Support</h4><Link href="/track-order">Track Order</Link><Link href="/return-policy">Return Policy</Link><Link href={links.support_url||'/contact'}>Contact Support</Link><Link href="/payments">Payment Options</Link><Link href="/delivery">Delivery Information</Link></div>

@@ -5,6 +5,8 @@ export async function api(path:string,opts:any={}){
   const j=await r.json().catch(()=>({}));
   if(r.status===401&&typeof window!=='undefined'&&!location.pathname.startsWith('/login')){try{localStorage.removeItem('admin_token')}catch{}location.href='/login?next='+encodeURIComponent(location.pathname)}
   if(!r.ok)throw new Error(typeof j.detail==='string'?j.detail:Array.isArray(j.detail)?j.detail.map((d:any)=>`${d.loc?.slice(-1)[0]}: ${d.msg}`).join('; '):'Request failed');
+  // any successful change (approve, confirm, delete…) → sidebar badges + bell update right away
+  if(opts.method&&opts.method!=='GET'&&typeof window!=='undefined')window.dispatchEvent(new Event('admin:changed'));
   return j;
 }
 export async function postJSON(path:string,body:any){return api(path,{method:'POST',body:JSON.stringify(body)})}
