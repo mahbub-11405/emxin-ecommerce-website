@@ -708,3 +708,11 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
   .offer-pop{align-items:end;padding:0}.offer-pop-box{width:100%;border-radius:22px 22px 0 0;padding:26px 18px 20px}
   .offer-pop-box h2{font-size:28px}
 }
+
+/* v2.7 shop filters: counts, disabled zero options, removable chips */
+.flt-opt em{margin-left:auto;font-style:normal;font-size:12px;color:var(--muted);background:#f1f3f8;border-radius:999px;padding:1px 8px;min-width:24px;text-align:center}
+.flt-opt.on em{background:#eaf0ff;color:var(--blue)}
+.flt-opt.off{color:#a7afc0;cursor:not-allowed}.flt-opt.off i{border-color:#e3e7ef;background:#f7f8fb}
+.flt-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:2px 0 14px}
+.flt-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #bcd0ff;background:#f5f8ff;color:var(--blue);border-radius:999px;padding:6px 12px;font-size:13.5px;font-weight:600}
+.flt-chip span{font-size:16px;line-height:1}.flt-chip:hover{background:#eaf0ff}

@@ -166,6 +166,30 @@ def brands(category: str|None=None):
         q['slug']={'$in':used}
     return serialize(list(db.brands.find(q).sort('order',1)))
 
+SEARCH_FIELDS=('name','model','subtitle','sku','description','features','specifications')
+def search_filter(q:str)->list:
+    """Every word must match somewhere: product text, its category name or its brand name.
+    'smart sun glass' finds products in “Smart Sun Glasses”; 'sunglass' also matches 'sun glass'."""
+    words=[w for w in re.findall(r'[\w৳.-]+',q.lower()) if len(w)>=2][:8]
+    cats=list(db.categories.find({},{'slug':1,'name':1})); brands=list(db.brands.find({},{'slug':1,'name':1}))
+    squash=lambda s:re.sub(r'[^a-z0-9]','',(s or '').lower())
+    out=[]
+    for w in words:
+        stem=w[:-2] if w.endswith('es') and len(w)>4 else w[:-1] if w.endswith('s') and len(w)>3 else w  # glasses → glass
+        rx={'$regex':re.escape(stem),'$options':'i'}
+        alts=[{k:rx} for k in SEARCH_FIELDS]
+        cs=[c['slug'] for c in cats if stem in squash(c.get('name')) or stem in squash(c['slug'])]
+        bs=[b['slug'] for b in brands if stem in squash(b.get('name')) or stem in squash(b['slug'])]
+        if cs: alts.append({'category_slug':{'$in':cs}})
+        if bs: alts.append({'brand_slug':{'$in':bs}})
+        out.append({'$or':alts})
+    # whole query squashed ('sunglass', 'g2pro') can also match a category / model written with spaces
+    whole=squash(q)
+    if len(words)>1 or not whole: return out
+    cs=[c['slug'] for c in cats if whole in squash(c.get('name'))]
+    if cs: out=[{'$or':out[0]['$or']+[{'category_slug':{'$in':cs}}]}] if out else [{'category_slug':{'$in':cs}}]
+    return out
+
 @app.get('/api/v1/products')
 def products(category: str|None=None,brand: str|None=None,q: str|None=None,limit:int=50,camera: str|None=None,availability: str|None=None,min_price: float|None=None,max_price: float|None=None,sort: str='featured',ids: str|None=None,collection: str|None=None):
     f={'status':'active'}
@@ -185,7 +209,7 @@ def products(category: str|None=None,brand: str|None=None,q: str|None=None,limit
         if min_price is not None: rng['$gte']=min_price
         if max_price is not None: rng['$lte']=max_price
         f['$and']=[{'$or':[{'sale_price':rng},{'sale_price':None,'price':rng}]}]
-    if q:f['$or']=[{'name':{'$regex':re.escape(q),'$options':'i'}},{'features':{'$elemMatch':{'$regex':re.escape(q),'$options':'i'}}},{'model':{'$regex':re.escape(q),'$options':'i'}}]
+    if q: f.setdefault('$and',[]).extend(search_filter(q))
     if sort in ('price_asc','price_desc','newest'):  # by selling price (sale price when set)
         return serialize(with_names(sort_products(list(db.products.find(f).limit(1000)),sort)[:min(limit,100)]))
     order={'rating':[('rating',-1),('review_count',-1)],'popular':[('sold_count',-1)]}.get(sort)

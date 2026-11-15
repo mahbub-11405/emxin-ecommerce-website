@@ -122,7 +122,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       </section>
     </div>
     <aside className="panel co-sum"><h3>Order Summary</h3>
-      <div className="co-items">{items.map((i,k)=>{const p=byId[i.product_id];const img=p?.images?.[0]||p?.media?.find((m:any)=>m.type!=='video')?.url;const max=Math.max(1,Number(p?.stock)||99);
+      <div className="co-items">{items.map((i,k)=>{const p=byId[i.product_id];const img=p?.images?.[0]||p?.media?.find((m:any)=>m.type!=='video')?.url;const max=Math.max(1,(Number(p?.stock)||99)-items.reduce((n,x,j)=>j!==k&&x.product_id===i.product_id?n+x.quantity:n,0));
         return <div className="co-item2" key={i.product_id+i.frame_color}>
           <span className="co-thumb">{img?<img src={img} alt=""/>:<Icon name="glasses" size={22}/>}</span>
           <div className="co-info"><b>{p?.name||'…'}</b><small>{i.frame_color} · ৳ {priceOf(p).toLocaleString('en-IN')} each</small>
