@@ -35,24 +35,24 @@ export function ImageInput({value,onChange,folder,label='Image',kind='image'}:{v
     {err&&<small className="err">{err}</small>}</div><MediaPicker open={pick} onClose={()=>setPick(false)} multiple={false} type={kind} onPick={i=>onChange(i[0].url)}/></div>;
 }
 /** Type-to-confirm box for every delete in the admin: the admin must type DELETE. Shown by askDelete(). */
-type AskT={title:string;text:string;forever?:boolean;resolve:(ok:boolean)=>void};
+type AskT={title:string;text:string;forever?:boolean;word:string;action?:string;resolve:(ok:boolean)=>void};
 let showAsk:(a:AskT)=>void=()=>{};
-export function askDelete(title:string,text='',forever=false):Promise<boolean>{return new Promise(resolve=>showAsk({title,text,forever,resolve}))}
+export function askDelete(title:string,text='',forever=false,word='DELETE',action=''):Promise<boolean>{return new Promise(resolve=>showAsk({title,text,forever,word,action,resolve}))}
 export function DeleteHost(){
   const[a,setA]=useState<AskT|null>(null);const[v,setV]=useState('');
   useEffect(()=>{showAsk=x=>{setV('');setA(x)}},[]);
   const close=(ok:boolean)=>{a?.resolve(ok);setA(null);setV('')};
   useEffect(()=>{if(!a)return;const k=(e:KeyboardEvent)=>{if(e.key==='Escape')close(false)};addEventListener('keydown',k);return()=>removeEventListener('keydown',k)},[a]);
-  if(!a)return null;const ok=v.trim().toLowerCase()==='delete';
+  if(!a)return null;const ok=v.trim().toLowerCase()===a.word.toLowerCase();
   return <div className="dlg" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t"><div className="dlg-bg" onClick={()=>close(false)}/>
     <form className="dlg-box" onSubmit={e=>{e.preventDefault();if(ok)close(true)}}>
       <span className="dlg-ic"><Icon name="trash" size={22}/></span>
       <h3 id="dlg-t">{a.title}</h3>
       {a.text&&<p className="dlg-text">{a.text}</p>}
       <p className="dlg-note">{a.forever?<>This is <b>permanent</b> and cannot be undone.</>:<>It goes to the <b>Recycle Bin</b>. You can restore it from there with the same ID.</>}</p>
-      <label className="dlg-label">Type <b>DELETE</b> to confirm</label>
-      <input autoFocus value={v} onChange={e=>setV(e.target.value)} placeholder="DELETE" autoComplete="off" spellCheck={false} aria-label="Type DELETE to confirm"/>
-      <div className="dlg-act"><button type="button" className="btn btn-ghost" onClick={()=>close(false)}>Cancel</button><button className="btn btn-danger" disabled={!ok}><Icon name="trash" size={16}/>{a.forever?'Delete forever':'Delete'}</button></div>
+      <label className="dlg-label">Type <b>{a.word}</b> to confirm</label>
+      <input autoFocus value={v} onChange={e=>setV(e.target.value)} placeholder={a.word} autoComplete="off" spellCheck={false} aria-label={`Type ${a.word} to confirm`}/>
+      <div className="dlg-act"><button type="button" className="btn btn-ghost" onClick={()=>close(false)}>Cancel</button><button className="btn btn-danger" disabled={!ok}><Icon name="trash" size={16}/>{a.action||(a.forever?'Delete forever':'Delete')}</button></div>
     </form></div>;
 }
 export function Confirm({text,onYes,children,cls='btn btn-sm btn-ghost danger',sub=''}:{text:string;onYes:()=>void;children:React.ReactNode;cls?:string;sub?:string}){return <button type="button" className={cls} onClick={async()=>{if(await askDelete(text,sub))onYes()}}>{children}</button>}

@@ -30,8 +30,8 @@ export default function RecycleBin(){
   async function restore(ids:string[]){setBusy(true);try{const r=await postJSON('/admin/recycle-bin/restore',{ids});toast.ok(`Restored: ${r.restored.join(', ')}`);if(r.errors?.length)toast.err(r.errors.join(' · '));setSel([]);setPeek('');load()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
   async function purge(ids:string[],all=false){
     const n=all?d?.total:ids.length;
-    if(!await askDelete(all?'Empty the Recycle Bin?':`Delete ${n} item${n>1?'s':''} forever?`,all?`All ${n} item(s) are erased. Media files are removed from S3 too.`:'They cannot be restored after this.',true))return;
-    setBusy(true);try{const r=await postJSON('/admin/recycle-bin/purge',{ids,all,confirm:'delete'});toast.ok(`${r.deleted} item(s) deleted forever`);setSel([]);setPeek('');load()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
+    if(!await (all?askDelete('Empty the Recycle Bin?',`All ${n} item(s) in the bin are erased for good, including media files in S3. Nothing can be restored after this.`,true,'EMPTY','Empty bin'):askDelete(`Delete ${n} item${n>1?'s':''} forever?`,'They cannot be restored after this.',true)))return;
+    setBusy(true);try{const r=await postJSON('/admin/recycle-bin/purge',{ids,all,confirm:all?'empty':'delete'});toast.ok(`${r.deleted} item(s) deleted forever`);setSel([]);setPeek('');load()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
   const rows=d?.rows||[];
   return <Shell>
     <PageHead title="Recycle Bin" sub="Everything deleted in the admin panel lands here. Restore brings it back to the same place with the same ID, so orders, reports and links work as before.">{d?.total>0&&<button className="btn btn-ghost danger" disabled={busy} onClick={()=>purge([],true)}><Icon name="trash" size={16}/>Empty bin</button>}</PageHead>

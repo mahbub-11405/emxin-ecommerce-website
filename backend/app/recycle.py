@@ -167,7 +167,11 @@ def bin_restore(payload: dict, authorization: str | None = Header(None)):
 def bin_purge(payload: dict, authorization: str | None = Header(None)):
     """Delete forever. Media files are removed from S3 only now."""
     actor = bin_actor(authorization)
-    check_confirm(payload.get('confirm'))
+    if payload.get('all'):  # emptying the whole bin needs its own word
+        if str(payload.get('confirm') or '').strip().lower() != 'empty':
+            raise HTTPException(400, 'Type EMPTY to empty the Recycle Bin')
+    else:
+        check_confirm(payload.get('confirm'))
     q = {} if payload.get('all') else {'_id': {'$in': [ObjectId(i) for i in (payload.get('ids') or []) if ObjectId.is_valid(str(i))]}}
     n = 0
     for e in db.recycle_bin.find(q):
