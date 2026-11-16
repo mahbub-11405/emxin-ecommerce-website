@@ -8,6 +8,8 @@ import {readCart,writeCart} from '@/lib/cart';
 import {track} from '@/lib/tracking';
 import {DISTRICTS} from '@/lib/districts';
 import {getToken,logout,readDraft,saveDraft,DRAFT} from '@/lib/auth';
+import {getProfile} from '@/lib/profile';
+import QtyRule,{toCap,toBulk} from '@/components/QtyRule';
 
 export default function Checkout({productId,initialQty=1,initialColor='Black',settings={}}:{productId:string;initialQty?:number;initialColor?:string;settings?:any}){
   const[items,setItems]=useState<{product_id:string;quantity:number;frame_color:string}[]>([]);
@@ -18,7 +20,8 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const[pay,setPay]=useState(psOn?'paystation':chans.length?'manual':'cod');
   const[mp,setMp]=useState({channel:chans[0]||'bkash',trx_id:'',sender_number:''});const[quote,setQuote]=useState<any>(null);const[coupon,setCoupon]=useState('');const[cp,setCp]=useState<any>(null);const[cpMsg,setCpMsg]=useState('');
   const[f,setF]=useState({customer_name:'',phone:'',email:'',address:'',district:'Dhaka',shop_name:'',dealer_opt_in:false});
-  const[me,setMe]=useState<any>(null);const[welcome,setWelcome]=useState(false);
+  const[me,setMe]=useState<any>(null);const[isDealer,setIsDealer]=useState(false);
+  useEffect(()=>{setIsDealer(getProfile()?.dealer?.status==='Active')},[]);const[welcome,setWelcome]=useState(false);
   const[state,setState]=useState<{kind:string;text?:string;order?:any}>({kind:'idle'});
   const pct=Number(settings.digital_payment_discount_percent??2);
   useEffect(()=>{
@@ -43,7 +46,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   useEffect(()=>{if(bulk&&pay==='cod')setPay(chans.length?'manual':'paystation')},[bulk,pay]);
   const est=useMemo(()=>{
     const sub=items.reduce((s,i)=>s+priceOf(byId[i.product_id])*i.quantity,0);
-    let c=0;if(cp){c=cp.type==='percentage'?sub*cp.value/100:cp.value;if(cp.max_discount)c=Math.min(c,cp.max_discount);c=Math.min(c,sub)}
+    let c=0;if(cp){c=cp.type==='percentage'?sub*cp.value/100:cp.value;if(cp.max_discount)c=Math.min(c,cp.max_discount);c=Math.round(Math.min(c,sub))}
     const del=Number(f.district.toLowerCase()==='dhaka'?settings.dhaka_delivery_charge??70:settings.outside_dhaka_delivery_charge??130);
     const gross=sub-c+del;const saving=Math.round((sub-c)*pct/100); // digital discount: products only, not delivery
     const total=pay!=='cod'?Math.round(gross-saving):Math.round(gross);
@@ -143,7 +146,8 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
               <button type="button" aria-label="More" disabled={i.quantity>=max} onClick={()=>changeQty(k,i.quantity+1)}>+</button>
               <button type="button" className="co-rm" aria-label="Remove" title="Remove" onClick={()=>removeItem(k)}><Icon name="trash" size={15}/></button></div></div>
           <b className="co-line">৳ {(priceOf(p)*i.quantity).toLocaleString('en-IN')}</b></div>})}</div>
-      {overCap.length>0&&<p className="note-warn" role="alert">You can order up to <b>{cap} pcs of each product</b>. Reduce {overCap.map(id=>byId[id]?.name||'the item').join(', ')} to {cap}, or order {threshold}+ pcs in total as a bulk / dealer order.</p>}
+      {overCap.length>0&&<QtyRule qty={qty} cap={cap} bulk={threshold} dealer={isDealer} names={overCap.map(id=>byId[id]?.name||'this item')}
+        onCap={()=>setItems(l=>{const n=toCap(l,cap,overCap);if(!productId)writeCart(n);return n})} onBulk={()=>setItems(l=>{const n=toBulk(l,threshold,overCap);if(!productId)writeCart(n);return n})}/>}
       <Link className="co-editcart" href="/cart"><Icon name="cart" size={16}/>Edit cart · add more items<Icon name="arrowRight" size={15}/></Link>
       {!cp&&(()=>{const o=offers.find(x=>x.eligible);return o?<div className="co-offer-hint"><Icon name="percent" size={16} stroke={2.4}/><span>Offer for you: <b>{o.label}</b></span><button type="button" className="btn btn-sm" onClick={()=>useOffer(o.code)}>Apply {o.code}</button></div>:null})()}
       <div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={()=>applyCoupon()}>Apply</button></div>{cpMsg&&<small className={cp?'qr-okline':'qr-warn'}>{cpMsg}</small>}
@@ -164,11 +168,11 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       <div className="sum-row"><span>Delivery ({f.district})</span><span>৳ {est.del}</span></div>
       {quote?.estimated_shipping>0&&<div className="sum-row"><span>Extra shipping (weight)</span><span>৳ {Math.round(quote.estimated_shipping).toLocaleString('en-IN')}</span></div>}
       {quote?.bulk_discount>0&&<div className="sum-row good"><span>Dealer discount</span><span>− ৳ {Math.round(quote.bulk_discount).toLocaleString('en-IN')}</span></div>}
-      {bulk&&<div className="sum-row good"><span>Dealer / bulk discount</span><span>On confirmation</span></div>}
+      {bulk&&!(quote?.bulk_discount>0)&&<div className="sum-row good"><span>Dealer / bulk discount</span><span>On confirmation</span></div>}
       <div className="sum-row total"><span>Total</span><b>৳ {(quote?Math.round(quote.grand_total):est.total).toLocaleString('en-IN')}</b></div>
       {bulk&&<div className="sum-row"><span>Pay now (advance)</span><b>৳ {(quote?Math.round(quote.advance_required):est.adv).toLocaleString('en-IN')}</b></div>}
       {state.kind==='err'&&<p className="form-err" role="alert">{state.text}</p>}
-      <button className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<>Continue — verify mobile <Icon name="arrowRight" size={18}/></>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {(bulk?est.adv:est.total).toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
+      <button className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<>Continue — verify mobile <Icon name="arrowRight" size={18}/></>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {sendAmt.toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
       <p className="muted tiny">By placing this order you agree to our <Link href="/terms" target="_blank">Terms</Link>, including that EMXIN may <Link href="/terms#order-cancellation" target="_blank">cancel an order affected by a system error</Link> and refund any payment in full. Nothing is sent to the courier until EMXIN confirms your order.</p>
     </aside>
   </form>;

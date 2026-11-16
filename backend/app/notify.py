@@ -53,6 +53,9 @@ def t_order_confirmed(o: dict) -> str:
     full=f"EMXIN: Your order {o['order_id']} is confirmed. {money} Ships by courier soon. Track: {settings.site_domain}/track-order"
     from .integrations import sms_parts
     return full if sms_parts(full)==1 else f"EMXIN: Your order {o['order_id']} is confirmed. {money} Track: {settings.site_domain}/track-order"  # big amounts: drop the extra line, stay 1 SMS
+def t_order_cancelled(o: dict) -> str:
+    # no reason in the SMS (the customer sees it on the website): keeps it 1 short part
+    return f"EMXIN: Your order {o['order_id']} has been cancelled by EMXIN. See details in My Orders: {settings.site_domain}/account or call us."
 def t_payment_rejected(o: dict) -> str:
     return f"EMXIN: We could not verify the payment for order {o['order_id']}. Please send the correct TrxID from My Orders at {settings.site_domain}/account"
 

@@ -70,6 +70,9 @@ def ensure_indexes():
 
     db.otp_challenges.create_index([('phone', ASCENDING), ('purpose', ASCENDING), ('created_at', DESCENDING)])
     db.otp_challenges.create_index('expires_at', expireAfterSeconds=0)
+    db.trusted_devices.create_index('token_hash', unique=True)
+    db.trusted_devices.create_index('expires_at', expireAfterSeconds=0)  # 30 days after the OTP, the device needs a new OTP
+    db.trusted_devices.create_index([('customer_id', ASCENDING)])
     db.payment_transactions.create_index('trx_id', unique=True, sparse=True)
     db.staff.create_index('email', unique=True)
 
@@ -95,7 +98,7 @@ def ensure_indexes():
         ('ledger',[('created_at',D)]), ('ledger',[('order_id',A)]),
         ('sms_outbox',[('status',A),('created_at',A)]), ('sms_outbox',[('order_id',A)]), ('sms_outbox',[('created_at',D)]),
         ('payment_transactions',[('order_id',A)]), ('courier_webhooks',[('order_id',A)]),
-        ('recycle_bin',[('deleted_at',D)]), ('recycle_bin',[('kind',A),('deleted_at',D)]), ('recycle_bin',[('kind',A),('doc.phone',A)]),
+        ('recycle_bin',[('deleted_at',D)]), ('recycle_bin',[('kind',A),('deleted_at',D)]), ('recycle_bin',[('kind',A),('doc.phone',A)]), ('recycle_bin',[('kind',A),('doc.customer_id',A)]), ('recycle_bin',[('kind',A),('doc.order_id',A)]),
     ):
         try: db[coll].create_index(keys)
         except Exception: pass  # an equivalent index already exists

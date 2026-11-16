@@ -49,11 +49,46 @@ function SwitchPay({o,onClose,onDone}:{o:any;onClose:()=>void;onDone:(msg:string
       {err&&!q&&<p className="form-err">{err}</p>}
     </div></div>;
 }
+const GROUPS:[string,string,(o:any)=>boolean][]=[
+  ['all','All',()=>true],
+  ['pending','Pending',o=>o.order_status==='Pending Confirmation'],
+  ['active','Confirmed / on the way',o=>['Confirmed','Approved','Processing','Sent to Courier'].includes(o.order_status)],
+  ['done','Delivered',o=>['Delivered','Completed'].includes(o.order_status)],
+  ['cancelled','Cancelled',o=>['Cancelled','Returned'].includes(o.order_status)],
+];
+const SHOW=3;
+const sc=(s:string)=>'status-pill s-'+String(s).toLowerCase().replace(/\s+/g,'-');
+/** All orders, newest first, with status tabs. Shows 3, then "View all". Cancelled orders say who cancelled and why. */
+function MyOrders({orders,busy,pay,onSwitch,onChanged,onError}:{orders:any[];busy:string;pay:(id:string)=>void;onSwitch:(o:any)=>void;onChanged:(m:string)=>void;onError:(m:string)=>void}){
+  const[g,setG]=useState('all');const[all,setAll]=useState(false);const[ask,setAsk]=useState<any>(null);const[why,setWhy]=useState('');const[cbusy,setCbusy]=useState(false);
+  const list=orders.filter(GROUPS.find(x=>x[0]===g)![2]);const shown=all?list:list.slice(0,SHOW);
+  async function cancel(){if(!ask)return;setCbusy(true);try{await postJSON(`/orders/${ask.order_id}/cancel`,{reason:why.trim()},getToken());setAsk(null);setWhy('');onChanged(`Order ${ask.order_id} is cancelled.`)}catch(x:any){setAsk(null);onError(x.message)}finally{setCbusy(false)}}
+  return <section className="panel"><h2>My Orders <small className="muted">({orders.length})</small></h2>
+    {orders.length>0&&<div className="ord-tabs" role="tablist">{GROUPS.map(([k,l,fn])=>{const n=orders.filter(fn).length;return (k==='all'||n>0)?<button key={k} role="tab" aria-selected={g===k} className={g===k?'on':''} onClick={()=>{setG(k);setAll(false)}}>{l}<em>{n}</em></button>:null})}</div>}
+    {!orders.length?<p className="muted">No orders yet. <Link href="/shop">Start shopping</Link></p>:!list.length?<p className="muted">No orders here.</p>:shown.map((o:any)=>{const closed=['Cancelled','Returned'].includes(o.order_status);return <div className={'acc-order'+(closed?' is-closed':'')} key={o.order_id}><div><b>{o.order_id}</b><small className="muted">{new Date(o.created_at).toLocaleDateString('en-GB')} · {o.items?.reduce((n:number,i:any)=>n+i.quantity,0)} pcs</small></div>
+      <div><span className={sc(o.order_status)}>{o.order_status==='Pending Confirmation'?'Pending':o.order_status}</span><small className="muted">{o.payment_status} · {payLabel(o)}</small></div><b>৳ {Number(o.pricing?.grand_total||0).toLocaleString('en-IN')}</b>
+      <div className="acc-act">{!closed&&PENDING.includes(o.payment_status)?<button className="btn btn-sm" disabled={busy===o.order_id} onClick={()=>pay(o.order_id)}>{busy===o.order_id?'Opening…':'Pay now'}</button>:!closed&&o.payment_method==='cod'&&o.payment_status==='Unpaid'&&o.order_status==='Pending Confirmation'?<button className="btn btn-sm btn-outline" onClick={()=>onSwitch(o)} title="Pay by bKash / Nagad before EMXIN confirms and save on the product price">Pay by bKash / Nagad · save 2%</button>:null}
+        {o.can_cancel&&<button className="btn btn-sm btn-ghost danger" onClick={()=>{setWhy('');setAsk(o)}}>Cancel order</button>}
+        {!o.removed&&<Link className="btn btn-sm btn-ghost" href={`/track-order?order_id=${o.order_id}`}>Track</Link>}</div>
+      {o.order_status==='Cancelled'&&<div className="acc-cancel"><Icon name="info" size={16}/><div><b>{o.cancelled_by==='customer'?'You cancelled this order':'Cancelled by EMXIN'}</b>{o.cancelled_at&&<small> · {new Date(o.cancelled_at).toLocaleDateString('en-GB')}</small>}
+        {o.cancel_reason?<p>Reason: {o.cancel_reason}</p>:o.cancelled_by!=='customer'?<p>Questions? Message or call EMXIN.</p>:null}</div></div>}
+      {!closed&&o.order_status==='Pending Confirmation'&&!o.can_cancel&&o.payment_method==='manual'&&<p className="tiny muted">Want to cancel? You already sent money, so please message EMXIN and we will cancel it and return the money.</p>}
+      {o.manual_payment?.status==='pending'&&!closed&&<p className="acc-mp wait"><Icon name="info" size={15}/>{o.manual_payment.channel_label} TrxID <b>{o.manual_payment.trx_id}</b> received — EMXIN is verifying it.</p>}
+      {o.manual_payment?.status==='rejected'&&!closed&&<ResendTrx o={o} onDone={()=>onChanged('TrxID sent. EMXIN will verify it.')}/>}</div>})}
+    {list.length>SHOW&&<button className="btn btn-ghost btn-block ord-more" onClick={()=>setAll(!all)}>{all?'Show less':<>View all {list.length} orders<Icon name="chevronDown" size={16}/></>}</button>}
+    {ask&&<div className="co-modal" role="dialog" aria-modal="true" aria-labelledby="cx-title"><button type="button" className="co-modal-bg" aria-label="Close" onClick={()=>setAsk(null)}/>
+      <div className="co-modal-box"><div className="co-modal-head"><h3 id="cx-title">Cancel order {ask.order_id}?</h3><button type="button" className="co-x" aria-label="Close" onClick={()=>setAsk(null)}>×</button></div>
+        <p className="muted">EMXIN has not confirmed it yet, so you can cancel it now. This cannot be undone. You can always place a new order.</p>
+        <label className="qr-field"><span>Why? <small className="muted">(optional)</small></span><input value={why} maxLength={200} onChange={e=>setWhy(e.target.value)} placeholder="e.g. Ordered the wrong colour"/></label>
+        <div className="row-gap"><button className="btn danger-btn" disabled={cbusy} onClick={cancel}>{cbusy?'Cancelling…':'Yes, cancel order'}</button><button className="btn btn-ghost" onClick={()=>setAsk(null)}>Keep order</button></div></div></div>}
+  </section>;
+}
 export default function Account(){
-  const[d,setD]=useState<any>();const[edit,setEdit]=useState(false);const[f,setF]=useState<any>({});const[msg,setMsg]=useState('');const[busy,setBusy]=useState('');const[sw,setSw]=useState<any>(null);const[ok,setOk]=useState('');
-  const load=()=>{const t=getToken();if(!t){location.href='/login?next=/account';return}fetch(API+'/customers/me',{headers:{Authorization:`Bearer ${t}`}}).then(async r=>{if(r.status===401){logout();location.href='/login?next=/account';return}const j=await r.json();setD(j);setF({name:j.customer.name||'',email:j.customer.email||'',address:j.customer.address||'',district:j.customer.district||'Dhaka'});if(new URLSearchParams(location.search).get('edit'))setEdit(true)}).catch(()=>setMsg('Could not load your account.'))};
+  const[d,setD]=useState<any>();const[edit,setEdit]=useState(false);const[saving,setSaving]=useState(false);const[ferr,setFerr]=useState('');const[f,setF]=useState<any>({});const[msg,setMsg]=useState('');const[busy,setBusy]=useState('');const[sw,setSw]=useState<any>(null);const[ok,setOk]=useState('');
+  const load=()=>{const t=getToken();if(!t){location.href='/login?next=/account';return}fetch(API+'/customers/me',{headers:{Authorization:`Bearer ${t}`}}).then(async r=>{if(r.status===401){logout();location.href='/login?next=/account';return}const j=await r.json();setD(j);setF({name:j.customer.name||'',email:j.customer.email||'',address:j.customer.address||'',district:j.customer.district||'Dhaka'});if(new URLSearchParams(location.search).get('edit')){setEdit(true);history.replaceState(null,'','/account')}}).catch(()=>setMsg('Could not load your account.'))};
   useEffect(load,[]);
-  async function save(e:React.FormEvent){e.preventDefault();try{const r=await fetch(API+'/customers/me',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+getToken()},body:JSON.stringify(f)});const j=await r.json();if(!r.ok)throw new Error(j.detail);setEdit(false);load();refreshProfile()}catch(x:any){setMsg(x.message)}}
+  async function save(e:React.FormEvent){e.preventDefault();setSaving(true);setFerr('');try{const r=await fetch(API+'/customers/me',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+getToken()},body:JSON.stringify(f)});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(typeof j.detail==='string'?j.detail:'Could not save. Please check the fields.');
+    setD((x:any)=>({...x,customer:{...x.customer,...f,email:f.email||x.customer.email}}));setEdit(false);setOk('Profile saved.');refreshProfile();load()}catch(x:any){setFerr(x.message||'Could not save. Please try again.')}finally{setSaving(false)}}
   async function pay(id:string){setBusy(id);setMsg('');try{const r=await postJSON(`/orders/${id}/pay`,{},getToken());if(r.payment_url)location.href=r.payment_url;else if(r.send_money){const o=d.orders.find((x:any)=>x.order_id===id);if(o)setSw(o)}else setMsg(r.message||'Online payment unavailable right now.')}catch(x:any){setMsg(x.message)}finally{setBusy('')}}
   if(!d)return <main className="wrap section"><p className="muted">{msg||'Loading…'}</p></main>;
   const c=d.customer;
@@ -65,10 +100,7 @@ export default function Account(){
       {!edit?<button className="btn btn-outline btn-sm" onClick={()=>setEdit(true)}><Icon name="user" size={15}/>Edit profile</button>:<form className="stack-form" onSubmit={save}>
         <label className="qr-field"><span>Name</span><input required value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></label><label className="qr-field"><span>Email</span><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
         <label className="qr-field"><span>District</span><select value={f.district} onChange={e=>setF({...f,district:e.target.value})}>{DISTRICTS.map(x=><option key={x}>{x}</option>)}</select></label><label className="qr-field"><span>Default address</span><textarea rows={2} value={f.address} onChange={e=>setF({...f,address:e.target.value})}/></label>
-        <div className="row-gap"><button className="btn btn-sm">Save</button><button type="button" className="btn btn-ghost btn-sm" onClick={()=>setEdit(false)}>Cancel</button></div></form>}</section>
-    <section className="panel"><h2>My Orders</h2>{d.orders?.length?d.orders.map((o:any)=><div className="acc-order" key={o.order_id}><div><b>{o.order_id}</b><small className="muted">{new Date(o.created_at).toLocaleDateString('en-GB')} · {o.items?.reduce((n:number,i:any)=>n+i.quantity,0)} pcs</small></div>
-      <div><span className={'status-pill s-'+String(o.order_status).toLowerCase().replace(/\s+/g,'-')}>{o.order_status}</span><small className="muted">{o.payment_status} · {payLabel(o)}</small></div><b>৳ {Number(o.pricing?.grand_total||0).toLocaleString('en-IN')}</b>
-      <div className="acc-act">{PENDING.includes(o.payment_status)&&!['Cancelled','Returned'].includes(o.order_status)?<button className="btn btn-sm" disabled={busy===o.order_id} onClick={()=>pay(o.order_id)}>{busy===o.order_id?'Opening…':'Pay now'}</button>:o.payment_method==='cod'&&o.payment_status==='Unpaid'&&o.order_status==='Pending Confirmation'?<button className="btn btn-sm btn-outline" onClick={()=>{setOk('');setSw(o)}} title="Pay by bKash / Nagad before EMXIN confirms and save on the product price">Pay by bKash / Nagad · save 2%</button>:null}<Link className="btn btn-sm btn-ghost" href={`/track-order?order_id=${o.order_id}`}>Track</Link></div>
-      {o.manual_payment?.status==='pending'&&<p className="acc-mp wait"><Icon name="info" size={15}/>{o.manual_payment.channel_label} TrxID <b>{o.manual_payment.trx_id}</b> received — EMXIN is verifying it.</p>}
-      {o.manual_payment?.status==='rejected'&&!['Cancelled','Returned'].includes(o.order_status)&&<ResendTrx o={o} onDone={load}/>}</div>):<p className="muted">No orders yet. <Link href="/shop">Start shopping</Link></p>}</section></div></main>;
+        {ferr&&<p className="form-err" role="alert">{ferr}</p>}
+        <div className="row-gap"><button className="btn btn-sm" disabled={saving}>{saving?'Saving…':'Save'}</button><button type="button" className="btn btn-ghost btn-sm" onClick={()=>setEdit(false)}>Cancel</button></div></form>}</section>
+    <MyOrders orders={d.orders||[]} busy={busy} pay={pay} onSwitch={(o:any)=>{setOk('');setSw(o)}} onChanged={(m:string)=>{setOk(m);load()}} onError={setMsg}/></div></main>;
 }

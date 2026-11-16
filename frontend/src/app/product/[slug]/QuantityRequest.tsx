@@ -4,6 +4,7 @@ import Icon from '@/components/Icon';
 import GlassesArt from '@/components/GlassesArt';
 import {postJSON,firstImage} from '@/lib/api';
 import {track} from '@/lib/tracking';
+import {localBD,validBD} from '@/lib/auth';
 import {swatch} from './PurchaseOptions';
 
 const LEVELS=[
@@ -33,11 +34,11 @@ export default function QuantityRequest({product:p,open,onClose,dealerPercent=5,
     e.preventDefault();
     if(total<1)return setState({kind:'err',text:'Required quantity must be at least 1.'});
     if(mismatch)return setState({kind:'err',text:`Colour quantities add up to ${allocated} pcs but the total is ${total} pcs. Please match them.`});
-    const digits=f.phone.replace(/\D/g,'').replace(/^880/,'').replace(/^0/,'');
-    if(!/^1[3-9]\d{8}$/.test(digits))return setState({kind:'err',text:'Enter a valid Bangladesh mobile number, e.g. 1712 345678.'});
+    const digits=localBD(f.phone);
+    if(!validBD(digits))return setState({kind:'err',text:'Enter your 11-digit mobile number, e.g. 01712345678.'});
     setState({kind:'busy'});
     try{
-      await postJSON('/quantity-requests',{...f,phone:'+880'+digits,email:f.email||null,product_id:p._id,total_quantity:total,color_quantities:allocated?cq:{}});
+      await postJSON('/quantity-requests',{...f,phone:'+88'+digits,email:f.email||null,product_id:p._id,total_quantity:total,color_quantities:allocated?cq:{}});
       track('quantity_request',{product_id:p._id,product_name:p.name,metadata:{total,urgency:f.urgency}});
       if(f.dealer_opt_in)track('dealer_interest',{product_id:p._id});
       setState({kind:'ok',text:'Request submitted! Our team will call you shortly.'});
@@ -54,7 +55,7 @@ export default function QuantityRequest({product:p,open,onClose,dealerPercent=5,
         <div className="qr-product">{firstImage(p)?<img src={firstImage(p)} alt=""/>:<GlassesArt variant={p.has_camera?'camera':'smart'}/>}<div><b>{p.name}</b><small>{p.subtitle||(p.category_name||'')}</small><span className="qr-stock"><Icon name="check" size={12} stroke={3}/> Current Stock: {Math.max(0,p.stock||0)} pcs</span></div></div>
         <label className="qr-field"><span>Your Name <em>*</em></span><input required placeholder="Enter your name" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></label>
         <label className="qr-field"><span>Shop / Business Name <em>*</em></span><input required placeholder="Enter your shop or business name" value={f.shop_name} onChange={e=>setF({...f,shop_name:e.target.value})}/></label>
-        <label className="qr-field"><span>Phone Number <em>*</em></span><div className="qr-phone"><span className="qr-cc"><i className="flag-bd" aria-hidden="true"/><Icon name="chevronDown" size={13}/></span><span className="qr-code">+880</span><input required type="tel" inputMode="tel" placeholder="Enter phone number" value={f.phone} onChange={e=>setF({...f,phone:e.target.value})}/></div></label>
+        <label className="qr-field"><span>Phone Number <em>*</em></span><div className="qr-phone"><span className="qr-cc"><i className="flag-bd" aria-hidden="true"/><Icon name="chevronDown" size={13}/></span><span className="qr-code">+88</span><input required type="tel" inputMode="numeric" autoComplete="tel-national" placeholder="01712345678" maxLength={14} value={f.phone} onChange={e=>setF({...f,phone:localBD(e.target.value)})}/></div></label>
         <div className="qr-field"><span>Required Quantity (Total) <em>*</em></span><div className="qr-total"><Stepper label="total quantity" min={1} value={total} onChange={setTotal}/><span className="muted">pcs</span></div></div>
         <div className="qr-field"><span>Frame Color &amp; Quantity <em>*</em></span><div className="qr-colors">{colors.map(c=><div key={c} className="qr-color"><i style={{background:swatch(p,c)}}/><b>{c}</b><Stepper label={`${c} quantity`} value={cq[c]||0} onChange={n=>setCq({...cq,[c]:n})}/><small>pcs</small></div>)}</div>{allocated>0&&<small className={mismatch?'qr-warn':'qr-okline'}>{allocated} of {total} pcs allocated by colour</small>}</div>
         {dealerPercent>0&&<label className={'qr-dealer'+(f.dealer_opt_in?' on':'')}>

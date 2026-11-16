@@ -1,4 +1,4 @@
-import json, uuid
+import json, re, uuid
 import httpx
 from .config import get_settings
 settings=get_settings()
@@ -46,6 +46,7 @@ class BulkSmsBdClient:
         if not settings.bulksmsbd_api_key: raise IntegrationNotConfigured('BulkSMSBD API key is missing')
         number=''.join(ch for ch in phone if ch.isdigit())
         if number.startswith('01'): number='88'+number
+        if not re.fullmatch(r'8801[3-9]\d{8}',number): raise ValueError('Not a valid Bangladesh mobile number, SMS not sent')  # never spend credit on a wrong number
         params={'api_key':settings.bulksmsbd_api_key,'type':'text' if is_gsm7(body) else 'unicode','number':number,'message':body}  # Bangla needs unicode
         if settings.bulksmsbd_sender_id: params['senderid']=settings.bulksmsbd_sender_id
         return params

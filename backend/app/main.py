@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Query, Request
+from fastapi import FastAPI, HTTPException, Header, Query, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import ReturnDocument
 from bson import ObjectId
@@ -17,7 +17,7 @@ from .pricing import calculate
 from .integrations import send_sms, sms_parts, PayStationClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
 from .admin_ext import router as v2_router, release_stock
 from .media_optimize import queue_video, big_images, optimize_existing_images
-from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_dealer_reactivated, t_order_confirmed, t_payment_rejected
+from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_dealer_reactivated, t_order_confirmed, t_payment_rejected, t_order_cancelled
 
 settings=get_settings()
 app=FastAPI(title='EMXIN REST API',version='1.0.0',openapi_url='/api/v1/openapi.json',docs_url='/docs')
@@ -330,8 +330,33 @@ class PhoneOTPLogin(BaseModel):
     verification_id: str
     name: str = ''
 
+# ---------- remembered device: one OTP, then 30 days of logins without a code on that device (saves SMS) ----------
+def _dev_hash(t:str)->str: return hmac.new(settings.app_secret.encode(),('device|'+t).encode(),hashlib.sha256).hexdigest()
+def issue_device(customer_id:str,phone:str,request:Request|None=None)->dict:
+    """Random token kept only in this browser; the DB keeps its hash. Expires 30 days after the OTP (not extended by use)."""
+    t=secrets.token_urlsafe(32); exp=now()+timedelta(days=settings.customer_session_days)
+    db.trusted_devices.insert_one({'token_hash':_dev_hash(t),'customer_id':customer_id,'phone':phone,'created_at':now(),'expires_at':exp,'last_used_at':now(),
+        'ua':(request.headers.get('user-agent','')[:200] if request else '')})
+    return {'device_token':t,'device_expires_at':exp.isoformat()}
+
+class DeviceLogin(BaseModel):
+    phone: str
+    device_token: str
+
+@app.post('/api/v1/customers/device-login')
+def customer_device_login(body: DeviceLogin):
+    """Login without OTP on a device that verified this number by OTP in the last 30 days."""
+    phone=normalize_bd_phone(body.phone)
+    d=db.trusted_devices.find_one({'token_hash':_dev_hash(body.device_token[:200]),'phone':phone})
+    if not d or d['expires_at'].replace(tzinfo=d['expires_at'].tzinfo or timezone.utc)<now(): raise HTTPException(401,'Please verify with an OTP again')
+    c=db.customers.find_one({'_id':ObjectId(d['customer_id'])}) if ObjectId.is_valid(d.get('customer_id','')) else None
+    if not c or c.get('phone')!=phone: db.trusted_devices.delete_one({'_id':d['_id']}); raise HTTPException(401,'Please verify with an OTP again')
+    db.trusted_devices.update_one({'_id':d['_id']},{'$set':{'last_used_at':now()}})
+    db.customers.update_one({'_id':c['_id']},{'$set':{'last_login_at':now(),'last_active_at':now()}})
+    return {'access_token':create_token(str(c['_id']),'customer'),'device_expires_at':d['expires_at'].isoformat()}
+
 @app.post('/api/v1/customers/phone-login')
-def customer_phone_login(body: PhoneOTPLogin):
+def customer_phone_login(body: PhoneOTPLogin, request: Request):
     """Passwordless customer login; requires a consumed, verified OTP."""
     phone=normalize_bd_phone(body.phone)
     c=db.customers.find_one({'phone':phone})
@@ -339,11 +364,11 @@ def customer_phone_login(body: PhoneOTPLogin):
     if not consume_phone_verification(phone,'login',body.verification_id):
         raise HTTPException(401,'Valid phone OTP verification required')
     db.customers.update_one({'_id':c['_id']},{'$set':{'last_login_at':now(),'last_active_at':now()}})
-    return {'access_token':create_token(str(c['_id']),'customer'),
+    return {'access_token':create_token(str(c['_id']),'customer'),**issue_device(str(c['_id']),phone,request),
             'customer':serialize({k:v for k,v in c.items() if k!='password_hash'})}
 
 @app.post('/api/v1/customers/register-phone')
-def customer_register_phone(body: PhoneRegister):
+def customer_register_phone(body: PhoneRegister, request: Request):
     """Mobile-number-only registration, verified by OTP (purpose=customer_register)."""
     phone=normalize_bd_phone(body.phone)
     if db.customers.find_one({'phone':phone}): raise HTTPException(409,'This number is already registered. Please log in.')
@@ -352,7 +377,7 @@ def customer_register_phone(body: PhoneRegister):
     doc={'name':body.name.strip(),'phone':phone,'phone_verified':True,'district':body.district,'address':body.address,'account_type':'customer','lead_status':'New Lead','lead_priority':'Cold','total_orders':0,'total_purchase':0.0,'created_at':now(),'last_login_at':now(),'last_active_at':now(),'assigned_sales_person':None,'sales_notes':[],'next_followup_at':None}
     if email: doc['email']=email
     r=db.customers.insert_one(doc)
-    return {'access_token':create_token(str(r.inserted_id),'customer'),'customer':serialize({**doc,'_id':r.inserted_id})}
+    return {'access_token':create_token(str(r.inserted_id),'customer'),**issue_device(str(r.inserted_id),phone,request),'customer':serialize({**doc,'_id':r.inserted_id})}
 
 @app.put('/api/v1/customers/me')
 def customer_update_me(payload: dict, authorization: str|None=Header(None)):
@@ -365,6 +390,47 @@ def customer_update_me(payload: dict, authorization: str|None=Header(None)):
     if upd: db.customers.update_one({'_id':ObjectId(auth['sub'])},{'$set':upd})
     return {'ok':True}
 
+MONEY_SENT=('Paid','Advance Paid','COD Collected','Awaiting Verification','Awaiting Advance Verification','Payment Rejected')
+def can_self_cancel(o)->bool:
+    """The customer can cancel until EMXIN confirms, as long as no money was sent (then EMXIN has to refund it)."""
+    return o.get('order_status')=='Pending Confirmation' and not o.get('courier') and o.get('payment_status') not in MONEY_SENT and o.get('payment_method')!='manual'
+
+def cancel_view(o:dict)->dict:
+    """Who cancelled and why, for the customer. Older cancels had no fields: they were done by EMXIN, the reason was the admin note."""
+    if o.get('order_status')!='Cancelled': return o
+    if not o.get('cancelled_by'):
+        o['cancelled_by']='emxin'
+        note=next((t.get('note') for t in reversed(o.get('timeline') or []) if t.get('order_status')=='Cancelled'),'') or ''
+        o['cancel_reason']='' if note.lower().startswith('cancelled by') else note
+    if not o.get('cancelled_at'): o['cancelled_at']=o.get('updated_at')
+    return o
+
+def binned_orders(q:dict,limit:int=50)->list:
+    """Orders EMXIN deleted (Recycle Bin): the customer still sees them, as cancelled by EMXIN."""
+    out=[]
+    for b in db.recycle_bin.find({'kind':'order',**{'doc.'+k:v for k,v in q.items()}},{'doc':1,'deleted_at':1}).sort('deleted_at',-1).limit(limit):
+        o=b.get('doc') or {}
+        o.update({'order_status':'Cancelled','cancelled_by':o.get('cancelled_by') or 'emxin','cancel_reason':o.get('cancel_reason') or '','cancelled_at':o.get('cancelled_at') or b.get('deleted_at'),'removed':True})
+        out.append(o)
+    return out
+
+@app.post('/api/v1/orders/{order_id}/cancel')
+def customer_cancel(order_id:str,payload:dict|None=Body(None),authorization: str|None=Header(None)):
+    auth=require_role(authorization,('customer',))
+    o=db.orders.find_one({'order_id':order_id,'customer_id':auth['sub']})
+    if not o: raise HTTPException(404,'Order not found')
+    if o.get('order_status')=='Cancelled': return {'ok':True,'already':True}
+    if not can_self_cancel(o):
+        if o.get('order_status')!='Pending Confirmation': raise HTTPException(409,'EMXIN has already confirmed this order. Please message or call EMXIN to cancel it.')
+        raise HTTPException(409,'You have already sent money for this order. Please message or call EMXIN to cancel it and get your money back.')
+    reason=str((payload or {}).get('reason') or '').strip()[:300]
+    done=db.orders.find_one_and_update({'_id':o['_id'],'order_status':'Pending Confirmation'},
+        {'$set':{'order_status':'Cancelled','cancelled_by':'customer','cancel_reason':reason,'cancelled_at':now(),'updated_at':now()},
+         '$push':{'timeline':{'at':now(),'order_status':'Cancelled','note':'Cancelled by the customer'+(f': {reason}' if reason else ''),'role':'customer'}}})
+    if not done: raise HTTPException(409,'EMXIN has just confirmed this order. Please message or call EMXIN to cancel it.')
+    release_stock(done)  # no SMS: the customer did it themselves (saves SMS cost)
+    return {'ok':True}
+
 @app.get('/api/v1/customers/me')
 def customer_me(lite: bool=False,authorization: str|None=Header(None)):
     auth=require_role(authorization,('customer',)); c=db.customers.find_one({'_id':ObjectId(auth['sub'])},{'password_hash':0})
@@ -373,7 +439,9 @@ def customer_me(lite: bool=False,authorization: str|None=Header(None)):
         d=db.dealers.find_one({'phone':c.get('phone')},{'status':1,'dealer_code':1,'shop_name':1}) if c.get('phone') else None
         return {'name':c.get('name') or '','phone':c.get('phone') or '','email':c.get('email') or '','verified':c.get('phone_verified')!=False,
                 'dealer':{'status':d.get('status'),'code':d.get('dealer_code'),'shop':d.get('shop_name')} if d else None}
-    orders=list(db.orders.find({'customer_id':str(c['_id'])}).sort('created_at',-1).limit(100))
+    orders=list(db.orders.find({'customer_id':str(c['_id'])}).sort('created_at',-1).limit(200))+binned_orders({'customer_id':str(c['_id'])})
+    orders.sort(key=lambda o:o.get('created_at') or now(),reverse=True)
+    for o in orders: cancel_view(o); o['can_cancel']=False if o.get('removed') else can_self_cancel(o)
     return {'customer':serialize(c),'orders':serialize(orders)}
 
 @app.post('/api/v1/analytics/events')
@@ -497,7 +565,8 @@ def retail_qty_problem(items:list,cfg:dict)->str:
     for i in items: per[i['product_id']]=per.get(i['product_id'],0)+int(i['quantity'])
     if sum(per.values())>=bulk: return ''
     over=[pid for pid,q in per.items() if q>cap]
-    return f'You can order up to {cap} pcs of each product. For more, order {bulk}+ pcs as a bulk / dealer order.' if over else ''
+    have=sum(per.values())
+    return f'Retail orders: up to {cap} pcs of each product. Dealer / bulk orders: {bulk}+ pcs in total. You have {have} pcs, so add {bulk-have} more pcs or reduce to {cap}.' if over else ''
 
 # ---------- Manual bKash / Nagad "Send Money" payments ----------
 CHANNEL_LABEL={'bkash':'bKash','nagad':'Nagad'}
@@ -809,9 +878,13 @@ async def paystation_status(order_id:str):
 def track(order_id:str=Query(...),phone:str=Query(...)):
     try: norm=normalize_bd_phone(phone)
     except HTTPException: raise HTTPException(404,'Order not found')
-    o=db.orders.find_one({'order_id':order_id.strip().upper(),'phone':{'$in':[norm,phone]}})
-    if not o: raise HTTPException(404,'Order not found')
-    keep={k:o.get(k) for k in ['order_id','order_status','payment_status','pricing','courier','created_at','updated_at','items','district']}
+    oid=order_id.strip().upper()
+    o=db.orders.find_one({'order_id':oid,'phone':{'$in':[norm,phone]}})
+    if not o:
+        b=binned_orders({'order_id':oid},1); o=b[0] if b and b[0].get('phone') in (norm,phone) else None
+    if not o: raise HTTPException(404,'No order found with this Order ID and phone number. Please check both.')
+    cancel_view(o)
+    keep={k:o.get(k) for k in ['order_id','order_status','payment_status','pricing','courier','created_at','updated_at','items','district','cancelled_by','cancel_reason','cancelled_at']}
     keep['tracking_code']=(o.get('courier_data') or {}).get('consignment',{}).get('tracking_code') if isinstance(o.get('courier_data'),dict) else None
     keep['timeline']=[{k:v for k,v in t.items() if k in ('at','order_status','payment_status')} for t in o.get('timeline',[]) if t.get('order_status') or t.get('payment_status')]
     return serialize(keep)
@@ -908,13 +981,18 @@ async def confirm_order(order_id:str,authorization: str|None=Header(None)):
     return serialize(db.orders.find_one({'_id':o['_id']}))
 
 @app.post('/api/v1/admin/orders/{order_id}/cancel')
-def cancel_order(order_id:str,authorization: str|None=Header(None)):
-    require_role(authorization,ORDER_WRITE); o=db.orders.find_one({'order_id':order_id})
+def cancel_order(order_id:str,payload:dict|None=Body(None),authorization: str|None=Header(None)):
+    """EMXIN cancels: the customer gets an SMS (no reason) and sees 'Cancelled by EMXIN' + the reason in My Orders / Track Order."""
+    actor=require_role(authorization,ORDER_WRITE); o=db.orders.find_one({'order_id':order_id})
     if not o: raise HTTPException(404,'Order not found')
     if o.get('order_status') in ('Delivered','Completed'): raise HTTPException(409,'Delivered orders must be marked Returned, not cancelled')
-    if o.get('order_status')!='Cancelled':
-        release_stock(o)
-        db.orders.update_one({'order_id':order_id},{'$set':{'order_status':'Cancelled','updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Cancelled','note':'Cancelled by admin'}}})
+    reason=str((payload or {}).get('reason') or '').strip()[:300]
+    done=db.orders.find_one_and_update({'_id':o['_id'],'order_status':{'$nin':['Cancelled','Returned']}},
+        {'$set':{'order_status':'Cancelled','cancelled_by':'emxin','cancel_reason':reason,'cancelled_at':now(),'updated_at':now()},
+         '$push':{'timeline':{'at':now(),'order_status':'Cancelled','note':'Cancelled by EMXIN'+(f': {reason}' if reason else ''),'by':actor.get('sub'),'role':actor.get('role')}}})
+    if done:  # only the first click releases stock and sends the SMS
+        release_stock(done)
+        queue_sms('order-cancelled-'+order_id,o['phone'],t_order_cancelled(o),'order',order_id=order_id)
     return {'ok':True}
 
 @app.post('/api/v1/admin/orders/{order_id}/send-courier')

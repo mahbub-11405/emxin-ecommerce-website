@@ -580,6 +580,8 @@ def update_order_status(order_id: str, body: OrderStatusUpdate, authorization: s
         event['order_status'] = body.order_status
         if body.order_status in RELEASED_STATUSES:
             release_stock(o)
+        if body.order_status == 'Cancelled':  # the customer sees who cancelled and why (the note); the SMS has no reason
+            updates.update({'cancelled_by': 'emxin', 'cancel_reason': body.note.strip()[:300], 'cancelled_at': now()})
         if body.order_status in ('Delivered', 'Completed') and not o.get('delivered_counted') and \
                 db.orders.find_one_and_update({'_id': o['_id'], 'delivered_counted': {'$ne': True}},
                                               {'$set': {'delivered_counted': True, 'delivered_at': now()}}, {'_id': 1}):
@@ -604,6 +606,9 @@ def update_order_status(order_id: str, body: OrderStatusUpdate, authorization: s
     if body.payment_channel:
         updates['payment_channel'] = body.payment_channel
     db.orders.update_one({'_id': o['_id']}, {'$set': updates, '$push': {'timeline': event}})
+    if updates.get('order_status') == 'Cancelled':
+        from .notify import queue_sms, t_order_cancelled
+        queue_sms('order-cancelled-' + order_id, o['phone'], t_order_cancelled(o), 'order', order_id=order_id)
     if updates.get('order_status') == 'Confirmed':  # same event key as the Confirm button, so the customer gets it once
         from .notify import queue_sms, t_order_confirmed
         queue_sms('order-confirmed-' + order_id, o['phone'], t_order_confirmed(db.orders.find_one({'_id': o['_id']})), 'order', order_id=order_id)

@@ -5,6 +5,8 @@ import Icon from '@/components/Icon';
 import GlassesArt from '@/components/GlassesArt';
 import {API,firstImage,priceOf} from '@/lib/api';
 import {readCart,writeCart,type CartItem} from '@/lib/cart';
+import {getProfile} from '@/lib/profile';
+import QtyRule,{toCap,toBulk} from '@/components/QtyRule';
 export default function Cart(){
   const[items,setItems]=useState<CartItem[]>([]);const[byId,setById]=useState<Record<string,any>>({});const[ready,setReady]=useState(false);
   useEffect(()=>{const list=readCart();setItems(list);const ids=[...new Set(list.map(i=>i.product_id))];if(!ids.length){setReady(true);return}
@@ -12,7 +14,8 @@ export default function Cart(){
   // never more than the stock: per product, all colours together
   const update=(a:CartItem[])=>{const used:Record<string,number>={};const b=a.map(x=>{const st=byId[x.product_id]?Number(byId[x.product_id].stock):Infinity;const left=Math.max(0,st-(used[x.product_id]||0));const q=Math.max(1,Math.min(x.quantity,left||1));used[x.product_id]=(used[x.product_id]||0)+q;return {...x,quantity:q}});setItems(b);writeCart(b)};
   const roomFor=(ix:number)=>{const i=items[ix];const p=byId[i.product_id];if(!p)return true;return items.reduce((n,x)=>x.product_id===i.product_id?n+x.quantity:n,0)<Number(p.stock)};
-  const[note,setNote]=useState('');const[rule,setRule]=useState({cap:5,bulk:20});
+  const[note,setNote]=useState('');const[isDealer,setIsDealer]=useState(false);
+  useEffect(()=>{setIsDealer(getProfile()?.dealer?.status==='Active')},[]);const[rule,setRule]=useState({cap:5,bulk:20});
   useEffect(()=>{fetch(API+'/site-content').then(r=>r.ok?r.json():null).then(c=>{if(c)setRule({cap:Number(c.retail_max_qty_per_product||5),bulk:Number(c.bulk_threshold_qty||20)})}).catch(()=>{})},[]);
   useEffect(()=>{try{const n=sessionStorage.getItem('cart_note');if(n){setNote(n);sessionStorage.removeItem('cart_note')}}catch{}},[]);
   // stock changed since the item was added (e.g. someone else bought it): bring the cart down to what is available
@@ -22,7 +25,7 @@ export default function Cart(){
   const subtotal=live.reduce((s,i)=>s+priceOf(byId[i.product_id])*i.quantity,0);
   const qty=live.reduce((s,i)=>s+i.quantity,0);
   const over=qty<rule.bulk?[...new Set(live.map(i=>i.product_id))].filter(id=>inCartOf(id)>rule.cap):[];
-  return <main className="wrap section-sm"><h1 className="page-title">Your Cart</h1>{note&&<p className="note-warn" role="status">{note}</p>}{over.length>0&&<p className="note-warn" role="alert">You can order up to <b>{rule.cap} pcs of each product</b>. Reduce {over.map(id=>byId[id]?.name).join(', ')} to {rule.cap}, or order {rule.bulk}+ pcs in total for bulk / dealer pricing.</p>}
+  return <main className="wrap section-sm"><h1 className="page-title">Your Cart</h1>{note&&<p className="note-warn" role="status">{note}</p>}{over.length>0&&<QtyRule qty={qty} cap={rule.cap} bulk={rule.bulk} dealer={isDealer} names={over.map(id=>byId[id]?.name||'this item')} onCap={()=>update(toCap(items,rule.cap,over))} onBulk={()=>update(toBulk(items,rule.bulk,over))}/>}
     {!items.length?<div className="empty-state panel"><Icon name="cart" size={40}/><h3>Your cart is empty</h3><Link className="btn" href="/shop">Shop Products</Link></div>:
     <div className="cart"><div className="panel cart-list">{items.map((i,ix)=>{const p=byId[i.product_id];return <div className="cart-row" key={i.product_id+i.frame_color}>
       <div className="cart-thumb">{p&&firstImage(p)?<img src={firstImage(p)} alt=""/>:<GlassesArt/>}</div>

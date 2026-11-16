@@ -795,3 +795,27 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .mnav-me b{display:block;color:var(--navy);font-size:15px}.mnav-me small{color:var(--muted);font-size:12.5px}
 .mnav-out{display:flex;align-items:center;gap:10px;border:0;background:none;color:#d92d20;font:inherit;font-weight:600;padding:12px 4px;cursor:pointer;text-align:left}
 @media (max-width:640px){.acc-menu{position:fixed;right:12px;left:12px;width:auto;top:72px}.acc-hi{position:fixed;right:12px;top:72px}}
+
+/* ---- My Orders: status tabs, cancelled note, view all ---- */
+.ord-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px}
+.ord-tabs button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;color:var(--navy);display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.ord-tabs button em{font-style:normal;background:var(--soft);border-radius:999px;padding:0 7px;font-size:12px;color:var(--muted)}
+.ord-tabs button.on{background:var(--blue);border-color:var(--blue);color:#fff}.ord-tabs button.on em{background:rgba(255,255,255,.25);color:#fff}
+.acc-order.is-closed>div:first-child b{color:var(--muted)}
+.acc-cancel{grid-column:1/-1;display:flex;gap:10px;align-items:flex-start;background:#fff1f1;border:1px solid #ffd0d0;color:#9b1c1c;border-radius:12px;padding:10px 12px;font-size:13.5px}
+.acc-cancel b{color:#b91c1c}.acc-cancel p{margin:3px 0 0;color:#7f1d1d}.acc-cancel small{color:#b45353}.acc-cancel>svg{flex:none;margin-top:2px}
+.acc-cancel.big{font-size:15px;padding:14px 16px;margin:6px 0 12px}
+.ord-more{margin-top:8px;display:flex;gap:6px;justify-content:center}
+.btn.danger{color:var(--red)}.btn.danger:hover{background:#fff1f1}
+.danger-btn{background:var(--red);border-color:var(--red);color:#fff}.danger-btn:hover{background:#d42c2c}
+
+/* ---- quantity rule: retail 1-5 / dealer 20+ ---- */
+.qrule{border:2px solid var(--amber);background:linear-gradient(180deg,#fff8e6,#fffdf6);border-radius:16px;padding:14px 16px;margin:12px 0;box-shadow:0 6px 18px rgba(245,163,0,.15)}
+.qrule-top{display:flex;gap:12px;align-items:flex-start}
+.qrule-ic{flex:none;width:38px;height:38px;border-radius:50%;background:var(--amber);color:#fff;display:grid;place-items:center}
+.qrule-title{display:block;font-size:17px;font-weight:800;color:var(--navy);line-height:1.3}.qrule-title u{text-decoration-color:var(--amber);text-decoration-thickness:3px;text-underline-offset:3px}
+.qrule p{margin:4px 0 0;font-size:14px;color:#5b4a1d}.qrule p b{color:var(--navy)}
+.qrule-bar{position:relative;height:22px;background:#fff;border:1px solid #f4d48a;border-radius:999px;margin:12px 0 10px;overflow:hidden}
+.qrule-bar i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,var(--amber),#ffcc4d);border-radius:999px}
+.qrule-bar span{position:relative;display:block;text-align:center;font-size:12px;font-weight:800;line-height:20px;color:var(--navy)}
+.qrule-act{display:flex;gap:8px;flex-wrap:wrap}
