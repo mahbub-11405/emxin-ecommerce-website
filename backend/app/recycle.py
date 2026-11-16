@@ -16,7 +16,8 @@ from .admin_ext import audit, recompute_rating
 router = APIRouter()
 BIN_ROLES = ('super_admin', 'admin')
 KIND_LABEL = {'order': 'Order', 'product': 'Product', 'category': 'Category', 'brand': 'Brand', 'coupon': 'Coupon',
-              'review': 'Review', 'media': 'Media file'}
+              'review': 'Review', 'media': 'Media file', 'dealer': 'Dealer'}
+SECRET_FIELDS = ('password_hash',)  # kept in the bin for a perfect restore, never sent to the browser
 
 
 def check_confirm(word):
@@ -98,6 +99,25 @@ def orders_bulk_delete(payload: dict, authorization: str | None = Header(None)):
     return {'ok': True, 'moved': moved, 'count': len(moved)}
 
 
+@router.delete('/api/v1/admin/dealers/{dealer_id}')
+def dealer_delete(dealer_id: str, confirm: str = '', authorization: str | None = Header(None)):
+    """Remove the dealer role: the dealer goes to the Recycle Bin. Their website account and every order stay
+    (they simply buy at retail prices from now on). Restore brings the same dealer ID, tier and history back."""
+    actor = bin_actor(authorization)
+    check_confirm(confirm)
+    d = db.dealers.find_one({'_id': ObjectId(dealer_id)}) if ObjectId.is_valid(dealer_id) else None
+    if not d:
+        raise HTTPException(404, 'Dealer not found')
+    bid = move_to_bin('dealer', 'dealers', d, actor, d.get('shop_name') or d.get('name') or d.get('phone'),
+                      f"{d.get('dealer_code') or 'no dealer ID'} · {d.get('phone', '')} · was {d.get('status', '')}")
+    if bid and d.get('customer_id') and ObjectId.is_valid(d['customer_id']):
+        db.customers.update_one({'_id': ObjectId(d['customer_id']), 'dealer_id': str(d['_id'])}, {'$unset': {'dealer_id': ''}})
+    if bid and d.get('status') in ('Active', 'Pending', 'Suspended') and d.get('phone'):  # tell the dealer (a rejected applicant already got an SMS)
+        from .notify import queue_sms, t_dealer_suspended
+        queue_sms(f"dealer-deleted-{d['_id']}-{bid}", d['phone'], t_dealer_suspended(d.get('dealer_code') or ''), 'dealer')
+    return {'ok': True, 'in_bin': bool(bid)}
+
+
 def _summary(e):
     return {'_id': e['_id'], 'kind': e['kind'], 'kind_label': KIND_LABEL.get(e['kind'], e['kind'].title()), 'label': e.get('label'),
             'sub': e.get('sub'), 'doc_id': str(e.get('doc_id')), 'deleted_at': e.get('deleted_at'), 'deleted_by': e.get('deleted_by'),
@@ -126,7 +146,7 @@ def bin_detail(bin_id: str, authorization: str | None = Header(None)):
     e = db.recycle_bin.find_one({'_id': ObjectId(bin_id)}) if ObjectId.is_valid(bin_id) else None
     if not e:
         raise HTTPException(404, 'Not in the Recycle Bin')
-    return serialize({**_summary(e), 'doc': e.get('doc'), 'related_summary': [{'collection': r['collection'], 'count': len(r['docs'])} for r in e.get('related', [])]})
+    return serialize({**_summary(e), 'doc': {k: v for k, v in (e.get('doc') or {}).items() if k not in SECRET_FIELDS}, 'related_summary': [{'collection': r['collection'], 'count': len(r['docs'])} for r in e.get('related', [])]})
 
 
 def restore_entry(e: dict, actor: dict):
@@ -137,6 +157,8 @@ def restore_entry(e: dict, actor: dict):
     try:
         db[coll].insert_one(doc)
     except DuplicateKeyError:
+        if e['kind'] == 'dealer':
+            raise HTTPException(409, f"Cannot restore “{e.get('label')}”: this mobile number ({doc.get('phone')}) has a dealer record again (a new application). Delete or reject that one first.")
         raise HTTPException(409, f"Cannot restore “{e.get('label')}”: another {KIND_LABEL.get(e['kind'], 'item').lower()} now uses the same name / code. Rename or delete that one first.")
     for r in e.get('related', []):
         for d in r['docs']:
@@ -147,6 +169,12 @@ def restore_entry(e: dict, actor: dict):
     apply_effects(e.get('effects'), -1)
     if e['kind'] == 'review':
         recompute_rating(doc.get('product_id'))
+    if e['kind'] == 'dealer':  # back on the same website account, with the same dealer ID, tier history and orders
+        from .people import link_dealer
+        link_dealer(doc)
+        if doc.get('status') == 'Active' and doc.get('phone'):
+            from .notify import queue_sms, t_dealer_reactivated
+            queue_sms(f"dealer-restored-{doc['_id']}-{e['_id']}", doc['phone'], t_dealer_reactivated(doc.get('dealer_code') or ''), 'dealer')
     db.recycle_bin.delete_one({'_id': e['_id']})
     audit(actor, f"{e['kind']}_restored", str(doc.get('order_id') or doc.get('slug') or doc.get('code') or doc['_id']), {'label': e.get('label')})
 

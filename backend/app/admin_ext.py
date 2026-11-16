@@ -200,6 +200,22 @@ def money_split(orders):
     return {'items': items, 'total': round(total, 2), 'received': round(sum(r['received'] for r in items), 2)}
 
 
+def customer_type_split(orders):
+    """Order value by who bought: retail customers vs dealers (the role stored on each order)."""
+    out = {'retail': {'orders': 0, 'amount': 0.0}, 'dealer': {'orders': 0, 'amount': 0.0}}
+    for o in orders:
+        if o.get('order_status') in RELEASED_STATUSES:
+            continue
+        t = 'dealer' if (o.get('customer_type') or ('dealer' if o.get('dealer_id') else 'retail')) == 'dealer' else 'retail'
+        out[t]['orders'] += 1
+        out[t]['amount'] += float((o.get('pricing') or {}).get('grand_total') or 0)
+    tot = out['retail']['amount'] + out['dealer']['amount']
+    for v in out.values():
+        v['amount'] = round(v['amount'], 2)
+        v['percent'] = round(v['amount'] / tot * 100, 1) if tot else 0
+    return out
+
+
 def period_stats(s, e, bucket=None):
     n = len(bucket_keys(s, e, bucket)) if bucket else 0
     vis_series, visitors = visitors_by_bucket(s, e, bucket, n) if bucket else ([], 0)
@@ -207,7 +223,7 @@ def period_stats(s, e, bucket=None):
         visitors = unique_visitors(s, e)
     orders = list(db.orders.find({'created_at': {'$gte': s, '$lt': e}},
                                  {'order_status': 1, 'payment_status': 1, 'payment_method': 1, 'payment_channel': 1,
-                                  'manual_payment.channel': 1, 'pricing': 1, 'created_at': 1}))
+                                  'manual_payment.channel': 1, 'pricing': 1, 'created_at': 1, 'customer_type': 1, 'dealer_id': 1}))
     pur_series = [0] * n
     sales_series = [0.0] * n
     order_series = [0] * n
@@ -238,7 +254,7 @@ def period_stats(s, e, bucket=None):
         'visitors': visitors, 'orders': len(orders), 'purchases': purchases, 'paid_orders': paid,
         'cod_orders': cod, 'sales': round(sales, 2),
         'conversion': round(purchases / visitors * 100, 2) if visitors else 0.0,
-        'methods': methods, 'money': money_split(orders),
+        'methods': methods, 'money': money_split(orders), 'customer_types': customer_type_split(orders),
         'series': {'visitors': vis_series, 'purchases': pur_series, 'sales': [round(x, 2) for x in sales_series],
                    'orders': order_series},
     }
@@ -352,6 +368,7 @@ def dashboard_v2(range: str = 'today', start: str | None = None, end: str | None
                    'checkout_started': funnel['checkout_started'], 'orders_placed': cur['orders'], 'successful_purchases': cur['purchases']},
         'payment_methods': {'total': sum(cur['methods'].values()), 'items': methods},
         'money': cur['money'],
+        'customer_types': cur['customer_types'],
         'courier': r['courier'],
         'summary': summary,
         'recent_orders': serialize(r['recent']),
@@ -1035,11 +1052,16 @@ def dealer_status(dealer_id: str, payload: dict, authorization: str | None = Hea
         upd['discount_approved'] = True
     hist = {'$push': {'status_history': {'at': now(), 'status': status, 'note': note, 'by': actor.get('sub')}}}
     db.dealers.update_one({'_id': oid}, {'$set': upd, **hist})
-    from .notify import queue_sms, ensure_dealer_code, t_dealer_approved, t_dealer_rejected
+    from .notify import queue_sms, ensure_dealer_code, t_dealer_approved, t_dealer_rejected, t_dealer_suspended, t_dealer_reactivated
+    n_hist = len(d.get('status_history') or []) + 1  # every status change gets its own SMS
     if status == 'Active':
         code = ensure_dealer_code(d)  # EMX-DLR-70001, 70002, … given once
-        if d.get('status') != 'Active':
+        if d.get('status') == 'Suspended':
+            queue_sms(f'dealer-reactivated-{dealer_id}-{n_hist}', d['phone'], t_dealer_reactivated(code), 'dealer')
+        elif d.get('status') != 'Active':
             queue_sms(f'dealer-approved-{dealer_id}', d['phone'], t_dealer_approved(code), 'dealer')
+    elif status == 'Suspended' and d.get('status') != 'Suspended':
+        queue_sms(f'dealer-suspended-{dealer_id}-{n_hist}', d['phone'], t_dealer_suspended(d.get('dealer_code') or '', note), 'dealer')
     elif status == 'Rejected' and d.get('status') != 'Rejected':
         n = int(d.get('applications') or 1)  # a dealer can re-apply after rejection; each rejection gets its own SMS
         queue_sms(f'dealer-rejected-{dealer_id}-{n}', d['phone'], t_dealer_rejected(note), 'dealer')

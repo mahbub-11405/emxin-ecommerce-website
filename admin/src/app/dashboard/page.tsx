@@ -81,6 +81,10 @@ export default function Dashboard(){
           {d.money.items.length?d.money.items.map((m:any)=><div className="money-row" key={m.key}><PayBadge k={m.key}/><span className="amt">{tk(m.amount)}</span>
             <span className="meta"><span>{m.orders} order{m.orders===1?'':'s'}</span><span>{m.percent}%</span><span>{m.key==='cod'?'Collected':'Verified'}: <b>{tk(m.received)}</b></span>{m.amount-m.received>0&&<span>{m.key==='cod'?'With courier / to collect':'To verify'}: <b>{tk(m.amount-m.received)}</b></span>}</span></div>)
             :<p className="muted">No orders in this period.</p>}
+          {d.customer_types&&(d.customer_types.retail.orders+d.customer_types.dealer.orders)>0&&<div className="ctype"><h3>By customer type</h3>
+            <div className="ctype-bar"><i className="rt" style={{width:d.customer_types.retail.percent+'%'}}/><i className="dl" style={{width:d.customer_types.dealer.percent+'%'}}/></div>
+            <div className="ctype-rows"><Link href="/customers?tab=retail"><span className="rl rl-retail sm"><i/>Retail customers</span><b>{tk(d.customer_types.retail.amount)}</b><small>{d.customer_types.retail.orders} orders · {d.customer_types.retail.percent}%</small></Link>
+              <Link href="/customers?tab=dealer"><span className="rl rl-dealer sm"><i/>Dealers</span><b>{tk(d.customer_types.dealer.amount)}</b><small>{d.customer_types.dealer.orders} orders · {d.customer_types.dealer.percent}%</small></Link></div></div>}
           <p className="tiny muted">Cancelled and returned orders are left out. A bulk order's advance counts under bKash / Nagad and the rest under COD.</p></div></section>
       <section className="card"><div className="card-h"><h2>Courier</h2><Link className="lnk" href="/courier">Courier panel <Icon name="arrowRight" size={16}/></Link></div>
         <div className="cour-kpis"><Link href="/courier"><small>On the way</small><b>{num(d.courier.on_the_way)}</b></Link><Link href="/courier" className={d.courier.on_hold?'warn':''}><small>On hold</small><b>{num(d.courier.on_hold)}</b></Link>

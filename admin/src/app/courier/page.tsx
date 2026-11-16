@@ -7,6 +7,8 @@ import PayBadge from '@/components/PayBadge';
 import {PageHead,Drawer,Empty,Loading,toast,Field} from '@/components/ui';
 import {api,postJSON,tk,dt} from '@/lib/api';
 
+/** Same rule as the server: plain English = 160 a part (153 when split); Bangla/emoji = Unicode, 70 (67). */
+function smsInfo(t:string){const gsm=/^[A-Za-z0-9 \r\n@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà^{}\\\[~\]|€]*$/.test(t);const n=gsm?[...t].reduce((a,c)=>a+('^{}\\[~]|€'.includes(c)?2:1),0):t.length;const one=gsm?160:70,many=gsm?153:67;return {n,gsm,parts:n<=one?1:Math.ceil(n/many),left:one-n}}
 const Pill=({s}:{s:any})=><span className={'st st-'+(s?.tone||'gray')}>{s?.label||'—'}</span>;
 
 function Detail({id,onChanged}:{id:string;onChanged:()=>void}){
@@ -35,6 +37,7 @@ function Detail({id,onChanged}:{id:string;onChanged:()=>void}){
         :<p className="tiny muted">The courier has not shared the rider yet. When Steadfast assigns a rider, the number usually appears in their tracking message and shows here.</p>}
       <div className="fgrid"><Field label="Rider mobile"><input value={m.phone} onChange={e=>setM({...m,phone:e.target.value})} placeholder="01XXXXXXXXX"/></Field>
         <Field label="Message" span><input value={m.message} onChange={e=>setM({...m,message:e.target.value})} placeholder="e.g. Customer asks to deliver after 5 pm. Call before coming."/></Field></div>
+      {m.sms&&m.message&&(()=>{const i=smsInfo(`EMXIN order ${d.order_id}: ${m.message}`);return <p className={'sms-count '+(i.parts>1?'warn':'ok')}>{i.parts===1?`1 SMS · ${i.left} characters left`:`${i.parts} SMS${i.gsm?'':' — Bangla/emoji uses Unicode (70 per SMS)'} · shorten to keep it to 1`}</p>})()}
       <div className="row"><label className="row tiny"><input type="checkbox" checked={m.sms} onChange={e=>setM({...m,sms:e.target.checked})}/> Send as SMS to the rider (1 SMS credit)</label>
         <button className="btn btn-sm" disabled={!!busy||!m.message.trim()} onClick={()=>run(m.sms?'SMS queued to rider':'Note saved',()=>postJSON(`/admin/courier/orders/${id}/rider-message`,m).then(()=>setM({...m,message:''})))}><Icon name="send" size={14}/>{m.sms?'Send SMS':'Save note'}</button></div>
       {d.courier_notes?.length>0&&<ul className="cr-feed">{d.courier_notes.map((n:any,i:number)=><li key={i}><time>{dt(n.at)}{n.sms?` · SMS to ${n.phone}`:' · note'}</time><span>{n.text}</span></li>)}</ul>}

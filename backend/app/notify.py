@@ -18,18 +18,41 @@ MAX_TRIES=3
 def tk(n) -> str: return 'Tk ' + f"{float(n or 0):,.0f}"
 
 # ---------- templates (keep ASCII; ~160 chars max) ----------
+# ---------- every SMS must stay 1 part (160 GSM characters) ----------
+_ASCII = str.maketrans({'\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2013': '-', '\u2014': '-', '\u2026': '...', '\u00a0': ' ', '\u09f3': 'Tk'})
+def _plain(t: str) -> str:
+    """Curly quotes, dashes, the taka sign … would turn the whole SMS into Unicode (70 chars a part): use plain ones."""
+    return ' '.join(str(t or '').translate(_ASCII).split())
+def _fit(build, reason: str='') -> str:
+    """build(reason) -> text. The admin's reason is shortened (at a word) so the SMS stays 1 part; a Bangla reason is
+    left out of the SMS (it would make it Unicode = 3 parts) but is still saved in the admin note."""
+    from .integrations import sms_parts, is_gsm7
+    r = _plain(reason).rstrip('.')
+    if r and not is_gsm7(r):
+        r = ''
+    while r and sms_parts(build(r)) > 1:
+        cut = r[:-1].rsplit(' ', 1)[0] if ' ' in r[:-1] else r[:-1]
+        r = cut.rstrip(' ,;:.') + ('..' if cut else '')  # the template adds the final '.', so it reads 'word...'
+        if r == '..' or len(r) <= 3:
+            r = ''
+    return build(r)
+
 def t_dealer_applied() -> str:
     return 'EMXIN: Your dealer application is received. We will review it and SMS you when it is approved. Thank you.'
 def t_dealer_approved(code: str) -> str:
     return f'EMXIN: Congratulations! Your dealer account is approved. Dealer ID: {code}. Use this ID when you order or call us. {settings.site_domain}/dealer'
 def t_dealer_rejected(reason: str='') -> str:
-    reason=' '.join(str(reason or '').split()).rstrip('.')[:90]
-    why=f' Reason: {reason}.' if reason else ''
-    return f'EMXIN: Sorry, your dealer application was not approved.{why} You can apply again at {settings.site_domain}/dealer or call us.'
+    return _fit(lambda r: f"EMXIN: Sorry, your dealer application was not approved.{' Reason: '+r+'.' if r else ''} You can apply again at {settings.site_domain}/dealer or call us.", reason)
+def t_dealer_suspended(code: str='', reason: str='') -> str:
+    return _fit(lambda r: f"EMXIN: Your dealer account{' '+code if code else ''} is suspended.{' Reason: '+r+'.' if r else ''} Please contact EMXIN for a solution.", reason)
+def t_dealer_reactivated(code: str='') -> str:
+    return f"EMXIN: Good news! Your dealer account{' '+code if code else ''} is active again. You get dealer prices from now on. {settings.site_domain}/dealer"
 def t_order_confirmed(o: dict) -> str:
     p=o.get('pricing') or {}; due=float(p.get('cod_due') or 0); paid=float(p.get('grand_total') or 0)-due
     money=(f'Paid {tk(paid)}, due {tk(due)} on delivery.' if paid>0 and due>0 else f'Pay {tk(due)} on delivery.' if due>0 else f'Paid {tk(paid)}.')
-    return f"EMXIN: Your order {o['order_id']} is confirmed. {money} Ships by courier soon. Track: {settings.site_domain}/track-order"
+    full=f"EMXIN: Your order {o['order_id']} is confirmed. {money} Ships by courier soon. Track: {settings.site_domain}/track-order"
+    from .integrations import sms_parts
+    return full if sms_parts(full)==1 else f"EMXIN: Your order {o['order_id']} is confirmed. {money} Track: {settings.site_domain}/track-order"  # big amounts: drop the extra line, stay 1 SMS
 def t_payment_rejected(o: dict) -> str:
     return f"EMXIN: We could not verify the payment for order {o['order_id']}. Please send the correct TrxID from My Orders at {settings.site_domain}/account"
 

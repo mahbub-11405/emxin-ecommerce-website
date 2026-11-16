@@ -95,7 +95,7 @@ def ensure_indexes():
         ('ledger',[('created_at',D)]), ('ledger',[('order_id',A)]),
         ('sms_outbox',[('status',A),('created_at',A)]), ('sms_outbox',[('order_id',A)]), ('sms_outbox',[('created_at',D)]),
         ('payment_transactions',[('order_id',A)]), ('courier_webhooks',[('order_id',A)]),
-        ('recycle_bin',[('deleted_at',D)]), ('recycle_bin',[('kind',A),('deleted_at',D)]),
+        ('recycle_bin',[('deleted_at',D)]), ('recycle_bin',[('kind',A),('deleted_at',D)]), ('recycle_bin',[('kind',A),('doc.phone',A)]),
     ):
         try: db[coll].create_index(keys)
         except Exception: pass  # an equivalent index already exists

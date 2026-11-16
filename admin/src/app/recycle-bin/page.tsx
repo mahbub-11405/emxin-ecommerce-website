@@ -5,8 +5,8 @@ import Icon from '@/components/Icon';
 import {PageHead,Tabs,Empty,Loading,toast,askDelete,Drawer} from '@/components/ui';
 import {api,postJSON,dt,tk} from '@/lib/api';
 
-const KINDS:[string,string][]=[['','All'],['order','Orders'],['product','Products'],['category','Categories'],['brand','Brands'],['coupon','Coupons'],['review','Reviews'],['media','Media']];
-const WHERE:Record<string,string>={order:'Orders',product:'Products',category:'Categories',brand:'Brands',coupon:'Coupons',review:'Reviews & Q&A',media:'Media Library'};
+const KINDS:[string,string][]=[['','All'],['order','Orders'],['product','Products'],['category','Categories'],['brand','Brands'],['coupon','Coupons'],['review','Reviews'],['media','Media'],['dealer','Dealers']];
+const WHERE:Record<string,string>={order:'Orders',product:'Products',category:'Categories',brand:'Brands',coupon:'Coupons',review:'Reviews & Q&A',media:'Media Library',dealer:'Dealers'};
 
 function Peek({id}:{id:string}){
   const[d,setD]=useState<any>(null);
@@ -17,9 +17,10 @@ function Peek({id}:{id:string}){
     <p className="tiny muted">Deleted {dt(d.deleted_at)} by {d.deleted_role||'admin'} · original ID <span className="mono">{d.doc_id}</span></p>
     {d.kind==='order'&&<div className="cr-idbox"><div><small>Customer</small><b>{o.customer_name}</b><small>{o.phone}</small></div><div><small>Total</small><b>{tk(o.pricing?.grand_total)}</b><small>{o.payment_status} · {o.order_status}</small></div>
       <div style={{gridColumn:'1/-1'}}><small>Items</small><b>{(o.items||[]).map((i:any)=>`${i.name} × ${i.quantity}`).join(', ')}</b></div></div>}
+    {d.kind==='dealer'&&<div className="cr-idbox"><div><small>Dealer</small><b>{o.shop_name}</b><small>{o.name} · {o.phone}</small></div><div><small>Dealer ID</small><b className="mono">{o.dealer_code||'—'}</b><small>was {o.status}</small></div></div>}
     {d.kind==='media'&&o.url&&<img src={o.url} alt="" style={{maxWidth:'100%',borderRadius:12}}/>}
     {d.related_summary?.length>0&&<p className="tiny muted">Also kept with it: {d.related_summary.map((r:any)=>`${r.count} ${r.collection.replace('_',' ')}`).join(', ')}.</p>}
-    <p className="tiny muted">Restore puts it back in {WHERE[d.kind]||'its page'} with the same ID{d.kind==='order'?', reserves the stock again and adds it back to the customer’s totals':''}.</p>
+    <p className="tiny muted">Restore puts it back in {WHERE[d.kind]||'its page'} with the same ID{d.kind==='order'?', reserves the stock again and adds it back to the customer’s totals':d.kind==='dealer'?', back on the same website account with the same dealer ID and discount tier':''}.</p>
   </div>;
 }
 

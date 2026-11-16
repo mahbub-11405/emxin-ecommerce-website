@@ -25,7 +25,7 @@ class QuantityRequest(BaseModel):
     product_id: str; name: str; shop_name: str; phone: str; email: Optional[EmailStr]=None
     color_quantities: dict[str,int]={}; total_quantity: int=Field(default=0,ge=0,le=100000); urgency: Literal['Normal','Priority','Urgent']='Normal'; message: str=''; dealer_opt_in: bool=False
 class DealerApply(BaseModel):
-    name: str; shop_name: str; phone: str; email: Optional[EmailStr]=None; address: str; password: str=Field(min_length=8); business_type: str='Retailer'; otp_verification_id: Optional[str]=None; preferred_language: Literal['en','bn']='bn'; terms_accepted: bool=False
+    name: str; shop_name: str; phone: str; email: Optional[EmailStr]=None; address: str; password: str=Field(min_length=8); business_type: str='Retail shop'; otp_verification_id: Optional[str]=None; preferred_language: Literal['en','bn']='bn'; terms_accepted: bool=False
 class Login(BaseModel): email: str; password: str; remember: bool=False  # admin: keep me signed in on this device
 class CustomerRegister(BaseModel):
     name: str; phone: str; email: EmailStr; password: str=Field(min_length=8); shop_name: Optional[str]=None; location: Optional[str]=None; otp_verification_id: Optional[str]=None; preferred_language: Literal['en','bn']='bn'

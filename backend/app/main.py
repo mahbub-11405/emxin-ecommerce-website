@@ -17,7 +17,7 @@ from .pricing import calculate
 from .integrations import send_sms, sms_parts, PayStationClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
 from .admin_ext import router as v2_router, release_stock
 from .media_optimize import queue_video, big_images, optimize_existing_images
-from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_order_confirmed, t_payment_rejected
+from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_dealer_reactivated, t_order_confirmed, t_payment_rejected
 
 settings=get_settings()
 app=FastAPI(title='EMXIN REST API',version='1.0.0',openapi_url='/api/v1/openapi.json',docs_url='/docs')
@@ -45,10 +45,12 @@ from .courier import router as courier_router, steadfast_create, start_courier_s
 app.include_router(courier_router)
 from .recycle import router as recycle_router
 app.include_router(recycle_router)
+from .people import router as people_router, link_dealer, migrate_people, shop_type, enrich_dealers
+app.include_router(people_router)
 
 @app.on_event('startup')
 def startup():
-    client.admin.command('ping'); ensure_indexes(); start_sms_worker(); start_courier_sync(); paystation_orders_to_cod()
+    client.admin.command('ping'); ensure_indexes(); start_sms_worker(); start_courier_sync(); paystation_orders_to_cod(); migrate_people()
     if not db.admins.find_one({'email':settings.initial_admin_email.lower()}):
         db.admins.insert_one({'email':settings.initial_admin_email.lower(),'password_hash':hash_password(settings.initial_admin_password),'role':'super_admin','created_at':now()})
     if not db.settings.find_one({'key':'commerce'}):
@@ -85,14 +87,18 @@ def otp_message(code: str) -> str:
 def dealer_block(phone: str, lang: str='bn'):
     """Why this number cannot apply as a dealer (None = it can: new number or a rejected application)."""
     d=db.dealers.find_one({'phone':phone},{'status':1,'dealer_code':1})
+    bn=lang=='bn'
+    if not d:  # deleted by EMXIN: it waits in the Recycle Bin. Nothing new is saved; EMXIN restores it if needed.
+        b=db.recycle_bin.find_one({'kind':'dealer','doc.phone':phone},{'doc.dealer_code':1})
+        if b: d={'status':'Suspended','dealer_code':(b.get('doc') or {}).get('dealer_code')}
     if not d or d.get('status')=='Rejected': return None
-    st=d.get('status'); bn=lang=='bn'; code=d.get('dealer_code')
+    st=d.get('status'); code=d.get('dealer_code')
     if st=='Active':
         return ('এই নম্বরটি ইতিমধ্যে EMXIN ডিলার হিসেবে অনুমোদিত'+(f' (Dealer ID: {code})' if code else '')+'। নতুন আবেদনের দরকার নেই।') if bn else \
                ('This number is already an approved EMXIN dealer'+(f' (Dealer ID: {code})' if code else '')+'. No need to apply again.')
     if st=='Suspended':
-        return 'এই নম্বরের ডিলার অ্যাকাউন্টটি সাময়িকভাবে বন্ধ আছে। বিস্তারিত জানতে EMXIN-এ কল করুন।' if bn else \
-               'The dealer account for this number is suspended. Please call EMXIN for details.'
+        return (f'আপনার Dealer ID{" ("+code+")" if code else ""} স্থগিত (suspended) আছে। নতুন আবেদন করা যাবে না। সমাধানের জন্য EMXIN-এর সাথে যোগাযোগ করুন।') if bn else \
+               (f'Your dealer ID{" ("+code+")" if code else ""} is suspended, so you cannot apply again. Please contact EMXIN for a solution.')
     return 'এই নম্বর দিয়ে আপনার আবেদন আগেই জমা হয়েছে এবং এখন যাচাই চলছে। অনুমোদন হলে আমরা SMS-এ জানাব।' if bn else \
            'You have already applied with this number and it is under review. We will SMS you once it is approved.'
 
@@ -407,7 +413,7 @@ def dealer_apply(body: DealerApply):
     if why:=dealer_block(phone,body.preferred_language): raise HTTPException(409,why)
     if not body.terms_accepted: raise HTTPException(400,'Please read and accept the dealer order terms')
     if not consume_phone_verification(body.phone,'dealer_register',body.otp_verification_id): raise HTTPException(400,'Phone OTP verification required')
-    doc=body.model_dump(exclude={'password'}); doc['phone']=phone; doc['terms_accepted_at']=now(); doc.update({'password_hash':hash_password(body.password),'status':'Pending','updated_at':now()})
+    doc=body.model_dump(exclude={'password'}); doc['phone']=phone; doc['terms_accepted_at']=now(); doc.update({'password_hash':hash_password(body.password),'status':'Pending','updated_at':now(),'business_type':shop_type(body.business_type)})
     old=db.dealers.find_one({'phone':phone})
     if old:  # rejected before: the same record becomes a fresh application (keeps dealer ID, orders and history)
         n=int(old.get('applications') or 1)+1
@@ -417,6 +423,7 @@ def dealer_apply(body: DealerApply):
     else:
         n=1; doc.update({'applications':1,'discount_percent':settings.bulk_discount_percent,'created_at':now(),'total_orders':0,'total_purchase':0})
         dealer_id=str(db.dealers.insert_one(doc).inserted_id)
+    link_dealer(db.dealers.find_one({'_id':ObjectId(dealer_id)}))  # one person = one account: they can log in on the website with this number
     queue_sms(f'dealer-applied-{dealer_id}'+(f'-{n}' if n>1 else ''),phone,t_dealer_applied(),'dealer')
     return {'dealer_id':dealer_id,'status':'Pending','reapplied':n>1,'sms_queued':True}
 
@@ -597,7 +604,7 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
         p=pmap[i.product_id]
         items.append({'product_id':i.product_id,'name':p['name'],'slug':p['slug'],'quantity':i.quantity,'frame_color':i.frame_color,'unit_price':float(p.get('sale_price') or p['price'])})
     customer=buyer
-    doc={'order_id':order_id,'customer_name':body.customer_name,'phone':normalize_bd_phone(body.phone),'timeline':[{'at':now(),'order_status':status,'payment_status':payment_status,'note':'Order placed on website','role':'customer'}],'email':body.email,'customer_id':str(customer['_id']) if customer else None,'address':body.address,'district':body.district,'items':items,'pricing':pricing,'payment_method':body.payment_method,'payment_status':payment_status,'order_status':status,'coupon_code':coupon.get('code') if coupon else None,'dealer_opt_in':body.dealer_opt_in,'shop_name':body.shop_name,'dealer_id':str(dealer['_id']) if dealer else None,'dealer_discount_approved':bool(dealer and dealer.get('discount_approved')), 'courier':None,'courier_data':None,'courier_billing_mode':('deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill'),'created_at':now(),'updated_at':now()}
+    doc={'order_id':order_id,'customer_name':body.customer_name,'phone':normalize_bd_phone(body.phone),'timeline':[{'at':now(),'order_status':status,'payment_status':payment_status,'note':'Order placed on website','role':'customer'}],'email':body.email,'customer_id':str(customer['_id']) if customer else None,'address':body.address,'district':body.district,'items':items,'pricing':pricing,'payment_method':body.payment_method,'payment_status':payment_status,'order_status':status,'coupon_code':coupon.get('code') if coupon else None,'dealer_opt_in':body.dealer_opt_in,'shop_name':body.shop_name,'dealer_id':str(dealer['_id']) if dealer else None,'customer_type':'dealer' if dealer else 'retail','dealer_discount_approved':bool(dealer and dealer.get('discount_approved')), 'courier':None,'courier_data':None,'courier_billing_mode':('deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill'),'created_at':now(),'updated_at':now()}
     if manual: doc['manual_payment']=manual; doc['payment_channel']=manual['channel']; doc['timeline'][0]['note']=f"Order placed · {manual['channel_label']} Send Money TrxID {manual['trx_id']} (to verify)"
     # Reserve stock immediately for confirmed website intent; cancelled orders can release via admin action.
     for i in body.items: db.products.update_one({'_id':ObjectId(i.product_id)},{'$inc':{'stock':-i.quantity,'reserved':i.quantity}})
@@ -861,8 +868,7 @@ def admin_customers(authorization: str|None=Header(None),status:str|None=None,pr
     if priority:q['lead_priority']=priority
     if no_order:q['total_orders']=0
     docs=list(db.customers.find(q,{'password_hash':0}).sort('last_active_at',-1).limit(500))
-    for c in docs:
-        c['recent_activity']=serialize(list(db.analytics_events.find({'customer_id':str(c['_id'])}).sort('created_at',-1).limit(8)))
+    # activity per person: /admin/people/{id} (one query per person was very slow with many customers)
     return serialize(docs)
 
 @app.put('/api/v1/admin/customers/{customer_id}/crm')
@@ -937,7 +943,7 @@ def admin_requests(authorization: str|None=Header(None)):
 
 @app.get('/api/v1/admin/dealers')
 def admin_dealers(authorization: str|None=Header(None)):
-    admin(authorization); return serialize(list(db.dealers.find({}, {'password_hash':0}).sort('created_at',-1)))
+    admin(authorization); return serialize(enrich_dealers(list(db.dealers.find({}, {'password_hash':0}).sort('created_at',-1))))
 
 @app.post('/api/v1/admin/dealers/{dealer_id}/approve')
 def approve_dealer(dealer_id:str,authorization: str|None=Header(None)):
@@ -946,9 +952,12 @@ def approve_dealer(dealer_id:str,authorization: str|None=Header(None)):
     except Exception: raise HTTPException(400,'Invalid dealer id')
     d=db.dealers.find_one({'_id':oid})
     if not d: raise HTTPException(404,'Dealer not found')
-    db.dealers.update_one({'_id':oid},{'$set':{'status':'Active','discount_approved':True,'approved_at':d.get('approved_at') or now(),'updated_at':now()}})
+    db.dealers.update_one({'_id':oid},{'$set':{'status':'Active','discount_approved':True,'approved_at':d.get('approved_at') or now(),'updated_at':now()},**({'$push':{'status_history':{'at':now(),'status':'Active','note':'Approved'}}} if d.get('status')!='Active' else {})})
     code=ensure_dealer_code(d)  # EMX-DLR-70001, 70002, … given once, on first approval
-    queued=queue_sms('dealer-approved-'+dealer_id,d['phone'],t_dealer_approved(code),'dealer') if d.get('status')!='Active' else False
+    if d.get('status')=='Suspended':  # back from suspension: its own SMS (the "approved" one goes only once)
+        queued=queue_sms(f"dealer-reactivated-{dealer_id}-{len(d.get('status_history') or [])}",d['phone'],t_dealer_reactivated(code),'dealer')
+    else:
+        queued=queue_sms('dealer-approved-'+dealer_id,d['phone'],t_dealer_approved(code),'dealer') if d.get('status')!='Active' else False
     return {'ok':True,'dealer_code':code,'sms_queued':queued}
 
 @app.get('/api/v1/admin/products')
