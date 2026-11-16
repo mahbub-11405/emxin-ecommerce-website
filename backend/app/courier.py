@@ -116,6 +116,10 @@ def mark_delivered(o: dict, partial=False):
     """Same bookkeeping as Admin → Delivered: sold counts, dealer totals, COD collected."""
     if o.get('delivered_counted'):
         return {}
+    # claim the delivery atomically, so a webhook + sync (or a resent webhook) can never count it twice
+    if not db.orders.find_one_and_update({'_id': o['_id'], 'delivered_counted': {'$ne': True}},
+                                         {'$set': {'delivered_counted': True, 'delivered_at': now()}}, {'_id': 1}):
+        return {}
     upd = {'order_status': 'Delivered', 'delivered_counted': True, 'delivered_at': now()}
     for i in o.get('items', []):
         if ObjectId.is_valid(i.get('product_id', '')):
@@ -145,7 +149,9 @@ def record_event(o: dict, status: str | None, message: str = '', source: str = '
     if status != o.get('courier_status'):
         info = status_info(status)
         tl = {'at': now(), 'note': f"{COURIER_NAMES.get(o.get('courier'), 'Courier')}: {info['label']}" + (f' · {message}' if message else ''), 'role': 'courier'}
-        if status in ('delivered', 'partial_delivered'):
+        if status in ('delivered', 'partial_delivered') and (o.get('order_status') in ('Cancelled', 'Returned') or o.get('stock_released')):
+            tl['note'] += f" — ⚠ this order is already {o.get('order_status')} in EMXIN (stock was put back). Check with the courier; status not changed."
+        elif status in ('delivered', 'partial_delivered'):
             upd.update(mark_delivered(o, partial=status == 'partial_delivered'))
             tl['order_status'] = 'Delivered'
             if upd.get('payment_status'):

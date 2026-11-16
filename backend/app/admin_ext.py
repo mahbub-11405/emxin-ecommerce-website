@@ -420,7 +420,9 @@ def update_order_status(order_id: str, body: OrderStatusUpdate, authorization: s
         event['order_status'] = body.order_status
         if body.order_status in RELEASED_STATUSES:
             release_stock(o)
-        if body.order_status in ('Delivered', 'Completed') and not o.get('delivered_counted'):
+        if body.order_status in ('Delivered', 'Completed') and not o.get('delivered_counted') and \
+                db.orders.find_one_and_update({'_id': o['_id'], 'delivered_counted': {'$ne': True}},
+                                              {'$set': {'delivered_counted': True, 'delivered_at': now()}}, {'_id': 1}):
             updates['delivered_counted'] = True
             updates['delivered_at'] = now()
             for i in o.get('items', []):

@@ -159,7 +159,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
             <div className="co-offer-act"><span className="co-code">{o.code}</span><button type="button" className="btn btn-ghost btn-sm" onClick={()=>copyCode(o.code)}>{copied===o.code?'Copied ✓':'Copy'}</button><button type="button" className="btn btn-sm" disabled={!o.eligible} onClick={()=>useOffer(o.code)}>Apply</button></div>
           </div>)}</div></div></div>}
       <div className="sum-row"><span>Subtotal</span><span>৳ {est.sub.toLocaleString('en-IN')}</span></div>
-      {est.c>0&&<div className="sum-row good"><span>Coupon</span><span>− ৳ {Math.round(est.c).toLocaleString('en-IN')}</span></div>}
+      {(quote?quote.coupon_discount:est.c)>0&&<div className="sum-row good"><span>Coupon</span><span>− ৳ {Math.round(quote?quote.coupon_discount:est.c).toLocaleString('en-IN')}</span></div>}
       {digital&&<div className="sum-row good strong"><span>Advance Payment Discount <small className="sum-note">{pct}% off products · paid before delivery</small></span><span className="sum-amt">− ৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</span></div>}
       <div className="sum-row"><span>Delivery ({f.district})</span><span>৳ {est.del}</span></div>
       {quote?.estimated_shipping>0&&<div className="sum-row"><span>Extra shipping (weight)</span><span>৳ {Math.round(quote.estimated_shipping).toLocaleString('en-IN')}</span></div>}

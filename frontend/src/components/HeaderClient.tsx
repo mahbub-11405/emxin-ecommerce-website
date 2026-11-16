@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import {useEffect,useState} from 'react';
+import {useRef,useEffect,useState} from 'react';
 import {usePathname} from 'next/navigation';
 import Icon from './Icon';
 import {cartCount} from '@/lib/cart';
@@ -21,14 +21,15 @@ export function NavLinks({categories}:{categories:any[]}){
   const path=usePathname()||'/';
   const[open,setOpen]=useState(false);
   const[mobile,setMobile]=useState(false);const[logged,setLogged]=useState(false);
+  const pathNow=useRef(path);pathNow.current=path;
   useEffect(()=>{setOpen(false);setMobile(false)},[path]);
   // Mobile menu open: freeze the page behind it (iPhone Safari needs the position:fixed trick, overflow:hidden alone is ignored)
   useEffect(()=>{
     if(!mobile)return;
-    const y=window.scrollY,b=document.body.style;const prev={position:b.position,top:b.top,left:b.left,right:b.right,width:b.width,overflow:b.overflow};
+    const y=window.scrollY,p0=pathNow.current,b=document.body.style;const prev={position:b.position,top:b.top,left:b.left,right:b.right,width:b.width,overflow:b.overflow};
     Object.assign(b,{position:'fixed',top:`-${y}px`,left:'0',right:'0',width:'100%',overflow:'hidden'});document.documentElement.classList.add('menu-open');
     const k=(e:KeyboardEvent)=>{if(e.key==='Escape')setMobile(false)};addEventListener('keydown',k);
-    return()=>{Object.assign(b,prev);document.documentElement.classList.remove('menu-open');window.scrollTo(0,y);removeEventListener('keydown',k)};
+    return()=>{Object.assign(b,prev);document.documentElement.classList.remove('menu-open');if(pathNow.current===p0)window.scrollTo(0,y);removeEventListener('keydown',k)};
   },[mobile]);
   useEffect(()=>{const u=()=>{try{setLogged(!!localStorage.getItem('customer_token'))}catch{}};u();window.addEventListener('emxin:auth',u);return()=>window.removeEventListener('emxin:auth',u)},[]);
   const is=(href:string)=>href==='/'?path==='/':path.startsWith(href);

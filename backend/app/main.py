@@ -651,14 +651,14 @@ async def retry_payment(order_id:str, authorization: str|None=Header(None)):
 def paystation_orders_to_cod():
     """EMXIN takes bKash / Nagad Send Money and COD only. Unpaid PayStation orders (from the old "Pay online" button) become COD again."""
     if settings.paystation_enabled: return
-    for o in db.orders.find({'payment_method':'paystation','payment_status':{'$nin':list(PAID_STATES)},'order_status':{'$nin':['Cancelled','Returned']}}):
+    for o in db.orders.find({'payment_method':'paystation','payment_status':{'$nin':list(PAID_STATES)},'order_status':'Pending Confirmation'}):
         try:
             pricing=reprice_order(o,'cod')
             if pricing.get('is_bulk'): continue  # bulk needs an advance: leave for Admin
             old=float((o.get('pricing') or {}).get('grand_total') or 0)
-            db.orders.update_one({'_id':o['_id'],'payment_method':'paystation'},{'$set':{'payment_method':'cod','pricing':pricing,'payment_status':'Unpaid','payment_channel':'cod','courier_billing_mode':'deduct_from_cod_collection','updated_at':now()},
+            r=db.orders.update_one({'_id':o['_id'],'payment_method':'paystation','order_status':'Pending Confirmation'},{'$set':{'payment_method':'cod','pricing':pricing,'payment_status':'Unpaid','payment_channel':'cod','courier_billing_mode':'deduct_from_cod_collection','updated_at':now()},
                 '$push':{'timeline':{'at':now(),'payment_status':'Unpaid','note':'Online payment is not used: order set back to Cash on Delivery','role':'system'}}})
-            if o.get('customer_id'): db.customers.update_one({'_id':ObjectId(o['customer_id'])},{'$inc':{'total_purchase':float(pricing['grand_total'])-old}})
+            if r.modified_count and o.get('customer_id'): db.customers.update_one({'_id':ObjectId(o['customer_id'])},{'$inc':{'total_purchase':float(pricing['grand_total'])-old}})
         except Exception as e: log.warning('paystation→cod %s: %s',o.get('order_id'),e)
 
 def reprice_order(o:dict,method:str)->dict:
@@ -691,8 +691,9 @@ def admin_payment_to_cod(order_id:str,authorization: str|None=Header(None)):
     pricing=reprice_order(o,'cod')
     if pricing.get('is_bulk'): raise HTTPException(400,'Bulk orders need an advance payment')
     old_total=float((o.get('pricing') or {}).get('grand_total') or 0)
-    db.orders.update_one({'_id':o['_id']},{'$set':{'payment_method':'cod','pricing':pricing,'payment_status':'Unpaid','payment_channel':'cod','courier_billing_mode':'deduct_from_cod_collection','updated_at':now()},'$unset':{'manual_payment':''},
+    r=db.orders.update_one({'_id':o['_id'],'order_status':'Pending Confirmation'},{'$set':{'payment_method':'cod','pricing':pricing,'payment_status':'Unpaid','payment_channel':'cod','courier_billing_mode':'deduct_from_cod_collection','updated_at':now()},'$unset':{'manual_payment':''},
         '$push':{'timeline':{'at':now(),'payment_status':'Unpaid','note':'Payment changed to Cash on Delivery by EMXIN','role':'admin'}}})
+    if not r.matched_count: raise HTTPException(409,'This order was confirmed just now, so the payment method cannot be changed.')
     if o.get('customer_id'): db.customers.update_one({'_id':ObjectId(o['customer_id'])},{'$inc':{'total_purchase':float(pricing['grand_total'])-old_total}})
     return serialize(db.orders.find_one({'_id':o['_id']}))
 
@@ -730,7 +731,8 @@ def change_payment(order_id:str,body:PaymentChange,authorization: str|None=Heade
         upd={'payment_method':'manual','switched_from':prev,'pricing':pricing,'manual_payment':mp,'payment_channel':mp['channel'],'payment_status':st,
              'courier_billing_mode':'deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill','updated_at':now()}
         note=f"Customer switched from {PAY_LABEL.get(prev,prev)} to {mp['channel_label']} Send Money · TrxID {mp['trx_id']} · ৳{mp['amount_expected']:,.0f} (to verify)"; unset={}
-    db.orders.update_one({'_id':o['_id']},{'$set':upd,**({'$unset':unset} if unset else {}),'$push':{'timeline':{'at':now(),'payment_status':upd['payment_status'],'note':note,'role':'customer'}}})
+    r=db.orders.update_one({'_id':o['_id'],'order_status':'Pending Confirmation','payment_status':o.get('payment_status')},{'$set':upd,**({'$unset':unset} if unset else {}),'$push':{'timeline':{'at':now(),'payment_status':upd['payment_status'],'note':note,'role':'customer'}}})
+    if not r.matched_count: raise HTTPException(409,'EMXIN confirmed this order just now, so the payment method cannot be changed. Please pay on delivery.')
     delta=float(pricing['grand_total'])-old_total
     if delta and o.get('customer_id'): db.customers.update_one({'_id':ObjectId(o['customer_id'])},{'$inc':{'total_purchase':delta}})
     n=db.orders.find_one({'_id':o['_id']})

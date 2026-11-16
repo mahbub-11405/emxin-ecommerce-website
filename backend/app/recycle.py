@@ -44,6 +44,10 @@ def apply_effects(effects, sign=1):
 def move_to_bin(kind: str, collection: str, doc: dict, actor: dict, label: str, sub: str = '',
                 related: list | None = None, effects: list | None = None, extra: dict | None = None) -> str:
     """related: [(collection, [docs])] moved along with the main doc."""
+    # take the record out first: if two deletes race (double click, two tabs) only one gets it, so stock and totals move once
+    doc = db[collection].find_one_and_delete({'_id': doc['_id']})
+    if not doc:
+        return ''
     rel = [{'collection': c, 'docs': docs} for c, docs in (related or []) if docs]
     entry = {'kind': kind, 'collection': collection, 'doc_id': doc['_id'], 'doc': doc, 'related': rel, 'effects': effects or [],
              'label': label, 'sub': sub, 'deleted_by': actor.get('sub'), 'deleted_role': actor.get('role'), 'deleted_at': now(), **(extra or {})}
@@ -51,7 +55,6 @@ def move_to_bin(kind: str, collection: str, doc: dict, actor: dict, label: str, 
     apply_effects(effects, 1)
     for r in rel:
         db[r['collection']].delete_many({'_id': {'$in': [d['_id'] for d in r['docs']]}})
-    db[collection].delete_one({'_id': doc['_id']})
     audit(actor, f'{kind}_moved_to_bin', str(doc.get('order_id') or doc.get('slug') or doc.get('code') or doc['_id']), {'label': label, 'bin_id': str(bid)})
     return str(bid)
 
@@ -67,6 +70,9 @@ def bin_order(o: dict, actor: dict) -> str:
         for i in o.get('items', []):
             if ObjectId.is_valid(i.get('product_id', '')):
                 effects.append({'collection': 'products', '_id': ObjectId(i['product_id']), 'inc': {'sold_count': -i['quantity']}})
+    if o.get('delivered_counted') and o.get('dealer_id') and ObjectId.is_valid(o['dealer_id']):  # delivery added it to the dealer's totals
+        effects.append({'collection': 'dealers', '_id': ObjectId(o['dealer_id']),
+                        'inc': {'total_orders': -1, 'total_purchase': -float((o.get('pricing') or {}).get('grand_total') or 0)}})
     if o.get('customer_id') and ObjectId.is_valid(o['customer_id']):
         effects.append({'collection': 'customers', '_id': ObjectId(o['customer_id']),
                         'inc': {'total_orders': -1, 'total_purchase': -float((o.get('pricing') or {}).get('grand_total') or 0)}})
@@ -87,8 +93,8 @@ def orders_bulk_delete(payload: dict, authorization: str | None = Header(None)):
         raise HTTPException(400, 'Select at least one order')
     moved = []
     for o in db.orders.find({'order_id': {'$in': ids}}):
-        bin_order(o, actor)
-        moved.append(o['order_id'])
+        if bin_order(o, actor):
+            moved.append(o['order_id'])
     return {'ok': True, 'moved': moved, 'count': len(moved)}
 
 
