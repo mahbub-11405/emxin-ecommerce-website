@@ -392,8 +392,8 @@ def customer_update_me(payload: dict, authorization: str|None=Header(None)):
 
 MONEY_SENT=('Paid','Advance Paid','COD Collected','Awaiting Verification','Awaiting Advance Verification','Payment Rejected')
 def can_self_cancel(o)->bool:
-    """The customer can cancel until EMXIN confirms, as long as no money was sent (then EMXIN has to refund it)."""
-    return o.get('order_status')=='Pending Confirmation' and not o.get('courier') and o.get('payment_status') not in MONEY_SENT and o.get('payment_method')!='manual'
+    """Only Cash on Delivery orders, until EMXIN confirms. Paid / bKash / Nagad orders go through EMXIN (they refund the money)."""
+    return o.get('order_status')=='Pending Confirmation' and not o.get('courier') and o.get('payment_method')=='cod' and o.get('payment_status') not in MONEY_SENT
 
 def cancel_view(o:dict)->dict:
     """Who cancelled and why, for the customer. Older cancels had no fields: they were done by EMXIN, the reason was the admin note."""
@@ -422,7 +422,7 @@ def customer_cancel(order_id:str,payload:dict|None=Body(None),authorization: str
     if o.get('order_status')=='Cancelled': return {'ok':True,'already':True}
     if not can_self_cancel(o):
         if o.get('order_status')!='Pending Confirmation': raise HTTPException(409,'EMXIN has already confirmed this order. Please message or call EMXIN to cancel it.')
-        raise HTTPException(409,'You have already sent money for this order. Please message or call EMXIN to cancel it and get your money back.')
+        raise HTTPException(409,'This order is paid by bKash / Nagad / online payment. Please message or call EMXIN to cancel it and get your money back.')
     reason=str((payload or {}).get('reason') or '').strip()[:300]
     done=db.orders.find_one_and_update({'_id':o['_id'],'order_status':'Pending Confirmation'},
         {'$set':{'order_status':'Cancelled','cancelled_by':'customer','cancel_reason':reason,'cancelled_at':now(),'updated_at':now()},

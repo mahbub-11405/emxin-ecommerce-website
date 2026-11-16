@@ -20,7 +20,13 @@ export default function Notifications({counts}:{counts:any}){
   useEffect(()=>{setSeen(getSeen())},[]);
   useEffect(()=>{if(!open)return;return onLive(load,d=>d?.d,500)},[open]);  // list updates while it is open
   // a new order while the admin is open: tell them right away
-  useEffect(()=>{const n=counts.orders_pending;if(n==null)return;if(prev.current!=null&&n>prev.current){toast.ok(n-prev.current>1?`${n-prev.current} new orders`:'New order received');load()}prev.current=n},[counts.orders_pending]);
+  useEffect(()=>{const n=counts.orders_pending;if(n==null)return;
+    if(prev.current!=null&&n>prev.current){const more=n-prev.current;
+      api('/admin/notifications').then((x:any)=>{const list=Array.isArray(x)?x:x?.items||[];setD(Array.isArray(x)?{items:x,summary:[]}:x);
+        const o=list.find((i:any)=>i.type==='order');
+        toast.note({icon:'orders',title:more>1?`${more} new orders`:'New order received',amount:o?.amount>0?tk(o.amount):undefined,
+          text:o?[o.order_id&&'#'+o.order_id,o.who].filter(Boolean).join(' · ')+(more>1?` and ${more-1} more`:''):'Open the orders to confirm.',href:o?.href||'/orders?status=Pending Confirmation'})}).catch(()=>toast.note({icon:'orders',title:'New order received',href:'/orders?status=Pending Confirmation'}))}
+    prev.current=n},[counts.orders_pending]);
   useEffect(()=>{document.title=total>0?`(${total}) EMXIN Admin`:'EMXIN Admin'},[total]);
   useEffect(()=>{if(!open)return;const c=(e:MouseEvent)=>{if(box.current&&!box.current.contains(e.target as Node))setOpen(false)};const k=(e:KeyboardEvent)=>{if(e.key==='Escape')setOpen(false)};
     document.addEventListener('mousedown',c);addEventListener('keydown',k);return()=>{document.removeEventListener('mousedown',c);removeEventListener('keydown',k)}},[open]);

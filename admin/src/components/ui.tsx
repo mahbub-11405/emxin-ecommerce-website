@@ -16,11 +16,23 @@ export function Drawer({open,title,onClose,children,width=560,footer}:{open:bool
   return <div className="drw" role="dialog" aria-modal="true"><div className="drw-bg" onClick={onClose}/><aside className="drw-panel" style={{width:`min(${width}px,100%)`}}><header><h2>{title}</h2><button type="button" className="ib" onClick={onClose} aria-label="Close"><Icon name="close"/></button></header><div className="drw-body">{children}</div>{footer&&<footer>{footer}</footer>}</aside></div>;
 }
 
-type ToastT={id:number;kind:'ok'|'err';text:string};
+type Note={title:string;text?:string;href?:string;amount?:string;icon?:string};
+type ToastT={id:number;kind:'ok'|'err'|'note';text:string;note?:Note};
 let push:(t:Omit<ToastT,'id'>)=>void=()=>{};
-export const toast={ok:(text:string)=>push({kind:'ok',text}),err:(text:string)=>push({kind:'err',text})};
-export function Toaster(){const[list,setList]=useState<ToastT[]>([]);useEffect(()=>{push=t=>{const id=Date.now()+Math.random();setList(l=>[...l,{...t,id}]);setTimeout(()=>setList(l=>l.filter(x=>x.id!==id)),4200)}},[]);
-  return <><div className="toasts" aria-live="polite">{list.map(t=><div key={t.id} className={'toast '+t.kind}><Icon name={t.kind==='ok'?'checkCircle':'info'} size={18}/>{t.text}</div>)}</div><DeleteHost/></>}
+/** ok / err: short messages. note: an eye-catching card that drops down from the bell (new order, payment…). */
+export const toast={ok:(text:string)=>push({kind:'ok',text}),err:(text:string)=>push({kind:'err',text}),note:(note:Note)=>push({kind:'note',text:note.title,note})};
+export function Toaster(){const[list,setList]=useState<ToastT[]>([]);const[bx,setBx]=useState(250);
+  const drop=(id:number)=>setList(l=>l.filter(x=>x.id!==id));
+  useEffect(()=>{push=t=>{const id=Date.now()+Math.random();
+    const b=document.querySelector('.bell')?.getBoundingClientRect();const box=document.querySelector('.toasts')?.getBoundingClientRect();
+    if(b&&box)setBx(Math.max(12,box.right-(b.left+b.width/2)-7));  // the card's arrow points at the bell
+    setList(l=>[...l.slice(-3),{...t,id}]);setTimeout(()=>drop(id),t.kind==='note'?9000:4200)}},[]);
+  return <><div className="toasts" aria-live="polite" style={{['--bell-x' as any]:bx+'px'}}>{list.map(t=>t.kind==='note'&&t.note?<div key={t.id} className="toast note" role="status">
+      <span className="tn-ic"><Icon name={t.note.icon||'bell'} size={20}/></span>
+      <div className="tn-body"><b>{t.note.title}{t.note.amount&&<em>{t.note.amount}</em>}</b>{t.note.text&&<small>{t.note.text}</small>}
+        {t.note.href&&<a href={t.note.href} onClick={()=>drop(t.id)}>Open<Icon name="arrowRight" size={14}/></a>}</div>
+      <button type="button" className="tn-x" aria-label="Dismiss" onClick={()=>drop(t.id)}><Icon name="close" size={15}/></button></div>
+    :<div key={t.id} className={'toast '+t.kind}><Icon name={t.kind==='ok'?'checkCircle':'info'} size={18}/>{t.text}</div>)}</div><DeleteHost/></>}
 
 export function Field({label,hint,children,span}:{label:string;hint?:string;children:React.ReactNode;span?:boolean}){return <label className={'fld'+(span?' span':'')}><span>{label}</span>{children}{hint&&<small>{hint}</small>}</label>}
 export function Toggle({checked,onChange,label}:{checked:boolean;onChange:(v:boolean)=>void;label:string}){return <label className="tgl"><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/><i/><span>{label}</span></label>}

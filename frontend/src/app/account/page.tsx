@@ -2,7 +2,7 @@
 import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import Icon from '@/components/Icon';
-import {API,postJSON,payLabel} from '@/lib/api';
+import {API,postJSON,payLabel,firstImage} from '@/lib/api';
 import {getToken,logout} from '@/lib/auth';
 import {refreshProfile} from '@/lib/profile';
 import {DISTRICTS} from '@/lib/districts';
@@ -56,26 +56,60 @@ const GROUPS:[string,string,(o:any)=>boolean][]=[
   ['done','Delivered',o=>['Delivered','Completed'].includes(o.order_status)],
   ['cancelled','Cancelled',o=>['Cancelled','Returned'].includes(o.order_status)],
 ];
-const SHOW=3;
+const SHOW=5;
 const sc=(s:string)=>'status-pill s-'+String(s).toLowerCase().replace(/\s+/g,'-');
-/** All orders, newest first, with status tabs. Shows 3, then "View all". Cancelled orders say who cancelled and why. */
+const stLabel=(s:string)=>s==='Pending Confirmation'?'Pending':s;
+const when=(d:any)=>{const x=new Date(d);return x.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})+', '+x.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})};
+const MSG='https://m.me/emxintechnologies';
+/** All orders as an interactive table: status tabs, search, product names + photos, click a row for the full details. */
 function MyOrders({orders,busy,pay,onSwitch,onChanged,onError}:{orders:any[];busy:string;pay:(id:string)=>void;onSwitch:(o:any)=>void;onChanged:(m:string)=>void;onError:(m:string)=>void}){
-  const[g,setG]=useState('all');const[all,setAll]=useState(false);const[ask,setAsk]=useState<any>(null);const[why,setWhy]=useState('');const[cbusy,setCbusy]=useState(false);
-  const list=orders.filter(GROUPS.find(x=>x[0]===g)![2]);const shown=all?list:list.slice(0,SHOW);
+  const[g,setG]=useState('all');const[all,setAll]=useState(false);const[q,setQ]=useState('');const[open,setOpen]=useState('');
+  const[ask,setAsk]=useState<any>(null);const[why,setWhy]=useState('');const[cbusy,setCbusy]=useState(false);const[pm,setPm]=useState<Record<string,any>>({});
+  useEffect(()=>{const ids=[...new Set(orders.flatMap(o=>(o.items||[]).map((i:any)=>i.product_id)).filter(Boolean))].slice(0,100);if(!ids.length)return;
+    fetch(`${API}/products?ids=${ids.join(',')}&limit=100`).then(r=>r.ok?r.json():[]).then((a:any[])=>setPm(Object.fromEntries((a||[]).map(p=>[p._id,p])))).catch(()=>{})},[orders]);
+  const qq=q.trim().toLowerCase();
+  const list=orders.filter(GROUPS.find(x=>x[0]===g)![2]).filter(o=>!qq||o.order_id.toLowerCase().includes(qq)||(o.items||[]).some((i:any)=>String(i.name).toLowerCase().includes(qq)));
+  const shown=all||qq?list:list.slice(0,SHOW);
   async function cancel(){if(!ask)return;setCbusy(true);try{await postJSON(`/orders/${ask.order_id}/cancel`,{reason:why.trim()},getToken());setAsk(null);setWhy('');onChanged(`Order ${ask.order_id} is cancelled.`)}catch(x:any){setAsk(null);onError(x.message)}finally{setCbusy(false)}}
-  return <section className="panel"><h2>My Orders <small className="muted">({orders.length})</small></h2>
+  const img=(i:any)=>firstImage(pm[i.product_id]);
+  return <section className="panel mo"><div className="mo-head"><h2>My Orders <small className="muted">({orders.length})</small></h2>
+      {orders.length>SHOW&&<label className="mo-search"><Icon name="search" size={16}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Order ID or product"/></label>}</div>
     {orders.length>0&&<div className="ord-tabs" role="tablist">{GROUPS.map(([k,l,fn])=>{const n=orders.filter(fn).length;return (k==='all'||n>0)?<button key={k} role="tab" aria-selected={g===k} className={g===k?'on':''} onClick={()=>{setG(k);setAll(false)}}>{l}<em>{n}</em></button>:null})}</div>}
-    {!orders.length?<p className="muted">No orders yet. <Link href="/shop">Start shopping</Link></p>:!list.length?<p className="muted">No orders here.</p>:shown.map((o:any)=>{const closed=['Cancelled','Returned'].includes(o.order_status);return <div className={'acc-order'+(closed?' is-closed':'')} key={o.order_id}><div><b>{o.order_id}</b><small className="muted">{new Date(o.created_at).toLocaleDateString('en-GB')} · {o.items?.reduce((n:number,i:any)=>n+i.quantity,0)} pcs</small></div>
-      <div><span className={sc(o.order_status)}>{o.order_status==='Pending Confirmation'?'Pending':o.order_status}</span><small className="muted">{o.payment_status} · {payLabel(o)}</small></div><b>৳ {Number(o.pricing?.grand_total||0).toLocaleString('en-IN')}</b>
-      <div className="acc-act">{!closed&&PENDING.includes(o.payment_status)?<button className="btn btn-sm" disabled={busy===o.order_id} onClick={()=>pay(o.order_id)}>{busy===o.order_id?'Opening…':'Pay now'}</button>:!closed&&o.payment_method==='cod'&&o.payment_status==='Unpaid'&&o.order_status==='Pending Confirmation'?<button className="btn btn-sm btn-outline" onClick={()=>onSwitch(o)} title="Pay by bKash / Nagad before EMXIN confirms and save on the product price">Pay by bKash / Nagad · save 2%</button>:null}
-        {o.can_cancel&&<button className="btn btn-sm btn-ghost danger" onClick={()=>{setWhy('');setAsk(o)}}>Cancel order</button>}
-        {!o.removed&&<Link className="btn btn-sm btn-ghost" href={`/track-order?order_id=${o.order_id}`}>Track</Link>}</div>
-      {o.order_status==='Cancelled'&&<div className="acc-cancel"><Icon name="info" size={16}/><div><b>{o.cancelled_by==='customer'?'You cancelled this order':'Cancelled by EMXIN'}</b>{o.cancelled_at&&<small> · {new Date(o.cancelled_at).toLocaleDateString('en-GB')}</small>}
-        {o.cancel_reason?<p>Reason: {o.cancel_reason}</p>:o.cancelled_by!=='customer'?<p>Questions? Message or call EMXIN.</p>:null}</div></div>}
-      {!closed&&o.order_status==='Pending Confirmation'&&!o.can_cancel&&o.payment_method==='manual'&&<p className="tiny muted">Want to cancel? You already sent money, so please message EMXIN and we will cancel it and return the money.</p>}
-      {o.manual_payment?.status==='pending'&&!closed&&<p className="acc-mp wait"><Icon name="info" size={15}/>{o.manual_payment.channel_label} TrxID <b>{o.manual_payment.trx_id}</b> received — EMXIN is verifying it.</p>}
-      {o.manual_payment?.status==='rejected'&&!closed&&<ResendTrx o={o} onDone={()=>onChanged('TrxID sent. EMXIN will verify it.')}/>}</div>})}
-    {list.length>SHOW&&<button className="btn btn-ghost btn-block ord-more" onClick={()=>setAll(!all)}>{all?'Show less':<>View all {list.length} orders<Icon name="chevronDown" size={16}/></>}</button>}
+    {!orders.length?<div className="mo-empty"><Icon name="box" size={34}/><b>No orders yet</b><Link className="btn btn-sm" href="/shop">Start shopping</Link></div>
+    :!list.length?<p className="muted mo-none">No orders here.</p>
+    :<div className="mo-table" role="table">
+      <div className="mo-tr mo-th" role="row"><span>Order</span><span>Products</span><span>Payment</span><span className="r">Total</span><span>Status</span><span/></div>
+      {shown.map((o:any)=>{const items=o.items||[];const pcs=items.reduce((n:number,i:any)=>n+i.quantity,0);const closed=['Cancelled','Returned'].includes(o.order_status);const isOpen=open===o.order_id;const p=o.pricing||{};
+        const paidDigital=o.payment_method!=='cod';
+        return <div key={o.order_id} className={'mo-row'+(isOpen?' open':'')+(closed?' closed':'')}>
+        <button type="button" className="mo-tr" role="row" aria-expanded={isOpen} onClick={()=>setOpen(isOpen?'':o.order_id)}>
+          <span className="mo-id"><b className="mono">#{o.order_id}</b><small>{when(o.created_at)}</small></span>
+          <span className="mo-prod"><span className="mo-thumbs">{items.slice(0,2).map((i:any,k:number)=><i key={k}>{img(i)?<img src={img(i)} alt=""/>:<Icon name="box" size={16}/>}</i>)}</span>
+            <span className="mo-pn"><b>{items[0]?.name||'—'}</b><small>{items.length>1?`+ ${items.length-1} more product${items.length>2?'s':''} · `:''}{pcs} pc{pcs===1?'':'s'}</small></span></span>
+          <span className="mo-pay"><b>{payLabel(o)}</b><small>{o.payment_status}</small></span>
+          <span className="mo-tot r"><b>৳ {Number(p.grand_total||0).toLocaleString('en-IN')}</b></span>
+          <span className="mo-st"><span className={sc(o.order_status)}>{stLabel(o.order_status)}</span>{o.order_status==='Cancelled'&&<small>{o.cancelled_by==='customer'?'by you':'by EMXIN'}</small>}</span>
+          <span className="mo-chev"><Icon name="chevronDown" size={18}/></span>
+        </button>
+        {isOpen&&<div className="mo-detail">
+          {o.order_status==='Cancelled'&&<div className="acc-cancel"><Icon name="info" size={16}/><div><b>{o.cancelled_by==='customer'?'You cancelled this order':'Cancelled by EMXIN'}</b>{o.cancelled_at&&<small> · {when(o.cancelled_at)}</small>}
+            {o.cancel_reason?<p>Reason: {o.cancel_reason}</p>:o.cancelled_by!=='customer'?<p>Questions? Message or call EMXIN.</p>:null}</div></div>}
+          <div className="mo-grid"><ul className="mo-items">{items.map((i:any,k:number)=><li key={k}><i>{img(i)?<img src={img(i)} alt=""/>:<Icon name="box" size={18}/>}</i>
+              <span>{i.slug?<Link href={`/product/${i.slug}`}><b>{i.name}</b></Link>:<b>{i.name}</b>}<small>{i.frame_color} · {i.quantity} × ৳ {Number(i.unit_price||0).toLocaleString('en-IN')}</small></span>
+              <b>৳ {Math.round(i.quantity*(i.unit_price||0)).toLocaleString('en-IN')}</b></li>)}</ul>
+            <div className="mo-sum">{([['Subtotal',p.subtotal],['Dealer discount',-p.bulk_discount],['Coupon'+(o.coupon_code?` (${o.coupon_code})`:''),-p.coupon_discount],['Advance payment discount',-p.payment_discount],['Delivery',p.delivery_charge],['Extra shipping',p.estimated_shipping]] as [string,number][]).filter(([,v])=>Number(v)).map(([l,v])=><div key={l}><span>{l}</span><span className={v<0?'good':''}>{v<0?'− ':''}৳ {Math.abs(Math.round(v)).toLocaleString('en-IN')}</span></div>)}
+              <div className="tot"><span>Total</span><b>৳ {Number(p.grand_total||0).toLocaleString('en-IN')}</b></div>
+              {p.is_bulk&&<div><span>Advance</span><span>৳ {Number(p.advance_required||0).toLocaleString('en-IN')}</span></div>}{Number(p.cod_due)>0&&<div><span>Pay on delivery</span><span>৳ {Number(p.cod_due).toLocaleString('en-IN')}</span></div>}</div></div>
+          {o.manual_payment?.status==='pending'&&!closed&&<p className="acc-mp wait"><Icon name="info" size={15}/>{o.manual_payment.channel_label} TrxID <b>{o.manual_payment.trx_id}</b> received — EMXIN is verifying it.</p>}
+          {o.manual_payment?.status==='rejected'&&!closed&&<ResendTrx o={o} onDone={()=>onChanged('TrxID sent. EMXIN will verify it.')}/>}
+          {!closed&&o.order_status==='Pending Confirmation'&&paidDigital&&<div className="mo-note"><Icon name="info" size={16}/><span>This order is paid by <b>{payLabel(o)}</b>. To cancel it, please <b>contact EMXIN</b> and we will cancel it and send your money back.</span><a className="btn btn-sm btn-outline" href={MSG} target="_blank" rel="noopener">Message EMXIN</a></div>}
+          <div className="mo-act">{!closed&&PENDING.includes(o.payment_status)?<button className="btn btn-sm" disabled={busy===o.order_id} onClick={()=>pay(o.order_id)}>{busy===o.order_id?'Opening…':'Pay now'}</button>:!closed&&o.payment_method==='cod'&&o.payment_status==='Unpaid'&&o.order_status==='Pending Confirmation'?<button className="btn btn-sm btn-outline" onClick={()=>onSwitch(o)}>Pay by bKash / Nagad · save 2%</button>:null}
+            {!o.removed&&<Link className="btn btn-sm btn-ghost" href={`/track-order?order_id=${o.order_id}`}><Icon name="truck" size={15}/>Track</Link>}
+            {o.can_cancel&&<button className="btn btn-sm btn-ghost danger" onClick={()=>{setWhy('');setAsk(o)}}><Icon name="close" size={15}/>Cancel order</button>}</div>
+        </div>}
+      </div>})}
+    </div>}
+    {list.length>SHOW&&!qq&&<button className="btn btn-ghost btn-block ord-more" onClick={()=>setAll(!all)}>{all?'Show less':<>View all {list.length} orders<Icon name="chevronDown" size={16}/></>}</button>}
     {ask&&<div className="co-modal" role="dialog" aria-modal="true" aria-labelledby="cx-title"><button type="button" className="co-modal-bg" aria-label="Close" onClick={()=>setAsk(null)}/>
       <div className="co-modal-box"><div className="co-modal-head"><h3 id="cx-title">Cancel order {ask.order_id}?</h3><button type="button" className="co-x" aria-label="Close" onClick={()=>setAsk(null)}>×</button></div>
         <p className="muted">EMXIN has not confirmed it yet, so you can cancel it now. This cannot be undone. You can always place a new order.</p>
@@ -96,7 +130,8 @@ export default function Account(){
     {msg&&<p className="form-err">{msg}</p>}{ok&&<p className="note-good big"><Icon name="checkCircle" size={18}/> {ok}</p>}
     {sw&&<SwitchPay o={sw} onClose={()=>setSw(null)} onDone={m=>{setSw(null);setOk(m);load()}}/>}
     <div className="acc"><section className="panel"><h2>{c.name}</h2><p><Icon name="phone" size={15}/> {c.phone}{c.phone_verified!==false&&<span className="vp"> <Icon name="badgeCheck" size={13}/> verified</span>}</p>{c.email&&<p className="muted">{c.email}</p>}{c.address&&<p className="muted">{c.address}, {c.district}</p>}
-      <p className="muted tiny">Orders: {c.total_orders||0} · Total purchase: ৳ {Number(c.total_purchase||0).toLocaleString('en-IN')}</p>
+      {(()=>{const all=d.orders||[];const live=all.filter((o:any)=>!['Cancelled','Returned'].includes(o.order_status));const spent=live.reduce((n:number,o:any)=>n+Number(o.pricing?.grand_total||0),0);const cx=all.length-live.length;
+        return <p className="muted tiny">Orders: <b>{all.length}</b>{cx>0&&<> ({cx} cancelled)</>} · Total purchase: <b>৳ {Math.round(spent).toLocaleString('en-IN')}</b>{cx>0&&<> <span title="Cancelled and returned orders are not counted">(cancelled not counted)</span></>}</p>})()}
       {!edit?<button className="btn btn-outline btn-sm" onClick={()=>setEdit(true)}><Icon name="user" size={15}/>Edit profile</button>:<form className="stack-form" onSubmit={save}>
         <label className="qr-field"><span>Name</span><input required value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></label><label className="qr-field"><span>Email</span><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
         <label className="qr-field"><span>District</span><select value={f.district} onChange={e=>setF({...f,district:e.target.value})}>{DISTRICTS.map(x=><option key={x}>{x}</option>)}</select></label><label className="qr-field"><span>Default address</span><textarea rows={2} value={f.address} onChange={e=>setF({...f,address:e.target.value})}/></label>
