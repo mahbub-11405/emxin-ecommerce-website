@@ -9,12 +9,15 @@ and audit logs.
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 from bson import ObjectId
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pymongo.errors import DuplicateKeyError
 
-from .db import db
+from .db import db, data_version, live_version
 from .helpers import now, serialize, slugify, next_product_codes
 from .security import require_role, decode_token
 from .schemas import (CategoryInput, BrandInput, CouponInput, OrderStatusUpdate,
@@ -115,20 +118,42 @@ def bucket_index(created, s, bucket):
     return int(delta.total_seconds() // (7200 if bucket == 'hour' else 86400))
 
 
+def _pv(s, e):
+    return {'event_type': 'page_view', 'created_at': {'$gte': s, '$lt': e}}
+
+
+def unique_visitors(s, e):
+    """Unique sessions in a period, counted by MongoDB (no session list sent over the network)."""
+    try:
+        r = list(db.analytics_events.aggregate([{'$match': _pv(s, e)}, {'$group': {'_id': '$session_id'}}, {'$count': 'n'}]))
+        return r[0]['n'] if r else 0
+    except Exception:
+        return len(db.analytics_events.distinct('session_id', _pv(s, e)))
+
+
 def visitors_by_bucket(s, e, bucket, n):
-    """Unique sessions per bucket (a session is counted once per bucket)."""
+    """Unique sessions per bucket (a session is counted once per bucket) + unique sessions in the whole period."""
+    step = 7200000 if bucket == 'hour' else 86400000
     counts = [0] * n
-    seen = set()
-    total = set()
-    cursor = db.analytics_events.find({'event_type': 'page_view', 'created_at': {'$gte': s, '$lt': e}},
-                                      {'session_id': 1, 'created_at': 1, '_id': 0})
-    for ev in cursor:
-        i = bucket_index(ev['created_at'], s, bucket)
-        if 0 <= i < n and (i, ev['session_id']) not in seen:
-            seen.add((i, ev['session_id']))
-            counts[i] += 1
-        total.add(ev['session_id'])
-    return counts, len(total)
+    try:
+        rows = db.analytics_events.aggregate([
+            {'$match': _pv(s, e)},
+            {'$group': {'_id': {'b': {'$floor': {'$divide': [{'$subtract': ['$created_at', s]}, step]}}, 's': '$session_id'}}},
+            {'$group': {'_id': '$_id.b', 'n': {'$sum': 1}}}])
+        for r in rows:
+            i = int(r['_id'] or 0)
+            if 0 <= i < n:
+                counts[i] = r['n']
+        return counts, unique_visitors(s, e)
+    except Exception:  # very old MongoDB / test double: count in Python
+        seen, total = set(), set()
+        for ev in db.analytics_events.find(_pv(s, e), {'session_id': 1, 'created_at': 1, '_id': 0}):
+            i = bucket_index(ev['created_at'], s, bucket)
+            if 0 <= i < n and (i, ev['session_id']) not in seen:
+                seen.add((i, ev['session_id']))
+                counts[i] += 1
+            total.add(ev['session_id'])
+        return counts, len(total)
 
 
 def order_amount_paid(o):
@@ -179,7 +204,7 @@ def period_stats(s, e, bucket=None):
     n = len(bucket_keys(s, e, bucket)) if bucket else 0
     vis_series, visitors = visitors_by_bucket(s, e, bucket, n) if bucket else ([], 0)
     if not bucket:
-        visitors = len(db.analytics_events.distinct('session_id', {'event_type': 'page_view', 'created_at': {'$gte': s, '$lt': e}}))
+        visitors = unique_visitors(s, e)
     orders = list(db.orders.find({'created_at': {'$gte': s, '$lt': e}},
                                  {'order_status': 1, 'payment_status': 1, 'payment_method': 1, 'payment_channel': 1,
                                   'manual_payment.channel': 1, 'pricing': 1, 'created_at': 1}))
@@ -238,34 +263,84 @@ def admin_me(authorization: str | None = Header(None)):
             'email': (doc or {}).get('email', ''), 'must_change_password': bool((doc or {}).get('must_change_password'))}
 
 
+_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix='dash')
+_DASH_CACHE: dict = {}
+
+
+def _funnel(s, e):
+    return {k: db.analytics_events.count_documents({'event_type': k, 'created_at': {'$gte': s, '$lt': e}})
+            for k in ('product_view', 'add_to_cart', 'checkout_started')}
+
+
+async def live_events(is_disconnected, tick=0.2, ping_every=15):
+    """Server-Sent Events: one message the moment data changes. v = anything on the dashboard, d = business data (badges)."""
+    import asyncio, json
+    last = None
+    quiet = 0.0
+    while True:
+        cur = (live_version[0], data_version[0])
+        if cur != last:
+            last = cur
+            quiet = 0.0
+            yield f"data: {json.dumps({'v': cur[0], 'd': cur[1]})}\n\n"
+        elif quiet >= ping_every:  # keep proxies and the browser from closing an idle connection
+            quiet = 0.0
+            yield ': ping\n\n'
+        if await is_disconnected():
+            return
+        await asyncio.sleep(tick)
+        quiet += tick
+
+
+@router.get('/api/v1/admin/live')
+async def admin_live(request: Request, authorization: str | None = Header(None)):
+    allow(authorization, 'dashboard')
+    return StreamingResponse(live_events(request.is_disconnected), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no', 'Connection': 'keep-alive'})
+
+
 @router.get('/api/v1/admin/dashboard/v2')
-def dashboard_v2(range: str = 'today', start: str | None = None, end: str | None = None,
+def dashboard_v2(range: str = 'today', start: str | None = None, end: str | None = None, fresh: bool = False,
                  authorization: str | None = Header(None)):
     allow(authorization, 'dashboard')
+    key = (range, start, end)
+    hit = _DASH_CACHE.get(key)
+    ver = live_version[0]  # read before computing: a write during the computation makes this result stale right away
+    if hit and not fresh and hit[2] == ver:  # nothing at all changed since: reuse (several admin tabs share one computation)
+        return hit[1]
     s, e, bucket = period_bounds(range, start, end)
-    cur = period_stats(s, e, bucket)
     length = e - s
-    prev = period_stats(s - length, s)
     keys = bucket_keys(s, e, bucket)
-    funnel = {k: db.analytics_events.count_documents({'event_type': k, 'created_at': {'$gte': s, '$lt': e}})
-              for k in ('product_view', 'add_to_cart', 'checkout_started')}
+    # MongoDB is on the network: run the ~15 independent queries at the same time instead of one after another
+    jobs = {
+        'cur': lambda: period_stats(s, e, bucket),
+        'prev': lambda: period_stats(s - length, s),
+        'funnel': lambda: _funnel(s, e),
+        'recent': lambda: list(db.orders.find({'created_at': {'$gte': s, '$lt': e}}).sort('created_at', -1).limit(8)) or list(db.orders.find().sort('created_at', -1).limit(8)),
+        'low_stock': lambda: list(db.products.find({'status': 'active', '$expr': {'$lte': ['$stock', {'$ifNull': ['$low_stock_threshold', 5]}]}},
+                                                   {'name': 1, 'stock': 1, 'slug': 1}).sort('stock', 1).limit(6)),
+        'courier': lambda: courier_summary(s, e),
+        'counts': lambda: nav_counts(parallel=False),
+    }
+    SUMMARY = (('Today', 'today'), ('Yesterday', 'yesterday'), ('Last 7 Days', '7d'), ('Last 30 Days', '30d'))
+    for _, k in SUMMARY:
+        if k != range:  # the selected range is already "cur"
+            ps, pe, _b = period_bounds(k)
+            jobs['sum_' + k] = (lambda ps=ps, pe=pe: period_stats(ps, pe))
+    futs = {k: _POOL.submit(f) for k, f in jobs.items()}
+    r = {k: f.result() for k, f in futs.items()}
+    cur, prev, funnel = r['cur'], r['prev'], r['funnel']
     total_methods = sum(cur['methods'].values()) or 1
     methods = [{'key': k, 'label': PAYMENT_LABELS.get(k, k.title()), 'count': v,
                 'percent': round(v / total_methods * 100, 1)}
                for k, v in sorted(cur['methods'].items(), key=lambda kv: -kv[1])]
     summary = []
-    for label, key in (('Today', 'today'), ('Yesterday', 'yesterday'), ('Last 7 Days', '7d'), ('Last 30 Days', '30d')):
-        ps, pe, _ = period_bounds(key)
-        st = period_stats(ps, pe)
+    for label, k in SUMMARY:
+        st = cur if k == range else r['sum_' + k]
         summary.append({'period': label, 'visitors': st['visitors'], 'purchases': st['purchases'],
                         'conversion': st['conversion'], 'sales': st['sales']})
-    recent = list(db.orders.find({'created_at': {'$gte': s, '$lt': e}}).sort('created_at', -1).limit(8))
-    if not recent:
-        recent = list(db.orders.find().sort('created_at', -1).limit(8))
-    low_stock = list(db.products.find({'status': 'active', '$expr': {'$lte': ['$stock', {'$ifNull': ['$low_stock_threshold', 5]}]}},
-                                      {'name': 1, 'stock': 1, 'slug': 1}).sort('stock', 1).limit(6))
-    return {
-        'range': range, 'bucket': bucket, 'last_updated': now().isoformat(),
+    out = {
+        'range': range, 'bucket': bucket, 'last_updated': now().isoformat(), 'version': ver,
         'cards': {
             'visitors': {'value': cur['visitors'], 'change': pct_change(cur['visitors'], prev['visitors']), 'spark': cur['series']['visitors']},
             'purchases': {'value': cur['purchases'], 'change': pct_change(cur['purchases'], prev['purchases']), 'spark': cur['series']['purchases']},
@@ -277,12 +352,16 @@ def dashboard_v2(range: str = 'today', start: str | None = None, end: str | None
                    'checkout_started': funnel['checkout_started'], 'orders_placed': cur['orders'], 'successful_purchases': cur['purchases']},
         'payment_methods': {'total': sum(cur['methods'].values()), 'items': methods},
         'money': cur['money'],
-        'courier': courier_summary(s, e),
+        'courier': r['courier'],
         'summary': summary,
-        'recent_orders': serialize(recent),
-        'low_stock': serialize(low_stock),
-        'counts': nav_counts(),
+        'recent_orders': serialize(r['recent']),
+        'low_stock': serialize(r['low_stock']),
+        'counts': r['counts'],
     }
+    if len(_DASH_CACHE) > 50:
+        _DASH_CACHE.clear()
+    _DASH_CACHE[key] = (time.monotonic(), out, ver)
+    return out
 
 
 def courier_summary(s, e):
@@ -302,15 +381,24 @@ def courier_summary(s, e):
                                           'message': ((o.get('courier_events') or [{}])[-1]).get('message', '')} for o in cancelled])}
 
 
-def nav_counts():
-    return {
-        'orders_pending': db.orders.count_documents({'order_status': 'Pending Confirmation'}),
-        'courier_attention': db.orders.count_documents({'courier_status': {'$in': ['cancelled', 'cancelled_approval_pending', 'hold']}, 'order_status': {'$nin': list(RELEASED_STATUSES)}}),
-        'quantity_requests_new': db.quantity_requests.count_documents({'status': 'New'}),
-        'dealers_pending': db.dealers.count_documents({'status': 'Pending'}),
-        'reviews_pending': db.reviews.count_documents({'status': 'pending'}),
-        'questions_pending': db.questions.count_documents({'status': 'pending'}),
+_COUNT_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix='counts')
+
+
+def nav_counts(parallel=True):
+    """Sidebar badges. parallel=True runs the counts at the same time (one network round trip instead of eight)."""
+    q = {
+        'orders_pending': lambda: db.orders.count_documents({'order_status': 'Pending Confirmation'}),
+        'payments_to_verify': lambda: db.orders.count_documents({'manual_payment.status': 'pending', 'order_status': {'$nin': list(RELEASED_STATUSES)}}),
+        'courier_attention': lambda: db.orders.count_documents({'courier_status': {'$in': ['cancelled', 'cancelled_approval_pending', 'hold']}, 'order_status': {'$nin': list(RELEASED_STATUSES)}}),
+        'quantity_requests_new': lambda: db.quantity_requests.count_documents({'status': 'New'}),
+        'dealers_pending': lambda: db.dealers.count_documents({'status': 'Pending'}),
+        'reviews_pending': lambda: db.reviews.count_documents({'status': 'pending'}),
+        'questions_pending': lambda: db.questions.count_documents({'status': 'pending'}),
     }
+    if not parallel:
+        return {k: f() for k, f in q.items()}
+    futs = {k: _COUNT_POOL.submit(f) for k, f in q.items()}
+    return {k: f.result() for k, f in futs.items()}
 
 
 @router.get('/api/v1/admin/counts')
@@ -321,18 +409,73 @@ def admin_counts(authorization: str | None = Header(None)):
 
 @router.get('/api/v1/admin/notifications')
 def notifications(authorization: str | None = Header(None)):
+    """Bell menu: what needs a person right now, newest first, with enough detail to act without opening the page."""
     allow(authorization, 'dashboard')
-    items = []
-    for o in db.orders.find({'order_status': 'Pending Confirmation'}).sort('created_at', -1).limit(8):
-        items.append({'type': 'order', 'title': f"New order {o['order_id']}", 'text': f"{o.get('customer_name', '')} · ৳{(o.get('pricing') or {}).get('grand_total', 0)}", 'href': f"/orders?open={o['order_id']}", 'created_at': o['created_at']})
-    for q in db.quantity_requests.find({'status': 'New'}).sort('created_at', -1).limit(5):
-        items.append({'type': 'quantity', 'title': f"{q.get('urgency', 'Normal')} quantity request", 'text': f"{q.get('shop_name', '')} · {q.get('product_name', '')}", 'href': '/quantity-requests', 'created_at': q['created_at']})
-    for d in db.dealers.find({'status': 'Pending'}).sort('created_at', -1).limit(5):
-        items.append({'type': 'dealer', 'title': 'Dealer application', 'text': d.get('shop_name', ''), 'href': '/dealers', 'created_at': d['created_at']})
-    for r in db.reviews.find({'status': 'pending'}).sort('created_at', -1).limit(5):
-        items.append({'type': 'review', 'title': 'Review awaiting approval', 'text': f"{r.get('rating')}★ {r.get('product_name', '')}", 'href': '/reviews', 'created_at': r['created_at']})
+    live = {'$nin': list(RELEASED_STATUSES)}
+    P = {'order_id': 1, 'customer_name': 1, 'phone': 1, 'pricing.grand_total': 1, 'payment_method': 1, 'payment_channel': 1, 'payment_status': 1,
+         'manual_payment': 1, 'items.quantity': 1, 'items.name': 1, 'created_at': 1, 'courier_status': 1, 'courier_updated_at': 1, 'courier': 1, 'dealer_id': 1}
+    q = {
+        'verify': lambda: list(db.orders.find({'manual_payment.status': 'pending', 'order_status': live}, P).sort('created_at', -1).limit(10)),
+        'orders': lambda: list(db.orders.find({'order_status': 'Pending Confirmation'}, P).sort('created_at', -1).limit(12)),
+        'courier': lambda: list(db.orders.find({'courier_status': {'$in': ['cancelled', 'cancelled_approval_pending', 'hold']}, 'order_status': live}, P).sort('courier_updated_at', -1).limit(5)),
+        'qty': lambda: list(db.quantity_requests.find({'status': 'New'}).sort('created_at', -1).limit(5)),
+        'dealers': lambda: list(db.dealers.find({'status': 'Pending'}, {'shop_name': 1, 'name': 1, 'district': 1, 'created_at': 1, 'applications': 1}).sort('created_at', -1).limit(5)),
+        'reviews': lambda: list(db.reviews.find({'status': 'pending'}, {'rating': 1, 'product_name': 1, 'name': 1, 'customer_name': 1, 'created_at': 1}).sort('created_at', -1).limit(5)),
+        'counts': lambda: nav_counts(parallel=False),
+    }
+    futs = {k: _POOL.submit(f) for k, f in q.items()}
+    r = {k: f.result() for k, f in futs.items()}
+
+    def money(o):
+        return float((o.get('pricing') or {}).get('grand_total') or 0)
+
+    def pcs(o):
+        its = o.get('items') or []
+        n = sum(int(i.get('quantity') or 0) for i in its)
+        first = (its[0].get('name') if its else '') or ''
+        return f"{n} pcs · {first[:38]}{'…' if len(first) > 38 else ''}" + (f" +{len(its) - 1} more" if len(its) > 1 else '')
+
+    items, seen = [], set()
+    for o in r['verify']:
+        mp = o.get('manual_payment') or {}
+        ch = mp.get('channel') or o.get('payment_channel') or 'manual'
+        seen.add(o['order_id'])
+        items.append({'type': 'payment', 'tone': 'amber', 'channel': ch, 'title': f"Verify {mp.get('channel_label') or ch.title()} payment",
+                      'order_id': o['order_id'], 'who': o.get('customer_name', ''), 'amount': float(mp.get('amount_expected') or money(o)),
+                      'text': f"TrxID {mp.get('trx_id', '—')} · from {mp.get('sender') or '—'}", 'href': f"/orders?open={o['order_id']}",
+                      'created_at': mp.get('submitted_at') or o['created_at']})
+    for o in r['orders']:
+        if o['order_id'] in seen:
+            continue
+        cod = o.get('payment_method') == 'cod'
+        items.append({'type': 'order', 'tone': 'blue', 'channel': 'cod' if cod else (o.get('payment_channel') or o.get('payment_method')),
+                      'title': 'New order — call & confirm' if cod else 'New order', 'order_id': o['order_id'], 'who': o.get('customer_name', ''),
+                      'amount': money(o), 'text': pcs(o) + (' · Cash on Delivery' if cod else ''), 'href': f"/orders?open={o['order_id']}", 'created_at': o['created_at']})
+    for o in r['courier']:
+        st = o.get('courier_status') or ''
+        items.append({'type': 'courier', 'tone': 'red' if 'cancel' in st else 'amber', 'title': 'Courier: parcel cancelled' if 'cancel' in st else 'Courier: parcel on hold',
+                      'order_id': o['order_id'], 'who': o.get('customer_name', ''), 'amount': money(o), 'text': 'Call the customer, then decide: resend or mark Returned',
+                      'href': f"/courier?open={o['order_id']}", 'created_at': o.get('courier_updated_at') or o['created_at']})
+    for x in r['qty']:
+        items.append({'type': 'quantity', 'tone': 'violet', 'title': f"{x.get('urgency', 'Normal')} quantity request", 'who': x.get('shop_name', ''),
+                      'text': f"{x.get('product_name', '')} · {x.get('quantity', '')} pcs".strip(' ·'), 'href': '/quantity-requests', 'created_at': x['created_at']})
+    for d in r['dealers']:
+        again = (d.get('applications') or 1) > 1
+        items.append({'type': 'dealer', 'tone': 'green', 'title': 'Dealer re-applied' if again else 'New dealer application', 'who': d.get('shop_name') or d.get('name', ''),
+                      'text': d.get('district', ''), 'href': '/dealers', 'created_at': d['created_at']})
+    for v in r['reviews']:
+        items.append({'type': 'review', 'tone': 'gray', 'title': f"{v.get('rating', '')}★ review to approve", 'who': v.get('name') or v.get('customer_name', ''),
+                      'text': v.get('product_name', ''), 'href': '/reviews', 'created_at': v['created_at']})
     items.sort(key=lambda x: x['created_at'], reverse=True)
-    return serialize(items[:15])
+    c = r['counts']
+    summary = [x for x in (
+        {'key': 'payments', 'label': 'payments to verify', 'count': c.get('payments_to_verify', 0), 'href': '/orders?status=Pending Confirmation', 'tone': 'amber'},
+        {'key': 'orders', 'label': 'orders to confirm', 'count': c.get('orders_pending', 0), 'href': '/orders?status=Pending Confirmation', 'tone': 'blue'},
+        {'key': 'courier', 'label': 'courier issues', 'count': c.get('courier_attention', 0), 'href': '/courier', 'tone': 'red'},
+        {'key': 'dealers', 'label': 'dealer applications', 'count': c.get('dealers_pending', 0), 'href': '/dealers', 'tone': 'green'},
+        {'key': 'reviews', 'label': 'reviews & questions', 'count': c.get('reviews_pending', 0) + c.get('questions_pending', 0), 'href': '/reviews', 'tone': 'gray'},
+    ) if x['count']]
+    return serialize({'items': items[:25], 'summary': summary})
 
 
 @router.get('/api/v1/admin/search')

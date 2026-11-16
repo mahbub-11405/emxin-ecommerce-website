@@ -15,7 +15,11 @@ export const put=(path:string,body:any)=>api(path,{method:'PUT',body:JSON.string
 export const del=(path:string)=>api(path+(path.includes('?')?'&':'?')+'confirm=delete',{method:'DELETE'});
 export const tk=(n:any)=>'৳ '+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:0});
 export const num=(n:any)=>Number(n||0).toLocaleString('en-IN');
-export const dt=(s:any)=>s?new Date(s).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+// Every date-time in the admin: "15 Nov 2026, 5:04 PM" (12-hour clock, AM/PM)
+export const tm=(s:any)=>s?new Date(s).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'—';
+export const dt=(s:any)=>s?new Date(s).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+', '+tm(s):'—';
+/** "just now", "5 min ago", "3 h ago", "yesterday 4:10 PM", else the full date */
+export const ago=(s:any)=>{if(!s)return '';const d=new Date(s),m=Math.round((Date.now()-d.getTime())/60000);if(m<1)return 'just now';if(m<60)return `${m} min ago`;if(m<12*60)return `${Math.round(m/60)} h ago`;const y=new Date();y.setDate(y.getDate()-1);if(d.toDateString()===new Date().toDateString())return 'today '+tm(s);if(d.toDateString()===y.toDateString())return 'yesterday '+tm(s);return dt(s)};
 export const dateOnly=(s:any)=>s?new Date(s).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'—';
 export const MAX_IMAGE_MB=15, MAX_VIDEO_MB=300;
 /** Upload one desktop file straight to S3 (presigned POST) and register it in the Media Library.

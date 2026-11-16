@@ -110,8 +110,10 @@ export default function Products(){
   const[rows,setRows]=useState<any[]|null>(null);const[cats,setCats]=useState<any[]>([]);const[brands,setBrands]=useState<any[]>([]);
   const[edit,setEdit]=useState<any>(null);const[q,setQ]=useState('');const[cat,setCat]=useState('');const[st,setSt]=useState('');
   const load=()=>api('/admin/products').then(setRows).catch(e=>toast.err(e.message));
+  // the list has no long texts (faster with many products): the editor opens with the full product
+  const openEdit=(p:any)=>api('/admin/products/'+p._id).then(setEdit).catch(e=>toast.err(e.message));
   useEffect(()=>{load();api('/admin/categories').then(setCats).catch(()=>{});api('/admin/brands').then(setBrands).catch(()=>{})},[]);
-  useEffect(()=>{const id=new URLSearchParams(location.search).get('edit');if(id&&rows){const p=rows.find(x=>x._id===id);if(p)setEdit(p)}},[rows]);
+  useEffect(()=>{const id=new URLSearchParams(location.search).get('edit');if(id&&rows){const p=rows.find(x=>x._id===id);if(p)openEdit(p)}},[rows]);
   const list=useMemo(()=>(rows||[]).filter(p=>(!q||(p.name+p.sku+p.model).toLowerCase().includes(q.toLowerCase()))&&(!cat||p.category_slug===cat)&&(!st||(st==='low'?p.stock<=(p.low_stock_threshold??5):p.status===st))),[rows,q,cat,st]);
   async function stock(p:any){const v=prompt(`Adjust stock for ${p.name} (current ${p.stock}). Enter + or − amount, e.g. 10 or -2:`);if(!v)return;const delta=parseInt(v,10);if(!delta)return;const reason=prompt('Reason (e.g. new shipment, damaged):')||'';try{await put(`/admin/products/${p._id}/stock`,{delta,reason});toast.ok('Stock updated');load()}catch(e:any){toast.err(e.message)}}
   return <Shell>
@@ -126,7 +128,7 @@ export default function Products(){
       <td>{cats.find(c=>c.slug===p.category_slug)?.name||p.category_slug}</td><td><b>{tk(p.sale_price||p.price)}</b>{p.sale_price&&<><br/><del className="muted">{tk(p.price)}</del></>}</td>
       <td><button className={'stock-chip'+(p.stock<=0?' out':p.stock<=(p.low_stock_threshold??5)?' low':'')} onClick={()=>stock(p)} title="Adjust stock">{p.stock}</button>{p.reserved>0&&<small className="muted"> ({p.reserved} reserved)</small>}</td>
       <td>{p.sold_count||0}</td><td>{p.review_count?`${p.rating}★ (${p.review_count})`:'—'}</td><td><Status s={p.status}/></td>
-      <td className="r nowrap"><button className="btn btn-sm btn-soft" onClick={()=>setEdit(p)}><Icon name="edit" size={15}/>Edit</button> <button className="ib" title="Duplicate" onClick={async()=>{try{await postJSON(`/admin/products/${p._id}/duplicate`,{});toast.ok('Duplicated as draft');load()}catch(e:any){toast.err(e.message)}}}><Icon name="copy" size={16}/></button><Confirm cls="ib danger" text={`Delete ${p.name}? Products with orders are hidden instead.`} onYes={async()=>{try{const r=await del(`/admin/products/${p._id}`);toast.ok(r.message||'Deleted');load()}catch(e:any){toast.err(e.message)}}}><Icon name="trash" size={16}/></Confirm></td></tr>})}</tbody></table></div>:<Empty text="No products yet. Add your first product." icon="products"/>}</div>
+      <td className="r nowrap"><button className="btn btn-sm btn-soft" onClick={()=>openEdit(p)}><Icon name="edit" size={15}/>Edit</button> <button className="ib" title="Duplicate" onClick={async()=>{try{await postJSON(`/admin/products/${p._id}/duplicate`,{});toast.ok('Duplicated as draft');load()}catch(e:any){toast.err(e.message)}}}><Icon name="copy" size={16}/></button><Confirm cls="ib danger" text={`Delete ${p.name}? Products with orders are hidden instead.`} onYes={async()=>{try{const r=await del(`/admin/products/${p._id}`);toast.ok(r.message||'Deleted');load()}catch(e:any){toast.err(e.message)}}}><Icon name="trash" size={16}/></Confirm></td></tr>})}</tbody></table></div>:<Empty text="No products yet. Add your first product." icon="products"/>}</div>
     <Drawer open={!!edit} width={760} title={edit?._id?`Edit · ${edit.name}`:'Add product'} onClose={()=>{setEdit(null);history.replaceState(null,'','/products')}}>{edit&&<ProductForm key={edit._id||'new'} initial={edit} cats={cats} brands={brands} onSaved={load}/>}</Drawer>
   </Shell>;
 }

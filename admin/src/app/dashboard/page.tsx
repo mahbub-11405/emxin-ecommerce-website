@@ -6,6 +6,7 @@ import Icon from '@/components/Icon';
 import {Status,Loading} from '@/components/ui';
 import PayBadge from '@/components/PayBadge';
 import {api,tk,num,dt} from '@/lib/api';
+import {onLive,liveState} from '@/lib/live';
 
 const RANGES=[['today','Today'],['yesterday','Yesterday'],['7d','Last 7 Days'],['30d','Last 30 Days']] as const;
 const METHOD_COLORS:Record<string,string>={cod:'#8b5cf6',bkash:'#e2136e',paystation:'#64748b',nagad:'#f7941d',bank:'#3b82f6',card:'#0ea5e9',rocket:'#a855f7',other:'#94a3b8'};
@@ -45,21 +46,29 @@ function Donut({items,total}:{items:any[];total:number}){
   </svg><div className="donut-c"><b>{num(total)}</b><span>Orders</span></div></div>;
 }
 
+const DASH:{range:string;data:Record<string,any>}={range:'today',data:{}};
 export default function Dashboard(){
-  const[range,setRange]=useState('today');const[custom,setCustom]=useState({start:'',end:''});const[showCustom,setShowCustom]=useState(false);
-  const[d,setD]=useState<any>(null);const[err,setErr]=useState('');const[glance,setGlance]=useState(true);
-  const load=useCallback(()=>{const qs=range==='custom'?`range=custom&start=${custom.start}&end=${custom.end}`:`range=${range}`;api('/admin/dashboard/v2?'+qs).then(x=>{setD(x);setErr('')}).catch(e=>setErr(e.message))},[range,custom]);
-  useEffect(()=>{load();const t=setInterval(load,60000);return()=>clearInterval(t)},[load]);
+  const[range,setRange]=useState(DASH.range);const[custom,setCustom]=useState({start:'',end:''});const[showCustom,setShowCustom]=useState(false);
+  const qs=range==='custom'?`range=custom&start=${custom.start}&end=${custom.end}`:`range=${range}`;
+  const[d,setDS]=useState<any>(DASH.data[qs]||null);const[err,setErr]=useState('');const[glance,setGlance]=useState(true);const[busy,setBusy]=useState(false);
+  // show the last numbers instantly (coming back to the dashboard or switching ranges), then refresh quietly
+  const[live,setLive]=useState(liveState());const[flash,setFlash]=useState(0);
+  const load=useCallback((fresh=false)=>{DASH.range=range;if(DASH.data[qs])setDS(DASH.data[qs]);setBusy(true);
+    return api('/admin/dashboard/v2?'+qs+(fresh?'&fresh=1':'')).then(x=>{const prev=DASH.data[qs];DASH.data[qs]=x;setDS(x);setErr('');if(prev&&prev.version!==x.version)setFlash(Date.now())}).catch(e=>setErr(e.message)).finally(()=>setBusy(false))},[qs,range]);
+  // real time: the server says "something changed" -> fetch the new numbers (well under a second)
+  useEffect(()=>onLive(()=>load()),[load]);
+  useEffect(()=>{const h=(e:any)=>setLive(e.detail);addEventListener('admin:live-state',h);return()=>removeEventListener('admin:live-state',h)},[]);
+  useEffect(()=>{load();const t=setInterval(()=>{if(liveState()!=='on')load()},30000);return()=>clearInterval(t)},[load]);  // timer only when the live link is down
   const label=range==='custom'?'Custom':RANGES.find(r=>r[0]===range)?.[1]||'Today';
   const c=d?.cards;
   return <Shell>
     <div className="dash-head"><div><h1>Dashboard</h1><p>Overview of your store performance</p></div>
       <div className="dash-right"><div className="seg">{RANGES.map(([k,l])=><button key={k} className={range===k?'on':''} onClick={()=>{setRange(k);setShowCustom(false)}}>{l}</button>)}<button className={range==='custom'?'on':''} onClick={()=>setShowCustom(!showCustom)}><Icon name="calendar" size={16}/>Custom</button></div>
         {showCustom&&<div className="custom-range"><input type="date" value={custom.start} onChange={e=>setCustom({...custom,start:e.target.value})}/><span>to</span><input type="date" value={custom.end} onChange={e=>setCustom({...custom,end:e.target.value})}/><button className="btn btn-sm" disabled={!custom.start||!custom.end} onClick={()=>{setRange('custom');setShowCustom(false);setTimeout(load,0)}}>Apply</button></div>}
-        <div className="updated">Last updated: {d?dt(d.last_updated):'—'} <span className="live"><i/>Live</span></div></div></div>
+        <div className="updated">Last updated: {d?dt(d.last_updated):'—'} <span className={'live'+(live==='on'?'':' off')} title={live==='on'?'Real time: updates the moment an order, payment or visit happens':'Reconnecting… numbers refresh every 30 s meanwhile'}><i/>{live==='on'?'Live':'Reconnecting'}</span> <button className="ib" title="Refresh now" disabled={busy} onClick={()=>load(true)}><Icon name="refresh" size={15} className={busy?'rot':''}/></button></div></div></div>
     {err&&<div className="alert err">{err}</div>}
     {!d?<Loading/>:<>
-    <div className="kpis">
+    <div className={"kpis"+(flash?" upd":"")} key={flash}>
       <div className="kpi"><span className="kpi-ico k-blue"><Icon name="customers" size={24}/></span><div><small>{label}'s Visitors</small><b>{num(c.visitors.value)}</b><Change v={c.visitors.change}/></div><Spark data={c.visitors.spark} color="#3b6cf6"/></div>
       <div className="kpi"><span className="kpi-ico k-green"><Icon name="cartPlain" size={24}/></span><div><small>{label}'s Purchases</small><b>{num(c.purchases.value)}</b><Change v={c.purchases.change}/></div><Spark data={c.purchases.spark} color="#22c55e"/></div>
       <div className="kpi"><span className="kpi-ico k-sky"><span className="tk">৳</span></span><div><small>{label}'s Sales (Paid)</small><b>{tk(c.sales.value)}</b><Change v={c.sales.change}/></div><Spark data={c.sales.spark} color="#3b6cf6"/></div>

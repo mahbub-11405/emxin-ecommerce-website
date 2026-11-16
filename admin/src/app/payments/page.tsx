@@ -6,7 +6,7 @@ import {api,tk,dt} from '@/lib/api';
 const WAIT=['Pending Payment','Pending Advance Payment','Advance Required','Awaiting Advance Verification'];
 export default function Payments(){
   const[tab,setTab]=useState('verify');const[orders,setOrders]=useState<any[]|null>(null);const[ledger,setLedger]=useState<any[]>([]);
-  useEffect(()=>{Promise.all(WAIT.map(w=>api('/admin/orders/search?page_size=100&payment='+encodeURIComponent(w)).then(r=>r.rows))).then(a=>setOrders(a.flat().filter((o:any)=>!['Cancelled','Returned'].includes(o.order_status)))).catch(e=>toast.err(e.message));api('/admin/ledger').then(setLedger).catch(()=>{})},[]);
+  useEffect(()=>{Promise.all(WAIT.map(w=>api('/admin/orders/search?page_size=100&payment='+encodeURIComponent(w)).then(r=>r.rows))).then(a=>setOrders(a.flat().filter((o:any)=>!['Cancelled','Returned'].includes(o.order_status)))).catch(e=>toast.err(e.message));api('/admin/ledger?limit=500').then((r:any)=>setLedger(r.rows||[])).catch(()=>{})},[]);
   const received=ledger.filter(l=>['payment_received','refund'].includes(l.type));
   return <Shell><PageHead title="Payments" sub="Verify bKash / Nagad / bank / PayStation payments and see every recorded collection."/>
     <Tabs value={tab} onChange={setTab} tabs={[{key:'verify',label:'Awaiting verification',count:orders?.length||0},{key:'received',label:'Received & refunds',count:received.length}]}/>

@@ -2,7 +2,43 @@ from pymongo import MongoClient, ASCENDING, DESCENDING
 from .config import get_settings
 
 settings = get_settings()
-client = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=7000, tz_aware=True)
+from pymongo import monitoring
+
+# data_version goes up after every successful write to the collections the dashboard reads.
+# The dashboard cache is only used while this number is unchanged, so a new order / payment shows at once.
+WATCHED = {'orders', 'ledger', 'products', 'dealers', 'reviews', 'questions', 'quantity_requests', 'payment_transactions', 'recycle_bin'}
+TRAFFIC = {'analytics_events'}  # visitors / product views / add to cart: live on the dashboard, but not a reason to reload badges
+WRITE_CMDS = {'insert', 'update', 'delete', 'findAndModify'}
+data_version = [0]   # business data changed (orders, payments, stock …)
+live_version = [0]   # anything the dashboard shows changed (business data + visitor traffic)
+
+
+class _WriteWatcher(monitoring.CommandListener):
+    def __init__(self):
+        self.pending = {}  # request_id -> True (business write) / False (traffic)
+
+    def started(self, e):
+        if e.command_name in WRITE_CMDS:
+            coll = e.command.get(e.command_name)
+            if coll in WATCHED:
+                self.pending[e.request_id] = True
+            elif coll in TRAFFIC:
+                self.pending[e.request_id] = False
+
+    def succeeded(self, e):
+        business = self.pending.pop(e.request_id, None)
+        if business is None:
+            return
+        if business:
+            data_version[0] += 1
+        live_version[0] += 1
+
+    def failed(self, e):
+        self.pending.pop(e.request_id, None)
+
+
+write_watcher = _WriteWatcher()
+client = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=7000, tz_aware=True, event_listeners=[write_watcher])
 db = client[settings.mongodb_db_name]
 
 def _email_index(coll):
@@ -45,3 +81,21 @@ def ensure_indexes():
     db.orders.create_index([("created_at",DESCENDING)])
     db.orders.create_index([("order_status",ASCENDING),("created_at",DESCENDING)])
     db.media_versions.create_index([("entity_type",ASCENDING),("entity_id",ASCENDING),("created_at",DESCENDING)])
+    # --- speed: every list / count the dashboard, admin pages, webhooks and the shop run is served by an index
+    A,D=ASCENDING,DESCENDING
+    for coll,keys in (
+        ('analytics_events',[('event_type',A),('created_at',D)]),
+        ('orders',[('customer_id',A),('created_at',D)]), ('orders',[('dealer_id',A),('created_at',D)]),
+        ('orders',[('courier_status',A),('courier_updated_at',D)]), ('orders',[('courier_consignment_id',A)]),
+        ('orders',[('payment_status',A),('created_at',D)]), ('orders',[('manual_payment.status',A)]), ('orders',[('coupon_code',A),('order_status',A)]),
+        ('products',[('status',A),('created_at',D)]), ('products',[('status',A),('sold_count',D)]), ('products',[('status',A),('stock',A)]),
+        ('products',[('status',A),('featured',A)]), ('products',[('status',A),('new_collection',A)]), ('products',[('sku',A)]),
+        ('dealers',[('status',A),('created_at',D)]), ('reviews',[('status',A),('created_at',D)]), ('questions',[('status',A),('created_at',D)]),
+        ('quantity_requests',[('status',A),('created_at',D)]),
+        ('ledger',[('created_at',D)]), ('ledger',[('order_id',A)]),
+        ('sms_outbox',[('status',A),('created_at',A)]), ('sms_outbox',[('order_id',A)]), ('sms_outbox',[('created_at',D)]),
+        ('payment_transactions',[('order_id',A)]), ('courier_webhooks',[('order_id',A)]),
+        ('recycle_bin',[('deleted_at',D)]), ('recycle_bin',[('kind',A),('deleted_at',D)]),
+    ):
+        try: db[coll].create_index(keys)
+        except Exception: pass  # an equivalent index already exists

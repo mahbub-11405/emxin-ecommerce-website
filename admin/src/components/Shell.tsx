@@ -4,7 +4,9 @@ import {useEffect,useRef,useState} from 'react';
 import {usePathname,useRouter} from 'next/navigation';
 import Icon from './Icon';
 import {Toaster} from './ui';
-import {api,dt} from '@/lib/api';
+import Notifications from './Notifications';
+import {api} from '@/lib/api';
+import {startLive,onLive,liveState} from '@/lib/live';
 
 type Sub={href:string;label:string;roles?:string[]};
 type Item={href:string;label:string;icon:string;badge?:string;roles?:string[];children?:Sub[]};
@@ -28,18 +30,19 @@ const NAV:Item[]=[
   {href:'/settings',label:'Settings',icon:'settings',roles:MGR,children:[{href:'/settings',label:'Store Settings'},{href:'/staff',label:'Staff Accounts',roles:SA},{href:'/audit-log',label:'Audit Log',roles:SA}]},
 ];
 export const ROLE_LABEL:Record<string,string>={super_admin:'Super Admin',admin:'Admin',sales:'Sales',marketing:'Marketing',inventory:'Inventory',support:'Support'};
+// kept between pages: the sidebar, name and badges show instantly on every click (refreshed in the background)
+const memo:{me:any;counts:any}={me:null,counts:{}};
 export default function Shell({children}:{children:React.ReactNode}){
   const path=usePathname()||'';const router=useRouter();
-  const[me,setMe]=useState<any>(null);const[counts,setCounts]=useState<any>({});const[open,setOpen]=useState<string>('');const[mobile,setMobile]=useState(false);
-  const[q,setQ]=useState('');const[res,setRes]=useState<any>(null);const[bell,setBell]=useState(false);const[notes,setNotes]=useState<any[]>([]);const[menu,setMenu]=useState(false);
+  const[me,setMeS]=useState<any>(memo.me);const[counts,setCountsS]=useState<any>(memo.counts);const setMe=(x:any)=>{memo.me=x;setMeS(x)};const setCounts=(x:any)=>{memo.counts=x;setCountsS(x)};const[open,setOpen]=useState<string>('');const[mobile,setMobile]=useState(false);
+  const[q,setQ]=useState('');const[res,setRes]=useState<any>(null);const[menu,setMenu]=useState(false);
   const searchRef=useRef<HTMLInputElement>(null);
   const signOut=()=>{if(!window.confirm('Log out of EMXIN Admin?'))return;try{localStorage.removeItem('admin_token')}catch{}router.push('/login')};
-  useEffect(()=>{api('/admin/me').then(setMe).catch(()=>{});let q:any;const load=()=>api('/admin/counts').then(setCounts).catch(()=>{});const soon=()=>{clearTimeout(q);q=setTimeout(load,300)};load();const t=setInterval(load,60000);addEventListener('admin:changed',soon);addEventListener('focus',load);return()=>{clearInterval(t);clearTimeout(q);removeEventListener('admin:changed',soon);removeEventListener('focus',load)}},[]);
+  useEffect(()=>{api('/admin/me').then(setMe).catch(()=>{});let q:any;const load=()=>api('/admin/counts').then(setCounts).catch(()=>{});const soon=()=>{clearTimeout(q);q=setTimeout(load,300)};load();startLive();const off=onLive(load,d=>d?.d,500);/* badges follow orders/payments live; the timer is only a fallback */const t=setInterval(()=>{if(liveState()!=='on')load()},60000);addEventListener('admin:changed',soon);addEventListener('focus',load);return()=>{off();clearInterval(t);clearTimeout(q);removeEventListener('admin:changed',soon);removeEventListener('focus',load)}},[]);
   useEffect(()=>{const g=NAV.find(n=>n.children?.some(c=>path.startsWith(c.href.split('?')[0])));if(g)setOpen(g.href);setMobile(false)},[path]);
   useEffect(()=>{const k=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();searchRef.current?.focus()}};addEventListener('keydown',k);return()=>removeEventListener('keydown',k)},[]);
   useEffect(()=>{if(q.trim().length<2){setRes(null);return}const t=setTimeout(()=>api('/admin/search?q='+encodeURIComponent(q.trim())).then(setRes).catch(()=>{}),250);return()=>clearTimeout(t)},[q]);
   const active=(h:string)=>path===h.split('?')[0]||path.startsWith(h.split('?')[0]+'/');
-  const unread=(counts.orders_pending||0)+(counts.quantity_requests_new||0)+(counts.dealers_pending||0)+(counts.reviews_pending||0);
   return <div className={'shell'+(mobile?' nav-open':'')}>
     <aside className="side">
       <Link href="/dashboard" className="side-brand"><img src="/branding/emxin-logo-dark.png" alt="EMXIN"/><span>Admin</span></Link>
@@ -60,8 +63,7 @@ export default function Shell({children}:{children:React.ReactNode}){
           {res&&<div className="gsearch-res">{(['orders','customers','products','dealers'] as const).map(k=>res[k]?.length?<div key={k}><h6>{k}</h6>{res[k].map((x:any)=><a key={x._id} href={k==='orders'?`/orders?open=${x.order_id}`:k==='customers'?`/customers?q=${encodeURIComponent(x.phone||x.name)}`:k==='products'?`/products?edit=${x._id}`:'/dealers'}><b>{x.order_id||x.name||x.shop_name}</b><small>{k==='orders'?`${x.customer_name} · ${x.order_status}`:k==='products'?`Stock ${x.stock}`:x.phone||x.email||x.status}</small></a>)}</div>:null)}{!['orders','customers','products','dealers'].some(k=>res[k]?.length)&&<p className="muted pad">No matches</p>}</div>}
         </div>
         <div className="top-right">
-          <div className="pop-wrap"><button className="ib bell" aria-label="Notifications" onClick={()=>{setBell(!bell);if(!bell)api('/admin/notifications').then(setNotes).catch(()=>{})}}><Icon name="bell" size={23}/>{unread>0&&<i className="dot"/>}</button>
-            {bell&&<div className="pop notes" onMouseLeave={()=>setBell(false)}><h6>Notifications</h6>{notes.length?notes.map((n,i)=><a key={i} href={n.href}><b>{n.title}</b><small>{n.text}</small><time>{dt(n.created_at)}</time></a>):<p className="muted pad">You're all caught up.</p>}</div>}</div>
+          <Notifications counts={counts}/>
           <div className="pop-wrap"><button className="who" onClick={()=>setMenu(!menu)}><span className="avatar">{(me?.name||'A')[0].toUpperCase()}</span><span className="who-t"><b>{me?.name||'Admin'}</b><small>{ROLE_LABEL[me?.role]||'—'}</small></span><Icon name="chevronDown" size={16}/></button>
             {menu&&<div className="pop" onMouseLeave={()=>setMenu(false)}><p className="pad muted">{me?.email}</p><button onClick={()=>router.push('/profile')}><Icon name="secure" size={17}/>Change password</button><button onClick={signOut}><Icon name="logout" size={17}/>Logout</button></div>}</div>
         </div>

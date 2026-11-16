@@ -5,6 +5,8 @@ from bson import ObjectId
 from datetime import datetime, timedelta, timezone
 import secrets, re, hashlib, hmac, uuid, mimetypes, logging
 log=logging.getLogger('emxin')
+from zoneinfo import ZoneInfo as _ZI
+DHAKA=_ZI('Asia/Dhaka')
 from zoneinfo import ZoneInfo
 from .config import get_settings
 from .db import db, client, ensure_indexes
@@ -20,6 +22,24 @@ from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_s
 settings=get_settings()
 app=FastAPI(title='EMXIN REST API',version='1.0.0',openapi_url='/api/v1/openapi.json',docs_url='/docs')
 app.add_middleware(CORSMiddleware,allow_origins=settings.origins,allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
+from fastapi.middleware.gzip import GZipMiddleware
+import time as _time
+LIVE_PATH='/api/v1/admin/live'
+class Speed:
+    """gzip for normal responses (JSON lists shrink ~80%) + Server-Timing header (browser Network tab) + a log line for
+    any request slower than 1 s. The live stream is passed through untouched, so its messages are never held back."""
+    def __init__(self,app): self.app=app; self.gz=GZipMiddleware(app,minimum_size=800)
+    async def __call__(self,scope,receive,send):
+        if scope['type']!='http' or scope['path']==LIVE_PATH: return await self.app(scope,receive,send)
+        t=_time.perf_counter()
+        async def timed(msg):
+            if msg['type']=='http.response.start':
+                ms=(_time.perf_counter()-t)*1000
+                msg['headers']=list(msg.get('headers') or [])+[(b'server-timing',f'app;dur={ms:.0f}'.encode())]
+                if ms>1000: log.warning('slow %s %s %.0f ms',scope.get('method'),scope['path'],ms)
+            await send(msg)
+        await self.gz(scope,receive,timed)
+app.add_middleware(Speed)
 app.include_router(v2_router)
 from .courier import router as courier_router, steadfast_create, start_courier_sync
 app.include_router(courier_router)
@@ -164,10 +184,25 @@ def sort_products(rows:list,mode:str|None=None)->list:
     if mode=='manual': return sorted(rows,key=lambda p:(int(p.get('sort_order') or 0)<=0,int(p.get('sort_order') or 0),eff_price(p)))
     return sorted(rows,key=lambda p:(eff_price(p),-ts(p)))
 
+# product cards / cart never need the long texts: leave them out of every list (product pages still get everything)
+LIST_HIDE={'description':0,'description_bn':0,'specifications':0,'box_contents':0,'faq':0,'features_bn':0,'compare_note':0}
+def catalog(f:dict,mode:str|None,n:int)->list:
+    """Products in the chosen order, sorted and cut by MongoDB, so 10 or 10,000 products load equally fast."""
+    mode=mode or (db.homepage.find_one({'key':'home'},{'product_sort':1}) or {}).get('product_sort') or 'price_asc'
+    eff={'$cond':[{'$gt':[{'$ifNull':['$sale_price',0]},0]},'$sale_price',{'$ifNull':['$price',0]}]}
+    order={'price_desc':{'_eff':-1,'created_at':-1},'newest':{'created_at':-1},
+           'manual':{'_ml':1,'_so':1,'_eff':1}}.get(mode,{'_eff':1,'created_at':-1})
+    try:
+        return list(db.products.aggregate([{'$match':f},
+            {'$addFields':{'_eff':eff,'_so':{'$ifNull':['$sort_order',0]},'_ml':{'$cond':[{'$gt':[{'$ifNull':['$sort_order',0]},0]},0,1]}}},
+            {'$sort':{**order,'_id':1}},{'$limit':n},{'$project':{**LIST_HIDE,'_eff':0,'_so':0,'_ml':0}}]))
+    except Exception:  # test double without aggregation support
+        return sort_products(list(db.products.find(f,LIST_HIDE).limit(2000)),mode)[:n]
+
 @app.get('/api/v1/home')
 def home():
     mode=(db.homepage.find_one({'key':'home'},{'product_sort':1}) or {}).get('product_sort') or 'price_asc'
-    pick=lambda f,n: serialize(with_names(sort_products(list(db.products.find({'status':'active',**f}).limit(500)),mode)[:n]))
+    pick=lambda f,n: serialize(with_names(catalog({'status':'active',**f},mode,n)))
     cs=serialize(db.settings.find_one({'key':'commerce'},{'_id':0})) or {}; cs['paystation_enabled']=bool(settings.paystation_enabled)
     return {'homepage':serialize(db.homepage.find_one({'key':'home'},{'_id':0})),'settings':cs,'categories':serialize(list(db.categories.find({'visible':True}).sort('order',1))),
             'featured':pick({'featured':True},8),'new_collection':pick({'new_collection':True},8),'products':pick({},12)}
@@ -233,10 +268,10 @@ def products(category: str|None=None,brand: str|None=None,q: str|None=None,limit
         f['$and']=[{'$or':[{'sale_price':rng},{'sale_price':None,'price':rng}]}]
     if q: f.setdefault('$and',[]).extend(search_filter(q))
     if sort in ('price_asc','price_desc','newest'):  # by selling price (sale price when set)
-        return serialize(with_names(sort_products(list(db.products.find(f).limit(1000)),sort)[:min(limit,100)]))
+        return serialize(with_names(catalog(f,sort,min(limit,100))))
     order={'rating':[('rating',-1),('review_count',-1)],'popular':[('sold_count',-1)]}.get(sort)
-    if order: return serialize(with_names(list(db.products.find(f).sort(order).limit(min(limit,100)))))
-    return serialize(with_names(sort_products(list(db.products.find(f).limit(1000)))[:min(limit,100)]))  # default = Admin's Product order
+    if order: return serialize(with_names(list(db.products.find(f,LIST_HIDE).sort(order).limit(min(limit,100)))))
+    return serialize(with_names(catalog(f,None,min(limit,100))))  # default = Admin's Product order
 
 def with_names(rows):
     """Adds category_name/brand_name to product lists so cards never show a raw slug."""
@@ -914,7 +949,7 @@ def approve_dealer(dealer_id:str,authorization: str|None=Header(None)):
 
 @app.get('/api/v1/admin/products')
 def admin_products(authorization: str|None=Header(None)):
-    admin(authorization); return serialize(list(db.products.find().sort('created_at',-1)))
+    admin(authorization); return serialize(list(db.products.find({},LIST_HIDE).sort('created_at',-1)))  # list only: the editor loads the full product
 
 @app.get('/api/v1/admin/product-next-codes')
 def product_next_codes(category: str='',brand: str='',model: str='',exclude: str='',authorization: str|None=Header(None)):
@@ -1006,8 +1041,30 @@ def update_commerce(payload:dict,authorization: str|None=Header(None)):
     return {'ok':True}
 
 @app.get('/api/v1/admin/ledger')
-def ledger(authorization: str|None=Header(None)):
-    admin(authorization); return serialize(list(db.ledger.find().sort('created_at',-1).limit(500)))
+def ledger(type:str='',q:str='',start:str='',end:str='',limit:int=300,authorization: str|None=Header(None)):
+    """Money book: every entry with its order's customer and payment, plus totals for the same filter."""
+    admin(authorization)
+    f={}
+    if type: f['type']=type
+    if q.strip():
+        rx={'$regex':re.escape(q.strip()),'$options':'i'}
+        ids=[o['order_id'] for o in db.orders.find({'$or':[{'order_id':rx},{'customer_name':rx},{'phone':rx}]},{'order_id':1}).limit(300)]
+        f['order_id']={'$in':ids}
+    rng={}
+    try:
+        if start: rng['$gte']=datetime.strptime(start,'%Y-%m-%d').replace(tzinfo=DHAKA).astimezone(timezone.utc)
+        if end: rng['$lt']=(datetime.strptime(end,'%Y-%m-%d').replace(tzinfo=DHAKA)+timedelta(days=1)).astimezone(timezone.utc)
+    except ValueError: raise HTTPException(400,'Dates must be YYYY-MM-DD')
+    if rng: f['created_at']=rng
+    rows=list(db.ledger.find(f).sort('created_at',-1).limit(max(1,min(limit,2000))))
+    oids=list({r.get('order_id') for r in rows if r.get('order_id')})
+    om={o['order_id']:o for o in db.orders.find({'order_id':{'$in':oids}},{'order_id':1,'customer_name':1,'phone':1,'payment_method':1,'payment_channel':1,'payment_status':1,'order_status':1,'manual_payment.channel':1,'manual_payment.trx_id':1,'dealer_id':1})}
+    for r in rows:
+        o=om.get(r.get('order_id'))
+        r['order']=({k:o.get(k) for k in ('customer_name','phone','payment_method','payment_channel','payment_status','order_status','dealer_id')}|{'trx_id':(o.get('manual_payment') or {}).get('trx_id')}) if o else None
+        if r.get('payment_method')=='manual': r['channel']=(o or {}).get('payment_channel') or ((o or {}).get('manual_payment') or {}).get('channel')
+    tot={x['_id']:{'amount':x['a'],'count':x['n']} for x in db.ledger.aggregate([{'$match':{k:v for k,v in f.items() if k!='type'}},{'$group':{'_id':'$type','a':{'$sum':'$amount'},'n':{'$sum':1}}}])}
+    return serialize({'rows':rows,'totals':tot})
 
 
 # ---------- Admin media / staff ----------
