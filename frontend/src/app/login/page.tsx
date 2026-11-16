@@ -31,7 +31,7 @@ export default function AuthPage(){
   async function verify(e:React.FormEvent){e.preventDefault();setBusy(true);setMsg(null);
     try{const v=await postJSON('/auth/otp/verify',{phone:full(),purpose,code});
       const r=mode==='login'?await postJSON('/customers/phone-login',{phone:full(),verification_id:v.verification_id}):await postJSON('/customers/register-phone',{phone:full(),name:name.trim(),email:email.trim()||null,verification_id:v.verification_id,district:readDraft()?.f?.district,address:readDraft()?.f?.address});
-      try{localStorage.setItem('customer_last_phone',digitsBD(phone))}catch{}setToken(r.access_token);location.href=next;
+      try{localStorage.setItem('customer_last_phone',digitsBD(phone))}catch{}try{sessionStorage.setItem('emxin_welcome','1')}catch{}setToken(r.access_token);location.href=next;
     }catch(err:any){setMsg({k:'err',t:err.message})}finally{setBusy(false)}}
   return <main className="wrap section-sm"><div className="auth">
     <aside className="auth-side"><span className="pill">EMXIN ACCOUNT</span><h1>{mode==='login'?'Welcome back':'Create your account'}</h1><p>{fromCheckout?'One quick step: verify your mobile number and you will return to checkout with your details already filled in.':mode==='login'?'Log in with your mobile number — no password. We send a one-time code (OTP) by SMS. You stay logged in on this device for 30 days, so you won’t need a new code every time.':'Just your mobile number — no password to remember. We verify it once with a one-time code (OTP) by SMS, and you stay logged in on this device for 30 days.'}</p>

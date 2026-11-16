@@ -360,9 +360,13 @@ def customer_update_me(payload: dict, authorization: str|None=Header(None)):
     return {'ok':True}
 
 @app.get('/api/v1/customers/me')
-def customer_me(authorization: str|None=Header(None)):
+def customer_me(lite: bool=False,authorization: str|None=Header(None)):
     auth=require_role(authorization,('customer',)); c=db.customers.find_one({'_id':ObjectId(auth['sub'])},{'password_hash':0})
     if not c: raise HTTPException(404,'Customer not found')
+    if lite:  # header account menu: name, phone and dealer status only (no orders)
+        d=db.dealers.find_one({'phone':c.get('phone')},{'status':1,'dealer_code':1,'shop_name':1}) if c.get('phone') else None
+        return {'name':c.get('name') or '','phone':c.get('phone') or '','email':c.get('email') or '','verified':c.get('phone_verified')!=False,
+                'dealer':{'status':d.get('status'),'code':d.get('dealer_code'),'shop':d.get('shop_name')} if d else None}
     orders=list(db.orders.find({'customer_id':str(c['_id'])}).sort('created_at',-1).limit(100))
     return {'customer':serialize(c),'orders':serialize(orders)}
 

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Icon from '@/components/Icon';
 import {API,postJSON,payLabel} from '@/lib/api';
 import {getToken,logout} from '@/lib/auth';
+import {refreshProfile} from '@/lib/profile';
 import {DISTRICTS} from '@/lib/districts';
 const PENDING=['Pending Payment','Pending Advance Payment','Advance Required'];
 function ResendTrx({o,onDone}:{o:any;onDone:()=>void}){
@@ -50,9 +51,9 @@ function SwitchPay({o,onClose,onDone}:{o:any;onClose:()=>void;onDone:(msg:string
 }
 export default function Account(){
   const[d,setD]=useState<any>();const[edit,setEdit]=useState(false);const[f,setF]=useState<any>({});const[msg,setMsg]=useState('');const[busy,setBusy]=useState('');const[sw,setSw]=useState<any>(null);const[ok,setOk]=useState('');
-  const load=()=>{const t=getToken();if(!t){location.href='/login?next=/account';return}fetch(API+'/customers/me',{headers:{Authorization:`Bearer ${t}`}}).then(async r=>{if(r.status===401){logout();location.href='/login?next=/account';return}const j=await r.json();setD(j);setF({name:j.customer.name||'',email:j.customer.email||'',address:j.customer.address||'',district:j.customer.district||'Dhaka'})}).catch(()=>setMsg('Could not load your account.'))};
+  const load=()=>{const t=getToken();if(!t){location.href='/login?next=/account';return}fetch(API+'/customers/me',{headers:{Authorization:`Bearer ${t}`}}).then(async r=>{if(r.status===401){logout();location.href='/login?next=/account';return}const j=await r.json();setD(j);setF({name:j.customer.name||'',email:j.customer.email||'',address:j.customer.address||'',district:j.customer.district||'Dhaka'});if(new URLSearchParams(location.search).get('edit'))setEdit(true)}).catch(()=>setMsg('Could not load your account.'))};
   useEffect(load,[]);
-  async function save(e:React.FormEvent){e.preventDefault();try{const r=await fetch(API+'/customers/me',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+getToken()},body:JSON.stringify(f)});const j=await r.json();if(!r.ok)throw new Error(j.detail);setEdit(false);load()}catch(x:any){setMsg(x.message)}}
+  async function save(e:React.FormEvent){e.preventDefault();try{const r=await fetch(API+'/customers/me',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+getToken()},body:JSON.stringify(f)});const j=await r.json();if(!r.ok)throw new Error(j.detail);setEdit(false);load();refreshProfile()}catch(x:any){setMsg(x.message)}}
   async function pay(id:string){setBusy(id);setMsg('');try{const r=await postJSON(`/orders/${id}/pay`,{},getToken());if(r.payment_url)location.href=r.payment_url;else if(r.send_money){const o=d.orders.find((x:any)=>x.order_id===id);if(o)setSw(o)}else setMsg(r.message||'Online payment unavailable right now.')}catch(x:any){setMsg(x.message)}finally{setBusy('')}}
   if(!d)return <main className="wrap section"><p className="muted">{msg||'Loading…'}</p></main>;
   const c=d.customer;
