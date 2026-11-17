@@ -4,6 +4,7 @@ import {useRef,useEffect,useState} from 'react';
 import {usePathname} from 'next/navigation';
 import Icon from './Icon';
 import {cartCount} from '@/lib/cart';
+import {wishIds,loadWishlist,WISH_EVENT} from '@/lib/wishlist';
 import {getToken,logout} from '@/lib/auth';
 import {getProfile,refreshProfile,firstName,PROFILE_EVENT,type Profile} from '@/lib/profile';
 
@@ -12,6 +13,18 @@ export function CartBadge(){
   useEffect(()=>{const u=()=>setN(cartCount());u();window.addEventListener('emxin:cart',u);window.addEventListener('storage',u);return()=>{window.removeEventListener('emxin:cart',u);window.removeEventListener('storage',u)}},[]);
   return <Link className="hdr-icon cart-link" href="/cart" aria-label={`Shopping cart, ${n} items`}><Icon name="cart" size={23}/>{n>0&&<span className="cart-count">{n>99?'99+':n}</span>}</Link>;
 }
+
+/** Header ♥: filled blue with a count when something is saved; bumps when a product is added. */
+export function WishBadge(){
+  const[n,setN]=useState(0);const[bump,setBump]=useState(false);const prev=useRef(0);
+  useEffect(()=>{const u=()=>{const c=wishIds().length;if(c>prev.current){setBump(true);setTimeout(()=>setBump(false),600)}prev.current=c;setN(c)};
+    prev.current=wishIds().length;setN(prev.current);if(getToken())loadWishlist();
+    const a=()=>{u();if(getToken())loadWishlist(true)};
+    window.addEventListener(WISH_EVENT,u);window.addEventListener('emxin:auth',a);window.addEventListener('storage',u);
+    return()=>{window.removeEventListener(WISH_EVENT,u);window.removeEventListener('emxin:auth',a);window.removeEventListener('storage',u)}},[]);
+  return <Link className={'hdr-icon wish-link'+(n>0?' has':'')+(bump?' bump':'')} href="/wishlist" aria-label={`Wishlist, ${n} saved`} title={n?`${n} saved in your wishlist`:'Wishlist'}><Icon name="heart" size={23} fill={n>0?'currentColor':'none'}/>{n>0&&<span className="cart-count">{n>99?'99+':n}</span>}</Link>;
+}
+export function WishCount(){const[n,setN]=useState(0);useEffect(()=>{const u=()=>setN(wishIds().length);u();window.addEventListener(WISH_EVENT,u);return()=>window.removeEventListener(WISH_EVENT,u)},[]);return n>0?<em className="mnav-n">{n}</em>:null}
 
 const ACC_LINKS:[string,string,string][]=[['/account','box','My Orders'],['/track-order','track','Track Order'],['/wishlist','heart','Wishlist'],['/account?edit=1','user','Edit Profile']];
 const DEALER_ST:Record<string,string>={Active:'Approved dealer',Pending:'Dealer application: under review',Suspended:'Dealer account suspended',Rejected:'Dealer application: not approved'};
@@ -90,7 +103,7 @@ export function NavLinks({categories}:{categories:any[]}){
         {logged&&me?<div className="mnav-me"><span className="acc-av"><Icon name="user" size={17} stroke={2.2}/></span><div><b>Hi, {firstName(me.name)||'there'} 👋</b><small>{me.phone}</small></div></div>:null}
         <Link href={logged?'/account':'/login'}><Icon name={logged?'box':'userSmall'} size={19}/>{logged?'My Orders':'Login / Register'}</Link>
         <Link href="/track-order"><Icon name="track" size={19}/>Track Order</Link>
-        <Link href="/wishlist"><Icon name="heart" size={19}/>Wishlist</Link>
+        <Link href="/wishlist"><Icon name="heart" size={19}/>Wishlist<WishCount/></Link>
         {logged&&<button type="button" className="mnav-out" onClick={()=>{if(window.confirm('Log out of your EMXIN account?')){logout();setMobile(false)}}}><Icon name="logout" size={19}/>Log out</button>}
       </div>
       <Link className="hdr-dealer" href="/dealer">Become a Dealer</Link>

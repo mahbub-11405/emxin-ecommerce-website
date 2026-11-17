@@ -1470,7 +1470,7 @@ def get_wishlist(authorization: str|None=Header(None)):
     ids=saved.get('product_ids',[])
     products=list(db.products.find({'_id':{'$in':[ObjectId(x) for x in ids if ObjectId.is_valid(x)]},'status':'active'}))
     by_id={str(p['_id']):p for p in products}
-    return serialize([by_id[x] for x in ids if x in by_id])
+    return serialize(with_names([by_id[x] for x in ids if x in by_id]))
 
 @app.put('/api/v1/customers/wishlist/{product_id}')
 def add_wishlist(product_id:str,authorization: str|None=Header(None)):

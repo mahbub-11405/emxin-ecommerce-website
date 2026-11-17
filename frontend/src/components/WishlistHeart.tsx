@@ -1,20 +1,21 @@
 'use client';
 import {useEffect,useState} from 'react';
-import {API} from '@/lib/api';
 import Icon from './Icon';
-let cache:Promise<string[]>|null=null;
-function savedIds(token:string){if(!cache)cache=fetch(API+'/customers/wishlist',{headers:{Authorization:`Bearer ${token}`}}).then(r=>r.ok?r.json():[]).then((a:any[])=>a.map(x=>x._id)).catch(()=>[]);return cache}
+import {getToken} from '@/lib/auth';
+import {wishIds,loadWishlist,toggleWish,WISH_EVENT} from '@/lib/wishlist';
+
+/** Heart on product cards / product page. Filled blue = saved. Keeps every heart and the header count in sync. */
 export default function WishlistHeart({productId,label=false}:{productId:string;label?:boolean}){
-  const[saved,setSaved]=useState(false),[busy,setBusy]=useState(false);
-  useEffect(()=>{let t='';try{t=localStorage.getItem('customer_token')||''}catch{}if(!t)return;savedIds(t).then(ids=>setSaved(ids.includes(productId)))},[productId]);
+  const[saved,setSaved]=useState(false),[busy,setBusy]=useState(false),[pop,setPop]=useState(false);
+  useEffect(()=>{const u=()=>setSaved(wishIds().includes(productId));u();if(getToken())loadWishlist();
+    window.addEventListener(WISH_EVENT,u);window.addEventListener('emxin:auth',u);return()=>{window.removeEventListener(WISH_EVENT,u);window.removeEventListener('emxin:auth',u)}},[productId]);
   async function toggle(e:React.MouseEvent){
     e.preventDefault();e.stopPropagation();
-    let token='';try{token=localStorage.getItem('customer_token')||''}catch{}
-    if(!token){location.href='/login?next='+encodeURIComponent(location.pathname);return}
-    setBusy(true);
-    try{const r=await fetch(API+'/customers/wishlist/'+productId,{method:saved?'DELETE':'PUT',headers:{Authorization:`Bearer ${token}`}});if(!r.ok)throw Error();setSaved(!saved);cache=null;window.dispatchEvent(new Event('wishlist-updated'))}catch{}finally{setBusy(false)}
+    if(!getToken()){location.href='/login?next='+encodeURIComponent(location.pathname);return}
+    const on=!saved;setBusy(true);setSaved(on);if(on){setPop(true);setTimeout(()=>setPop(false),450)}
+    const ok=await toggleWish(productId,on);if(!ok)setSaved(!on);setBusy(false);
   }
-  return <button type="button" className={'heart-btn'+(saved?' on':'')} aria-label={saved?'Remove from wishlist':'Add to wishlist'} aria-pressed={saved} disabled={busy} onClick={toggle}>
+  return <button type="button" className={'heart-btn'+(saved?' on':'')+(pop?' pop':'')} aria-label={saved?'Remove from wishlist':'Add to wishlist'} aria-pressed={saved} disabled={busy} onClick={toggle} title={saved?'Saved to your wishlist':'Save to wishlist'}>
     <Icon name="heart" size={label?20:21} fill={saved?'currentColor':'none'}/>{label&&<span>{saved?'Saved':'Wishlist'}</span>}
   </button>;
 }

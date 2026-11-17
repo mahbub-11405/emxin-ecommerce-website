@@ -3,7 +3,7 @@ import Link from 'next/link';
 import {safeJSON,isHttp} from '@/lib/api';
 import AnalyticsTracker from '@/components/AnalyticsTracker';
 import Icon from '@/components/Icon';
-import {CartBadge,AccountLink,NavLinks} from '@/components/HeaderClient';
+import {CartBadge,AccountLink,NavLinks,WishBadge} from '@/components/HeaderClient';
 import Social from '@/components/Social';
 import {OfferBar,OfferPopup} from '@/components/Offer';
 
@@ -34,7 +34,7 @@ export default async function Layout({children}:{children:React.ReactNode}){
       <div className="hdr-actions">
         <Link className="hdr-util" href="/track-order"><Icon name="track" size={19}/><small>Track Order</small></Link>
         <AccountLink/>
-        <Link className="hdr-icon" href="/wishlist" aria-label="Wishlist"><Icon name="heart" size={23}/></Link>
+        <WishBadge/>
         <CartBadge/>
       </div>
     </div></header>
