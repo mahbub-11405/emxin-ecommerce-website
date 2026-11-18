@@ -1,4 +1,5 @@
 'use client';
+import {askLogout} from '@/components/LogoutUI';
 import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import Icon from '@/components/Icon';
@@ -126,7 +127,7 @@ export default function Account(){
   async function pay(id:string){setBusy(id);setMsg('');try{const r=await postJSON(`/orders/${id}/pay`,{},getToken());if(r.payment_url)location.href=r.payment_url;else if(r.send_money){const o=d.orders.find((x:any)=>x.order_id===id);if(o)setSw(o)}else setMsg(r.message||'Online payment unavailable right now.')}catch(x:any){setMsg(x.message)}finally{setBusy('')}}
   if(!d)return <main className="wrap section"><p className="muted">{msg||'Loading…'}</p></main>;
   const c=d.customer;
-  return <main className="wrap section-sm"><div className="acc-head"><h1 className="page-title">My Account</h1><button className="btn btn-ghost" onClick={()=>{logout();location.href='/'}}><Icon name="logout" size={18}/>Log out</button></div>
+  return <main className="wrap section-sm"><div className="acc-head"><h1 className="page-title">My Account</h1><button className="btn btn-ghost" onClick={askLogout}><Icon name="logout" size={18}/>Log out</button></div>
     {msg&&<p className="form-err">{msg}</p>}{ok&&<p className="note-good big"><Icon name="checkCircle" size={18}/> {ok}</p>}
     {sw&&<SwitchPay o={sw} onClose={()=>setSw(null)} onDone={m=>{setSw(null);setOk(m);load()}}/>}
     <div className="acc"><section className="panel"><h2>{c.name}</h2><p><Icon name="phone" size={15}/> {c.phone}{c.phone_verified!==false&&<span className="vp"> <Icon name="badgeCheck" size={13}/> verified</span>}</p>{c.email&&<p className="muted">{c.email}</p>}{c.address&&<p className="muted">{c.address}, {c.district}</p>}

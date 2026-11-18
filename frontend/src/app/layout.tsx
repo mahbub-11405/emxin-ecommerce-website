@@ -3,6 +3,7 @@ import Link from 'next/link';
 import {safeJSON,isHttp} from '@/lib/api';
 import AnalyticsTracker from '@/components/AnalyticsTracker';
 import Icon from '@/components/Icon';
+import LogoutUI from '@/components/LogoutUI';
 import {CartBadge,AccountLink,NavLinks,WishBadge} from '@/components/HeaderClient';
 import Social from '@/components/Social';
 import {OfferBar,OfferPopup} from '@/components/Offer';
@@ -25,7 +26,7 @@ export default async function Layout({children}:{children:React.ReactNode}){
     <link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin=""/>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet"/>
   </head><body>
-    <AnalyticsTracker/>
+    <AnalyticsTracker/><LogoutUI/>
     {offer?.code?<><OfferBar c={offer}/><OfferPopup c={offer}/></>:site.announcement?.enabled&&site.announcement?.text&&<div className="announce">{site.announcement.href?<Link href={site.announcement.href}>{site.announcement.text}</Link>:site.announcement.text}</div>}
     <header className="hdr"><div className="wrap hdr-row">
       <Link className="hdr-logo" href="/" aria-label="EMXIN Technologies home"><img src={logo} alt="EMXIN Technologies"/></Link>

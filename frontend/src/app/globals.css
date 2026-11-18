@@ -887,3 +887,19 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .wl-price{display:flex;align-items:baseline;gap:8px;margin-top:4px}.wl-price b{font-size:20px;color:var(--blue)}.wl-price s{color:var(--muted);font-size:14px}
 .wl-stock{font-size:12.5px;font-weight:700;color:var(--green)}.wl-stock.out{color:var(--red)}
 .wl-act{display:flex;gap:8px;margin-top:auto;padding-top:10px}.wl-act .btn{flex:1;justify-content:center}
+
+/* Logout: branded confirm box + "Logged out" notice */
+.lo-back{position:fixed;inset:0;z-index:200;background:rgba(11,24,56,.55);backdrop-filter:blur(3px);display:grid;place-items:center;padding:16px;animation:lo-fade .18s ease-out}
+.lo-box{background:#fff;border-radius:22px;max-width:420px;width:100%;padding:30px 28px 24px;text-align:center;box-shadow:0 30px 80px rgba(11,24,56,.35);animation:lo-pop .22s cubic-bezier(.2,.9,.3,1.2)}
+.lo-ic{width:64px;height:64px;margin:0 auto 14px;border-radius:50%;display:grid;place-items:center;color:#dc2626;background:#fee2e2;box-shadow:0 0 0 8px #fef2f2}
+.lo-box h2{font-size:22px;margin:0 0 8px}
+.lo-box p{margin:0 0 6px;line-height:1.5}
+.lo-note{display:flex;gap:6px;align-items:center;justify-content:center;font-size:13px;color:#15803d;background:#f0fdf4;border-radius:10px;padding:8px 10px;margin-top:10px!important}
+.lo-act{display:flex;gap:10px;margin-top:20px}.lo-act .btn{flex:1;justify-content:center}
+.lo-yes{background:#dc2626!important;border-color:#dc2626!important;color:#fff!important}.lo-yes:hover{background:#b91c1c!important}
+.lo-toast{position:fixed;top:92px;right:22px;z-index:210;display:flex;gap:12px;align-items:center;background:#fff;border-left:5px solid #16a34a;border-radius:14px;padding:14px 14px 14px 16px;min-width:300px;max-width:calc(100vw - 32px);box-shadow:0 18px 50px rgba(11,24,56,.22);animation:lo-drop .3s ease-out}
+.lo-tic{color:#16a34a;display:grid}
+.lo-toast b{display:block;font-size:15px}.lo-toast small{color:var(--muted,#64748b);font-size:13px}.lo-toast small a{color:var(--blue,#2563eb);font-weight:600}
+.lo-toast button{margin-left:auto;background:none;border:0;color:#94a3b8;cursor:pointer;padding:4px;display:grid}
+@keyframes lo-fade{from{opacity:0}}@keyframes lo-pop{from{opacity:0;transform:scale(.92)}}@keyframes lo-drop{from{opacity:0;transform:translateY(-12px)}}
+@media (max-width:640px){.lo-toast{left:16px;right:16px;top:76px;min-width:0}.lo-act{flex-direction:column-reverse}}

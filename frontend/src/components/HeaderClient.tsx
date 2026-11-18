@@ -5,7 +5,8 @@ import {usePathname} from 'next/navigation';
 import Icon from './Icon';
 import {cartCount} from '@/lib/cart';
 import {wishIds,loadWishlist,WISH_EVENT} from '@/lib/wishlist';
-import {getToken,logout} from '@/lib/auth';
+import {getToken} from '@/lib/auth';
+import {askLogout} from './LogoutUI';
 import {getProfile,refreshProfile,firstName,PROFILE_EVENT,type Profile} from '@/lib/profile';
 
 export function CartBadge(){
@@ -48,7 +49,7 @@ export function AccountLink(){
     return <Link className={'hdr-util hdr-acc'+(ready?'':' acc-wait')} aria-label="Login" href="/login" title="Login / Register"><Icon name="userSmall" size={19}/><small>Account</small></Link>;
   }
   const fn=firstName(p.name)||'Account';const dealer=p.dealer;
-  function out(){if(!window.confirm('Log out of your EMXIN account?'))return;logout();setOpen(false);if(path?.startsWith('/account'))location.href='/'}
+  function out(){setOpen(false);askLogout()}
   return <div className="acc-wrap" ref={box}>
     <button type="button" className={'hdr-util hdr-acc acc-in'+(open?' on':'')} aria-haspopup="menu" aria-expanded={open} aria-label={`Logged in as ${p.name}. Open account menu`} title={`Logged in as ${p.name}`} onClick={()=>setOpen(!open)}>
       <span className="acc-av"><Icon name="user" size={16} stroke={2.2}/></span><small>{fn}</small></button>
@@ -104,7 +105,7 @@ export function NavLinks({categories}:{categories:any[]}){
         <Link href={logged?'/account':'/login'}><Icon name={logged?'box':'userSmall'} size={19}/>{logged?'My Orders':'Login / Register'}</Link>
         <Link href="/track-order"><Icon name="track" size={19}/>Track Order</Link>
         <Link href="/wishlist"><Icon name="heart" size={19}/>Wishlist<WishCount/></Link>
-        {logged&&<button type="button" className="mnav-out" onClick={()=>{if(window.confirm('Log out of your EMXIN account?')){logout();setMobile(false)}}}><Icon name="logout" size={19}/>Log out</button>}
+        {logged&&<button type="button" className="mnav-out" onClick={()=>{setMobile(false);askLogout()}}><Icon name="logout" size={19}/>Log out</button>}
       </div>
       <Link className="hdr-dealer" href="/dealer">Become a Dealer</Link>
     </nav>
