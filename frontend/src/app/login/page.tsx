@@ -52,7 +52,7 @@ export default function AuthPage(){
         {sent&&<label className="qr-field"><span>Verification code</span><input ref={codeRef} className="otp-in" required inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,''))} placeholder="••••••"/></label>}
         {msg&&<p className={msg.k==='err'?'form-err':'note-good'} role="status">{msg.t}</p>}
         <button className="btn btn-lg btn-block" disabled={busy||(sent&&code.length<4)}>{busy?'Please wait…':sent?(mode==='login'?'Verify & Login':'Verify & Create Account'):known?'Login':'Send OTP'}</button>
-        {known&&!sent&&<p className="note-good tiny"><Icon name="badgeCheck" size={15}/> This device is remembered. No OTP needed until <b>{new Date(known.exp).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</b>.</p>}
+        {known&&!sent&&<p className="note-good tiny"><Icon name="badgeCheck" size={15}/><span>This device is remembered. No OTP needed until <b style={{whiteSpace:'nowrap'}}>{new Date(known.exp).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</b>.</span></p>}
         {sent&&<div className="auth-links"><button type="button" className="link-btn" onClick={()=>{setSent(false);setCode('');setMsg(null)}}>Change number</button><button type="button" className="link-btn" disabled={wait>0||busy} onClick={()=>send()}>{wait>0?`Resend in ${wait}s`:'Resend code'}</button></div>}
       </form>
       <p className="auth-switch">{mode==='login'?<>New to EMXIN? <button className="link-btn" onClick={()=>switchTo('register')}>Create an account</button></>:<>Already have an account? <button className="link-btn" onClick={()=>switchTo('login')}>Log in</button></>}</p>
