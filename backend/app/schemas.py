@@ -46,6 +46,7 @@ class ProductInput(BaseModel):
     stock: int=Field(ge=0); weight_kg: float=Field(default=.3,gt=0); colors: list[str]=['Black']; features: list[str]=[]; features_bn: list[str]=[]
     description: str=''; description_bn: str=''; specifications: list[str]=[]; box_contents: list[str]=[]; faq: list[dict]=[]; images: list[str]=[]; video_url: str=''; media: list[ProductMedia]=Field(default_factory=list); status: Literal['active','draft','hidden']='active'; featured: bool=False; new_collection: bool=False
     model: str=''; sku: str=''; badge: Literal['','Featured','New','Hot','Sale','Limited']=''; subtitle: str=''; has_camera: bool=False
+    best_selling: bool=False  # extra blinking “Best Selling” tag on product cards, shown together with the card badge
     color_hex: dict[str,str]={}; sort_order: int=0; image_fit: Literal['','contain','cover']=''; low_stock_threshold: int=Field(default=5,ge=0)
     compare_note: str=''; promo_image_url: str=''; highlights: list[str]=[]
     seo_title: str=Field(default='',max_length=120); seo_description: str=Field(default='',max_length=320)  # Google title / description; empty = made from the name and description

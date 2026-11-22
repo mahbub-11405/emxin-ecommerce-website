@@ -903,3 +903,33 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .lo-toast button{margin-left:auto;background:none;border:0;color:#94a3b8;cursor:pointer;padding:4px;display:grid}
 @keyframes lo-fade{from{opacity:0}}@keyframes lo-pop{from{opacity:0;transform:scale(.92)}}@keyframes lo-drop{from{opacity:0;transform:translateY(-12px)}}
 @media (max-width:640px){.lo-toast{left:16px;right:16px;top:76px;min-width:0}.lo-act{flex-direction:column-reverse}}
+.qrule-steps{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 10px;padding:0}
+.qrule-steps li{display:flex;flex-direction:column;align-items:center;min-width:86px;padding:8px 12px;border-radius:12px;background:#fff;border:1.5px dashed #f4c25a;font-size:13px;color:#5b4a1d}
+.qrule-steps li:first-child{border-style:solid;border-color:var(--amber);background:#fff3d1}
+.qrule-steps li b{color:var(--navy);font-size:13px}.qrule-steps li span{font-weight:800;color:var(--navy);font-size:16px}
+.qrule-note{font-size:12.5px!important;margin-top:8px!important;color:#7a6431!important}
+
+/* Product page: retail / dealer quantity limit next to the stepper */
+.pd-limit{display:flex;gap:8px;align-items:center;margin:-4px 0 14px;font-size:13.5px;color:#5b4a1d;background:#fff8e6;border:1px solid #f4d48a;border-radius:12px;padding:8px 12px;width:fit-content;max-width:100%}
+.pd-limit b{color:var(--navy)}.pd-limit svg{flex:none;color:#d97706}
+.pd-limit.at{font-size:16px;font-weight:600;border:2px solid var(--amber);background:#fff3d1;padding:10px 14px}
+.pd-limit.at b{font-weight:800}
+.pd-limit.blink{animation:pd-blink .5s ease-in-out 4}
+@keyframes pd-blink{0%,100%{box-shadow:0 0 0 0 rgba(245,163,0,0);transform:scale(1)}50%{box-shadow:0 0 0 6px rgba(245,163,0,.35);transform:scale(1.03);background:#ffe7a8}}
+@media (prefers-reduced-motion:reduce){.pd-limit.blink{animation:none}}
+.stepper button.off{opacity:.4;cursor:not-allowed}
+.pd-limit .link-btn{font-size:inherit;font-weight:700}
+
+/* Product card: stock line + blinking Best Selling tag */
+.pc .pc-stock{display:inline-flex;align-items:center;gap:6px}
+.pc .pc-stock::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.pc .pc-stock.ok{color:#0284c7}
+.pc .pc-stock.low{color:#d97706}
+.pc .pc-stock.out{color:var(--red)}
+.pc .pc-stock.blink{animation:pc-blink 1.1s ease-in-out infinite}
+@keyframes pc-blink{0%,100%{opacity:1}50%{opacity:.25}}
+.b-best{background:linear-gradient(90deg,#ff512f,#f09819);color:#fff;box-shadow:0 4px 14px rgba(240,80,40,.35);animation:best-blink 1s steps(1,end) infinite}
+@keyframes best-blink{0%{opacity:1}50%{opacity:.15}}
+.pc-badge+.pc-badge+.pc-badge{top:62px}
+.pc.pc-fill .pc-badge+.pc-badge+.pc-badge{top:76px}
+@media (prefers-reduced-motion:reduce){.pc .pc-stock.blink,.b-best{animation:none}}

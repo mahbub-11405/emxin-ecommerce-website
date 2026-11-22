@@ -13,12 +13,14 @@ import {parseSpecs,parseFeature,sameText} from '@/lib/productText';
 const specIcon=(label:string)=>{const l=label.toLowerCase();if(/chip|processor|ram|storage|memory/.test(l))return 'cube';if(/compat|app/.test(l))return 'phone';if(/control|touch/.test(l))return 'bolt';if(/model|brand/.test(l))return 'glasses';const i=featureIcon(l);return i==='badgeCheck'?'info':i};
 
 const TABS=['Product Details','Specifications',"What's in the Box",'Reviews','Q&A'] as const;
-export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent=5,dealerTiers=[],dealerFixed=false,defaultBanner='',offer=null}:{product:any;bulkThreshold?:number;dealerPercent?:number;dealerTiers?:number[];dealerFixed?:boolean;defaultBanner?:string;offer?:any}){
+export default function ProductDetails({product:p,bulkThreshold=20,retailCap=5,dealerPercent=5,dealerTiers=[],dealerFixed=false,defaultBanner='',offer=null}:{product:any;bulkThreshold?:number;retailCap?:number;dealerPercent?:number;dealerTiers?:number[];dealerFixed?:boolean;defaultBanner?:string;offer?:any}){
   const media=useMemo(()=>{const m=p.media?.length?p.media:[...(p.images||[]).map((url:string)=>({url,type:'image'})),...(p.video_url?[{url:p.video_url,type:'video'}]:[])];return m.filter((x:any)=>x?.url)},[p]);
   const[sel,setSel]=useState(()=>Math.max(0,media.findIndex((m:any)=>m.type==='image')));
   const[tab,setTab]=useState<typeof TABS[number]>('Product Details');
   const[zoom,setZoom]=useState(false);
   const[drawer,setDrawer]=useState(false);
+  // from the cart / checkout ("Request 20+ pcs"): open the quantity request straight away
+  useEffect(()=>{try{if(new URLSearchParams(location.search).get('request'))setDrawer(true)}catch{}},[]);
   const[feat,setFeat]=useState(0);
   const features=useMemo(()=>(p.features||[]).slice(0,5).map(parseFeature),[p]);
   const specs=useMemo(()=>parseSpecs(p.specifications),[p]);
@@ -59,7 +61,7 @@ export default function ProductDetails({product:p,bulkThreshold=20,dealerPercent
           <div className="pd-feats" role="tablist" aria-label="Key features">{features.map((f,i)=><button type="button" role="tab" aria-selected={feat===i} key={i} className={feat===i?'on':''} onClick={()=>setFeat(i)} onMouseEnter={()=>setFeat(i)} onFocus={()=>setFeat(i)}><i><Icon name={featureIcon(f.full)} size={22} stroke={1.7}/></i><span>{f.title}</span></button>)}</div>
           {features[feat]?.detail&&<div className="pd-feat-detail" key={feat} role="tabpanel"><Icon name={featureIcon(features[feat].full)} size={18} stroke={2}/><p><b>{features[feat].title}</b><span>{features[feat].detail}</span></p></div>}
         </div>}
-        <PurchaseOptions product={p}/>
+        <PurchaseOptions product={p} cap={retailCap} bulk={bulkThreshold}/>
         <button type="button" className="dealer-cta" onClick={()=>setDrawer(true)}>
           <span className="dealer-cta-ico"><Icon name="percent" size={22} stroke={2.4}/></span>
           <span><b>Order {bulkThreshold}+ pcs?</b><small>{dealerPercent>0?(dealerFixed?`Dealer price: ${dealerPercent}% off on every bulk order`:`Become a Dealer & Get Extra ${dealerPercent}% Discount`):'Request a bulk quote from EMXIN'}</small></span>

@@ -53,7 +53,7 @@ export default function AuthPage(){
         {msg&&<p className={msg.k==='err'?'form-err':'note-good'} role="status">{msg.t}</p>}
         <button className="btn btn-lg btn-block" disabled={busy||(sent&&code.length<4)}>{busy?'Please wait…':sent?(mode==='login'?'Verify & Login':'Verify & Create Account'):known?'Login':'Send OTP'}</button>
         {known&&!sent&&<p className="note-good tiny"><Icon name="badgeCheck" size={15}/><span>This device is remembered. No OTP needed until <b style={{whiteSpace:'nowrap'}}>{new Date(known.exp).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</b>.</span></p>}
-        {sent&&<div className="auth-links"><button type="button" className="link-btn" onClick={()=>{setSent(false);setCode('');setMsg(null)}}>Change number</button><button type="button" className="link-btn" disabled={wait>0||busy} onClick={()=>send()}>{wait>0?`Resend in ${wait}s`:'Resend code'}</button></div>}
+        {sent&&<div className="auth-links"><button type="button" className="link-btn" onClick={()=>{setSent(false);setCode('');setMsg(null);setPhone('');setTimeout(()=>document.getElementById('phone')?.focus(),50)}}>Change number</button><button type="button" className="link-btn" disabled={wait>0||busy} onClick={()=>send()}>{wait>0?`Resend in ${wait}s`:'Resend code'}</button></div>}
       </form>
       <p className="auth-switch">{mode==='login'?<>New to EMXIN? <button className="link-btn" onClick={()=>switchTo('register')}>Create an account</button></>:<>Already have an account? <button className="link-btn" onClick={()=>switchTo('login')}>Log in</button></>}</p>
       <p className="tiny muted">By continuing you agree to our <Link href="/terms">Terms</Link> and <Link href="/privacy-policy">Privacy Policy</Link>.</p>

@@ -6,7 +6,7 @@ import GlassesArt from '@/components/GlassesArt';
 import {API,firstImage,priceOf} from '@/lib/api';
 import {readCart,writeCart,type CartItem} from '@/lib/cart';
 import {getProfile} from '@/lib/profile';
-import QtyRule,{toCap,toBulk} from '@/components/QtyRule';
+import QtyRule,{toCap,toBulk,qtyRuleStock} from '@/components/QtyRule';
 export default function Cart(){
   const[items,setItems]=useState<CartItem[]>([]);const[byId,setById]=useState<Record<string,any>>({});const[ready,setReady]=useState(false);
   useEffect(()=>{const list=readCart();setItems(list);const ids=[...new Set(list.map(i=>i.product_id))];if(!ids.length){setReady(true);return}
@@ -25,7 +25,8 @@ export default function Cart(){
   const subtotal=live.reduce((s,i)=>s+priceOf(byId[i.product_id])*i.quantity,0);
   const qty=live.reduce((s,i)=>s+i.quantity,0);
   const over=qty<rule.bulk?[...new Set(live.map(i=>i.product_id))].filter(id=>inCartOf(id)>rule.cap):[];
-  return <main className="wrap section-sm"><h1 className="page-title">Your Cart</h1>{note&&<p className="note-warn" role="status">{note}</p>}{over.length>0&&<QtyRule qty={qty} cap={rule.cap} bulk={rule.bulk} dealer={isDealer} names={over.map(id=>byId[id]?.name||'this item')} onCap={()=>update(toCap(items,rule.cap,over))} onBulk={()=>update(toBulk(items,rule.bulk,over))}/>}
+  const qs=qtyRuleStock(live,byId,rule.bulk,over); // not enough stock for 20+: explain retail orders of 5 / request 20+
+  return <main className="wrap section-sm"><h1 className="page-title">Your Cart</h1>{note&&<p className="note-warn" role="status">{note}</p>}{over.length>0&&<QtyRule qty={qty} cap={rule.cap} bulk={rule.bulk} dealer={isDealer} names={over.map(id=>byId[id]?.name||'this item')} onCap={()=>update(toCap(items,rule.cap,over))} onBulk={qs.canBulk?()=>update(toBulk(items,rule.bulk,over,qs.stock)):undefined} short={qs.short} requestHref={qs.requestHref}/>}
     {!items.length?<div className="empty-state panel"><Icon name="cart" size={40}/><h3>Your cart is empty</h3><Link className="btn" href="/shop">Shop Products</Link></div>:
     <div className="cart"><div className="panel cart-list">{items.map((i,ix)=>{const p=byId[i.product_id];return <div className="cart-row" key={i.product_id+i.frame_color}>
       <div className="cart-thumb">{p&&firstImage(p)?<img src={firstImage(p)} alt=""/>:<GlassesArt/>}</div>

@@ -10,7 +10,7 @@ import {fbTrack,fbIds} from '@/lib/pixel';
 import {DISTRICTS} from '@/lib/districts';
 import {getToken,logout,readDraft,saveDraft,DRAFT} from '@/lib/auth';
 import {getProfile} from '@/lib/profile';
-import QtyRule,{toCap,toBulk} from '@/components/QtyRule';
+import QtyRule,{toCap,toBulk,qtyRuleStock} from '@/components/QtyRule';
 
 export default function Checkout({productId,initialQty=1,initialColor='Black',settings={}}:{productId:string;initialQty?:number;initialColor?:string;settings?:any}){
   const[items,setItems]=useState<{product_id:string;quantity:number;frame_color:string}[]>([]);
@@ -47,12 +47,13 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   // retail orders: max N pcs of each product (bulk / dealer orders of 20+ pcs have no per-product cap)
   const cap=Number(settings.retail_max_qty_per_product||5);
   const overCap=!bulk?[...new Set(items.map(i=>i.product_id))].filter(id=>items.reduce((n,x)=>x.product_id===id?n+x.quantity:n,0)>cap):[];
+  const qs=qtyRuleStock(items.filter(i=>byId[i.product_id]),byId,threshold,overCap);
   useEffect(()=>{if(bulk&&pay==='cod')setPay(chans.length?'manual':'paystation')},[bulk,pay]);
   const est=useMemo(()=>{
     const sub=items.reduce((s,i)=>s+priceOf(byId[i.product_id])*i.quantity,0);
     let c=0;if(cp){c=cp.type==='percentage'?sub*cp.value/100:cp.value;if(cp.max_discount)c=Math.min(c,cp.max_discount);c=Math.round(Math.min(c,sub))}
     const del=Number(f.district.toLowerCase()==='dhaka'?settings.dhaka_delivery_charge??70:settings.outside_dhaka_delivery_charge??130);
-    const gross=sub-c+del;const saving=Math.round((sub-c)*pct/100); // digital discount: products only, not delivery
+    const gross=sub-c+del;const saving=Math.round(sub*pct/100); // advance payment discount: on the products' actual price only (not lowered by a coupon, never on delivery)
     const total=pay!=='cod'?Math.round(gross-saving):Math.round(gross);
     return {sub,c,del,saving,total,adv:bulk?Math.round(total*Number(settings.bulk_advance_percent??50)/100):0};
   },[items,byId,cp,bulk,f.district,pay,settings,pct]);
@@ -155,7 +156,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
               <button type="button" className="co-rm" aria-label="Remove" title="Remove" onClick={()=>removeItem(k)}><Icon name="trash" size={15}/></button></div></div>
           <b className="co-line">৳ {(priceOf(p)*i.quantity).toLocaleString('en-IN')}</b></div>})}</div>
       {overCap.length>0&&<QtyRule qty={qty} cap={cap} bulk={threshold} dealer={isDealer} names={overCap.map(id=>byId[id]?.name||'this item')}
-        onCap={()=>setItems(l=>{const n=toCap(l,cap,overCap);if(!productId)writeCart(n);return n})} onBulk={()=>setItems(l=>{const n=toBulk(l,threshold,overCap);if(!productId)writeCart(n);return n})}/>}
+        onCap={()=>setItems(l=>{const n=toCap(l,cap,overCap);if(!productId)writeCart(n);return n})} onBulk={qs.canBulk?()=>setItems(l=>{const n=toBulk(l,threshold,overCap,qs.stock);if(!productId)writeCart(n);return n}):undefined} short={qs.short} requestHref={qs.requestHref}/>}
       <Link className="co-editcart" href="/cart"><Icon name="cart" size={16}/>Edit cart · add more items<Icon name="arrowRight" size={15}/></Link>
       {!cp&&(()=>{const o=offers.find(x=>x.eligible);return o?<div className="co-offer-hint"><Icon name="percent" size={16} stroke={2.4}/><span>Offer for you: <b>{o.label}</b></span><button type="button" className="btn btn-sm" onClick={()=>useOffer(o.code)}>Apply {o.code}</button></div>:null})()}
       {cp?<div className="cp-on"><Icon name="percent" size={16} stroke={2.4}/><span><b>{cp.code||coupon}</b> applied{(quote?.coupon_discount??est.c)>0&&<> · you save <b>৳ {Math.round(quote?quote.coupon_discount:est.c).toLocaleString('en-IN')}</b></>}</span><button type="button" className="cp-x" onClick={removeCoupon} aria-label="Remove coupon"><Icon name="close" size={14}/>Remove</button></div>

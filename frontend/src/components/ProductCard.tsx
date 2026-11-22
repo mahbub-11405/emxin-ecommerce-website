@@ -20,6 +20,7 @@ export default function ProductCard({p,tag}:{p:any;tag?:string}){
     <Link href={`/product/${p.slug}`} className="pc-link" aria-label={p.name}>
       <div className="pc-media">
         {badge&&<span className={'pc-badge '+(BADGE[badge]||'b-info')}>{badge}</span>}
+        {p.best_selling&&<span className="pc-badge b-best">🔥 Best Selling</span>}
         {p.stock<=0&&<span className="pc-badge b-out">Stock Out</span>}
         {off>0&&<span className="pc-save">Save ৳ {save.toLocaleString('en-IN')}</span>}
         {img?<img src={img} alt={p.name} loading="lazy" decoding="async"/>:<GlassesArt variant={p.category_slug==='sunglasses'?'sun':p.category_slug==='frames'?'frame':p.has_camera?'camera':'smart'}/>}
@@ -28,7 +29,8 @@ export default function ProductCard({p,tag}:{p:any;tag?:string}){
       {sub&&<p className="pc-sub">{sub}</p>}
       <div className="pc-price">৳ {priceOf(p).toLocaleString('en-IN')}/-{off>0&&<><del>৳ {Number(p.price).toLocaleString('en-IN')}</del><span className="pc-off"><Icon name="flame" size={13} stroke={2.4}/>{off}% OFF</span></>}</div>
     </Link>
-    {(low||p.stock<=0)&&<p className={'pc-stock'+(p.stock<=0?' out':'')}>{p.stock<=0?'Restocking soon':`Only ${p.stock} left`}</p>}
+    {/* stock: sky blue when plenty; "Only N left" / "Restocking soon" blink so customers see it is running out */}
+    <p className={'pc-stock'+(p.stock<=0?' out blink':low?' low blink':' ok')}>{p.stock<=0?'Restocking soon':low?`Only ${p.stock} left`:`In stock: ${p.stock} pcs`}</p>
     <div className="pc-foot"><Stars value={p.rating} count={Number(p.review_count)||0}/><AddButton p={p}/></div>
     <div className="pc-heart"><WishlistHeart productId={p._id}/></div>
   </article>;
