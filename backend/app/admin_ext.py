@@ -942,7 +942,9 @@ def submit_review(body: ReviewInput, authorization: str | None = Header(None)):
         raise HTTPException(409, 'You have already reviewed this product')
     verified = bool(db.orders.find_one({'customer_id': ident['sub'], 'items.product_id': body.product_id,
                                         'order_status': {'$in': ['Delivered', 'Completed']}}))
-    db.reviews.insert_one({**body.model_dump(), 'product_name': p['name'], 'customer_id': ident['sub'],
+    # only photos this customer uploaded for this product through /reviews/photo
+    photos = [u for u in dict.fromkeys(body.photos) if db.review_photos.find_one({'url': u, 'customer_id': ident['sub'], 'product_id': body.product_id})][:3]
+    db.reviews.insert_one({**body.model_dump(), 'photos': photos, 'product_name': p['name'], 'customer_id': ident['sub'],
                            'customer_name': (c.get('name') or 'Customer').split(' ')[0], 'verified_purchase': verified,
                            'status': 'pending', 'created_at': now()})
     return {'ok': True, 'status': 'pending', 'message': 'Thank you! Your review will appear after moderation.'}

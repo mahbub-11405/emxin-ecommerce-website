@@ -79,6 +79,7 @@ class OrderStatusUpdate(BaseModel):
     note: str=''
 class ReviewInput(BaseModel):
     product_id: str; rating: int=Field(ge=1,le=5); title: str=Field(default='',max_length=120); body: str=Field(min_length=3,max_length=2000)
+    photos: list[str]=Field(default_factory=list,max_length=3)  # URLs from POST /reviews/photo
 class QuestionInput(BaseModel):
     product_id: str; question: str=Field(min_length=5,max_length=500); name: str=''
 

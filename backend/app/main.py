@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Query, Request, Body, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Header, Query, Request, Body, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import ReturnDocument
 from bson import ObjectId
@@ -176,6 +176,34 @@ def media_public_url(key):
     if not base and settings.aws_cloudfront_domain:
         base='https://' + settings.aws_cloudfront_domain.strip().removeprefix('https://').removeprefix('http://').rstrip('/')
     return f'{base}/{key}' if base else f'https://{settings.aws_s3_bucket}.s3.{settings.aws_region}.amazonaws.com/{key}'
+
+# ---------- Review photos (customers) ----------
+REVIEW_PHOTO_MAX_MB=10
+@app.post('/api/v1/reviews/photo')
+async def review_photo(product_id:str=Form(...),file:UploadFile=File(...),authorization:str|None=Header(None)):
+    """A customer adds a photo to a review. The server checks it is a real image, removes location/camera data (EXIF),
+    makes it WebP (max 1600 px) and stores it in S3. Only photos uploaded this way can be attached to a review."""
+    ident=require_role(authorization,('customer',))
+    p=db.products.find_one({'_id':ObjectId(product_id)} if ObjectId.is_valid(product_id) else {'_id':None},{'slug':1})
+    if not p: raise HTTPException(404,'Product not found')
+    if db.review_photos.count_documents({'customer_id':ident['sub'],'created_at':{'$gte':now()-timedelta(days=1)}})>=15:
+        raise HTTPException(429,'Too many photos today. Please try again tomorrow.')
+    raw=await file.read(REVIEW_PHOTO_MAX_MB*1024*1024+1)
+    if len(raw)>REVIEW_PHOTO_MAX_MB*1024*1024: raise HTTPException(400,f'Photo is too large (max {REVIEW_PHOTO_MAX_MB} MB)')
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    Image.MAX_IMAGE_PIXELS=50_000_000
+    try:
+        im=Image.open(BytesIO(raw))
+        if im.format not in ('JPEG','PNG','WEBP','MPO','HEIF','AVIF'): raise ValueError(im.format)
+        im=ImageOps.exif_transpose(im); im.thumbnail((1600,1600),Image.LANCZOS)
+        im=im.convert('RGB'); out=BytesIO(); im.save(out,'WEBP',quality=80,method=6)  # saved without EXIF
+    except Exception: raise HTTPException(400,'Please upload a photo (JPG, PNG or WebP).')
+    key=f"{settings.aws_s3_prefix.strip('/')}/review/{p.get('slug') or 'product'}/{p.get('slug') or 'review'}-{uuid.uuid4().hex[:12]}.webp"
+    s3_client().put_object(Bucket=settings.aws_s3_bucket,Key=key,Body=out.getvalue(),ContentType='image/webp',CacheControl='public, max-age=31536000')
+    url=media_public_url(key)
+    db.review_photos.insert_one({'key':key,'url':url,'customer_id':ident['sub'],'product_id':product_id,'created_at':now()})
+    return {'url':url}
 
 # ---------- Public CMS / catalog ----------
 PRODUCT_SORTS=('price_asc','price_desc','manual','newest')
