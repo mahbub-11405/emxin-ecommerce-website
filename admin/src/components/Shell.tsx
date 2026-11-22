@@ -24,7 +24,7 @@ const NAV:Item[]=[
   {href:'/dealers',label:'Dealers',icon:'dealers',badge:'dealers_pending',roles:[...MGR,'sales']},
   {href:'/coupons',label:'Coupons',icon:'coupons',roles:[...MGR,'marketing']},
   {href:'/marketing',label:'Marketing',icon:'marketing',roles:[...MGR,'marketing']},
-  {href:'/homepage-builder',label:'CMS / Homepage',icon:'cms',roles:[...MGR,'marketing'],children:[{href:'/homepage-builder',label:'Homepage Builder'},{href:'/homepage-builder?tab=pages',label:'Policy Pages'}]},
+  {href:'/homepage-builder',label:'CMS / Homepage',icon:'cms',roles:[...MGR,'marketing'],children:[{href:'/homepage-builder',label:'Homepage Builder'},{href:'/homepage-builder?tab=pages',label:'Policy Pages'},{href:'/homepage-builder?tab=extras#seo',label:'SEO & Facebook ads'}]},
   {href:'/reports',label:'Reports & Analytics',icon:'reports',roles:[...MGR,'sales','marketing'],children:[{href:'/reports',label:'Sales Reports'},{href:'/payments',label:'Payments',roles:[...MGR,'sales']},{href:'/ledger',label:'Ledger',roles:MGR}]},
   {href:'/recycle-bin',label:'Recycle Bin',icon:'trash',roles:MGR},
   {href:'/settings',label:'Settings',icon:'settings',roles:MGR,children:[{href:'/settings',label:'Store Settings'},{href:'/staff',label:'Staff Accounts',roles:SA},{href:'/audit-log',label:'Audit Log',roles:SA}]},
@@ -50,7 +50,7 @@ export default function Shell({children}:{children:React.ReactNode}){
         return <div key={n.href} className={'side-item'+(on?' on':'')}>
           {n.children?<button type="button" className="side-link" onClick={()=>setOpen(isOpen?'':n.href)} aria-expanded={isOpen}><Icon name={n.icon} size={20} stroke={1.7}/><span>{n.label}</span><Icon name="chevronDown" size={16} className={'chev'+(isOpen?' up':'')}/></button>
           :<Link className="side-link" href={n.href}><Icon name={n.icon} size={20} stroke={1.7}/><span>{n.label}</span>{n.badge&&counts[n.badge]>0&&<em className="side-badge">{counts[n.badge]}</em>}</Link>}
-          {kids&&isOpen&&<div className="side-sub">{kids.map(c=><Link key={c.href} href={c.href} className={active(c.href)&&!c.href.includes('?')?'on':''}>{c.label}{c.href==='/quantity-requests'&&counts.quantity_requests_new>0&&<em className="side-badge sm">{counts.quantity_requests_new}</em>}{c.href==='/reviews'&&(counts.reviews_pending+counts.questions_pending)>0&&<em className="side-badge sm">{counts.reviews_pending+counts.questions_pending}</em>}</Link>)}</div>}
+          {kids&&isOpen&&<div className="side-sub">{kids.map(c=><Link key={c.href} href={c.href} className={active(c.href)&&!c.href.includes('?')?'on':''} onClick={()=>setTimeout(()=>window.dispatchEvent(new Event('admin:nav')),120)}>{c.label}{c.href==='/quantity-requests'&&counts.quantity_requests_new>0&&<em className="side-badge sm">{counts.quantity_requests_new}</em>}{c.href==='/reviews'&&(counts.reviews_pending+counts.questions_pending)>0&&<em className="side-badge sm">{counts.reviews_pending+counts.questions_pending}</em>}</Link>)}</div>}
         </div>})}</nav>
       <button className="side-store side-logout" onClick={signOut}><Icon name="logout" size={18}/>Logout</button>
       <a className="side-store" href={process.env.NEXT_PUBLIC_STORE_URL||'https://tech.emxin.com'} target="_blank" rel="noopener"><Icon name="eyeView" size={18}/>View storefront</a>
