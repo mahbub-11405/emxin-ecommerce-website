@@ -7,6 +7,7 @@ import {API,postJSON,payLabel,firstImage} from '@/lib/api';
 import {getToken,logout} from '@/lib/auth';
 import {refreshProfile} from '@/lib/profile';
 import {DISTRICTS} from '@/lib/districts';
+import OrderBill,{payLine} from '@/components/OrderBill';
 const PENDING=['Pending Payment','Pending Advance Payment','Advance Required'];
 function ResendTrx({o,onDone}:{o:any;onDone:()=>void}){
   const m=o.manual_payment;const[f,setF]=useState({channel:m.channel,trx_id:'',sender_number:''});const[err,setErr]=useState('');const[busy,setBusy]=useState(false);
@@ -64,7 +65,9 @@ const when=(d:any)=>{const x=new Date(d);return x.toLocaleDateString('en-GB',{da
 const MSG='https://m.me/emxintechnologies';
 /** All orders as an interactive table: status tabs, search, product names + photos, click a row for the full details. */
 function MyOrders({orders,busy,pay,onSwitch,onChanged,onError}:{orders:any[];busy:string;pay:(id:string)=>void;onSwitch:(o:any)=>void;onChanged:(m:string)=>void;onError:(m:string)=>void}){
-  const[g,setG]=useState('all');const[all,setAll]=useState(false);const[q,setQ]=useState('');const[open,setOpen]=useState('');
+  const[g,setG]=useState('all');const[all,setAll]=useState(false);const[q,setQ]=useState('');
+  // the newest order's bill is open from the start; "Show all bills" opens every order on the page
+  const[open,setOpenSet]=useState<string[]>(()=>orders[0]?[orders[0].order_id]:[]);const toggle=(id:string)=>setOpenSet(l=>l.includes(id)?l.filter(x=>x!==id):[...l,id]);
   const[ask,setAsk]=useState<any>(null);const[why,setWhy]=useState('');const[cbusy,setCbusy]=useState(false);const[pm,setPm]=useState<Record<string,any>>({});
   useEffect(()=>{const ids=[...new Set(orders.flatMap(o=>(o.items||[]).map((i:any)=>i.product_id)).filter(Boolean))].slice(0,100);if(!ids.length)return;
     fetch(`${API}/products?ids=${ids.join(',')}&limit=100`).then(r=>r.ok?r.json():[]).then((a:any[])=>setPm(Object.fromEntries((a||[]).map(p=>[p._id,p])))).catch(()=>{})},[orders]);
@@ -74,33 +77,29 @@ function MyOrders({orders,busy,pay,onSwitch,onChanged,onError}:{orders:any[];bus
   async function cancel(){if(!ask)return;setCbusy(true);try{await postJSON(`/orders/${ask.order_id}/cancel`,{reason:why.trim()},getToken());setAsk(null);setWhy('');onChanged(`Order ${ask.order_id} is cancelled.`)}catch(x:any){setAsk(null);onError(x.message)}finally{setCbusy(false)}}
   const img=(i:any)=>firstImage(pm[i.product_id]);
   return <section className="panel mo"><div className="mo-head"><h2>My Orders <small className="muted">({orders.length})</small></h2>
+      {list.length>0&&<button type="button" className="btn btn-sm btn-ghost mo-bills" onClick={()=>setOpenSet(shown.every((o:any)=>open.includes(o.order_id))?[]:shown.map((o:any)=>o.order_id))}>{shown.every((o:any)=>open.includes(o.order_id))?'Hide bills':'Show all bills'}</button>}
       {orders.length>SHOW&&<label className="mo-search"><Icon name="search" size={16}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Order ID or product"/></label>}</div>
     {orders.length>0&&<div className="ord-tabs" role="tablist">{GROUPS.map(([k,l,fn])=>{const n=orders.filter(fn).length;return (k==='all'||n>0)?<button key={k} role="tab" aria-selected={g===k} className={g===k?'on':''} onClick={()=>{setG(k);setAll(false)}}>{l}<em>{n}</em></button>:null})}</div>}
     {!orders.length?<div className="mo-empty"><Icon name="box" size={34}/><b>No orders yet</b><Link className="btn btn-sm" href="/shop">Start shopping</Link></div>
     :!list.length?<p className="muted mo-none">No orders here.</p>
     :<div className="mo-table" role="table">
       <div className="mo-tr mo-th" role="row"><span>Order</span><span>Products</span><span>Payment</span><span className="r">Total</span><span>Status</span><span/></div>
-      {shown.map((o:any)=>{const items=o.items||[];const pcs=items.reduce((n:number,i:any)=>n+i.quantity,0);const closed=['Cancelled','Returned'].includes(o.order_status);const isOpen=open===o.order_id;const p=o.pricing||{};
+      {shown.map((o:any)=>{const items=o.items||[];const pcs=items.reduce((n:number,i:any)=>n+i.quantity,0);const closed=['Cancelled','Returned'].includes(o.order_status);const isOpen=open.includes(o.order_id);const due=payLine(o).find(x=>x.tone==='due');const p=o.pricing||{};
         const paidDigital=o.payment_method!=='cod';
         return <div key={o.order_id} className={'mo-row'+(isOpen?' open':'')+(closed?' closed':'')}>
-        <button type="button" className="mo-tr" role="row" aria-expanded={isOpen} onClick={()=>setOpen(isOpen?'':o.order_id)}>
+        <button type="button" className="mo-tr" role="row" aria-expanded={isOpen} onClick={()=>toggle(o.order_id)}>
           <span className="mo-id"><b className="mono">#{o.order_id}</b><small>{when(o.created_at)}</small></span>
           <span className="mo-prod"><span className="mo-thumbs">{items.slice(0,2).map((i:any,k:number)=><i key={k}>{img(i)?<img src={img(i)} alt=""/>:<Icon name="box" size={16}/>}</i>)}</span>
             <span className="mo-pn"><b>{items[0]?.name||'—'}</b><small>{items.length>1?`+ ${items.length-1} more product${items.length>2?'s':''} · `:''}{pcs} pc{pcs===1?'':'s'}</small></span></span>
           <span className="mo-pay"><b>{payLabel(o)}</b><small>{o.payment_status}</small></span>
-          <span className="mo-tot r"><b>৳ {Number(p.grand_total||0).toLocaleString('en-IN')}</b></span>
+          <span className="mo-tot r"><b>৳ {Number(p.grand_total||0).toLocaleString('en-IN')}</b>{closed?null:due?<small className="due">Due ৳ {Math.round(due.amount).toLocaleString('en-IN')}</small>:<small className="good">Paid</small>}</span>
           <span className="mo-st"><span className={sc(o.order_status)}>{stLabel(o.order_status)}</span>{o.order_status==='Cancelled'&&<small>{o.cancelled_by==='customer'?'by you':'by EMXIN'}</small>}</span>
           <span className="mo-chev"><Icon name="chevronDown" size={18}/></span>
         </button>
         {isOpen&&<div className="mo-detail">
           {o.order_status==='Cancelled'&&<div className="acc-cancel"><Icon name="info" size={16}/><div><b>{o.cancelled_by==='customer'?'You cancelled this order':'Cancelled by EMXIN'}</b>{o.cancelled_at&&<small> · {when(o.cancelled_at)}</small>}
             {o.cancel_reason?<p>Reason: {o.cancel_reason}</p>:o.cancelled_by!=='customer'?<p>Questions? Message or call EMXIN.</p>:null}</div></div>}
-          <div className="mo-grid"><ul className="mo-items">{items.map((i:any,k:number)=><li key={k}><i>{img(i)?<img src={img(i)} alt=""/>:<Icon name="box" size={18}/>}</i>
-              <span>{i.slug?<Link href={`/product/${i.slug}`}><b>{i.name}</b></Link>:<b>{i.name}</b>}<small>{i.frame_color} · {i.quantity} × ৳ {Number(i.unit_price||0).toLocaleString('en-IN')}</small></span>
-              <b>৳ {Math.round(i.quantity*(i.unit_price||0)).toLocaleString('en-IN')}</b></li>)}</ul>
-            <div className="mo-sum">{([['Subtotal',p.subtotal],['Dealer discount',-p.bulk_discount],['Coupon'+(o.coupon_code?` (${o.coupon_code})`:''),-p.coupon_discount],['Advance payment discount',-p.payment_discount],['Delivery',p.delivery_charge],['Extra shipping',p.estimated_shipping]] as [string,number][]).filter(([,v])=>Number(v)).map(([l,v])=><div key={l}><span>{l}</span><span className={v<0?'good':''}>{v<0?'− ':''}৳ {Math.abs(Math.round(v)).toLocaleString('en-IN')}</span></div>)}
-              <div className="tot"><span>Total</span><b>৳ {Number(p.grand_total||0).toLocaleString('en-IN')}</b></div>
-              {p.is_bulk&&<div><span>Advance</span><span>৳ {Number(p.advance_required||0).toLocaleString('en-IN')}</span></div>}{Number(p.cod_due)>0&&<div><span>Pay on delivery</span><span>৳ {Number(p.cod_due).toLocaleString('en-IN')}</span></div>}</div></div>
+          <OrderBill o={o}/>
           {o.manual_payment?.status==='pending'&&!closed&&<p className="acc-mp wait"><Icon name="info" size={15}/>{o.manual_payment.channel_label} TrxID <b>{o.manual_payment.trx_id}</b> received — EMXIN is verifying it.</p>}
           {o.manual_payment?.status==='rejected'&&!closed&&<ResendTrx o={o} onDone={()=>onChanged('TrxID sent. EMXIN will verify it.')}/>}
           {!closed&&o.order_status==='Pending Confirmation'&&paidDigital&&<div className="mo-note"><Icon name="info" size={16}/><span>This order is paid by <b>{payLabel(o)}</b>. To cancel it, please <b>contact EMXIN</b> and we will cancel it and send your money back.</span><a className="btn btn-sm btn-outline" href={MSG} target="_blank" rel="noopener">Message EMXIN</a></div>}

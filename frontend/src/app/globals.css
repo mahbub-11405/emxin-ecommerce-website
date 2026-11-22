@@ -933,3 +933,30 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .pc-badge+.pc-badge+.pc-badge{top:62px}
 .pc.pc-fill .pc-badge+.pc-badge+.pc-badge{top:76px}
 @media (prefers-reduced-motion:reduce){.pc .pc-stock.blink,.b-best{animation:none}}
+
+/* Track order: EMX- fixed inside the Order ID box; login number locked */
+.fix-in{display:flex;align-items:center;border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
+.fix-in:focus-within{border-color:var(--blue,#2563eb);box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+.fix-in em{font-style:normal;font-weight:700;color:var(--navy);background:var(--soft);padding:0 10px 0 14px;align-self:stretch;display:flex;align-items:center;border-right:1px solid var(--line);letter-spacing:.3px}
+.fix-in input{border:0!important;box-shadow:none!important;outline:0;flex:1;min-width:0;background:transparent}
+.fix-in.locked{background:var(--soft)}.fix-in.locked input{color:var(--navy);font-weight:600;cursor:default}.fix-in.locked svg{color:#16a34a;margin-right:12px;flex:none}
+
+/* Order bill: spreadsheet-style table (product · qty · price · amount) + what is paid / due */
+.bill{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+.bill table{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;font-variant-numeric:tabular-nums}
+.bill th{background:var(--soft);color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+.bill td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--text)}
+.bill tbody tr:nth-child(even) td{background:#fafbfd}
+.bill td b{color:var(--navy)}.bill td small{display:block;color:var(--muted);font-size:12px}.bill td a{color:inherit}
+.bill .r{text-align:right;white-space:nowrap}.bill .bill-n{width:34px;color:var(--muted);text-align:center}
+.bill tfoot td{border-bottom:1px dashed var(--line)}.bill tfoot tr.good td{color:var(--green,#16a34a);font-weight:600}
+.bill tfoot tr.bill-tot td{border-bottom:0;background:var(--soft);font-weight:800;font-size:15.5px;color:var(--navy)}
+.bill-pay{display:flex;flex-direction:column;gap:6px}
+.bill-pay>div{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;font-size:15px}
+.bill-pay>div b{font-size:17px}
+.bill-pay .good{background:#ecfdf5;color:#047857;border:1px solid #a7f3d0}
+.bill-pay .due{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+.bill-pay .muted{background:var(--soft);color:var(--muted);border:1px solid var(--line)}
+.mo-tot small{display:block;font-size:11.5px;font-weight:600}.mo-tot small.due{color:#1d4ed8}.mo-tot small.good{color:#047857}
+.mo-bills{margin-left:auto}
+@media(max-width:600px){.bill .bill-n{display:none}.bill th,.bill td{padding:8px 8px}.bill table{font-size:13px}}

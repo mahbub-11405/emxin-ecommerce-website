@@ -901,7 +901,7 @@ def track(order_id:str=Query(...),phone:str=Query(...)):
         b=binned_orders({'order_id':oid},1); o=b[0] if b and b[0].get('phone') in (norm,phone) else None
     if not o: raise HTTPException(404,'No order found with this Order ID and phone number. Please check both.')
     cancel_view(o)
-    keep={k:o.get(k) for k in ['order_id','order_status','payment_status','pricing','courier','created_at','updated_at','items','district','cancelled_by','cancel_reason','cancelled_at']}
+    keep={k:o.get(k) for k in ['order_id','order_status','payment_status','payment_method','coupon_code','pricing','courier','created_at','updated_at','items','district','cancelled_by','cancel_reason','cancelled_at']}
     keep['tracking_code']=(o.get('courier_data') or {}).get('consignment',{}).get('tracking_code') if isinstance(o.get('courier_data'),dict) else None
     keep['timeline']=[{k:v for k,v in t.items() if k in ('at','order_status','payment_status')} for t in o.get('timeline',[]) if t.get('order_status') or t.get('payment_status')]
     return serialize(keep)
