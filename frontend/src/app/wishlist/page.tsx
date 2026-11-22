@@ -6,6 +6,7 @@ import GlassesArt from '@/components/GlassesArt';
 import {firstImage,priceOf} from '@/lib/api';
 import {getToken} from '@/lib/auth';
 import {addToCart} from '@/lib/cart';
+import {fbTrack} from '@/lib/pixel';
 import {loadWishlist,toggleWish,WISH_EVENT,wishIds} from '@/lib/wishlist';
 
 const tk=(n:any)=>'৳ '+Math.round(Number(n)||0).toLocaleString('en-IN');
@@ -17,7 +18,7 @@ export default function Wishlist(){
     // a heart clicked somewhere else on the site: drop products that are no longer saved
     const u=()=>setItems(l=>l?l.filter(x=>wishIds().includes(x._id)):l);window.addEventListener(WISH_EVENT,u);return()=>window.removeEventListener(WISH_EVENT,u)},[]);
   async function remove(x:any){setBusy(x._id);if(await toggleWish(x._id,false))setItems(l=>(l||[]).filter(i=>i._id!==x._id));setBusy('')}
-  function toCart(list:any[]){let n=0;for(const x of list)if(x.stock>0)n+=addToCart(x._id,1,x.colors?.[0]||'Black',x.stock);
+  function toCart(list:any[]){let n=0;for(const x of list)if(x.stock>0){const got=addToCart(x._id,1,x.colors?.[0]||'Black',x.stock);n+=got;if(got)fbTrack('AddToCart',{content_ids:[x._id],content_type:'product',content_name:x.name,value:priceOf(x)})}
     setMsg(n?`${n} item${n>1?'s':''} added to your cart.`:'These are already in your cart (or out of stock).');setTimeout(()=>setMsg(''),3500)}
   const inStock=(items||[]).filter(x=>x.stock>0);
   return <main className="wrap section-sm wl">

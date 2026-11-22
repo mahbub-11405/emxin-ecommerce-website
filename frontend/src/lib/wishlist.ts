@@ -1,6 +1,7 @@
 'use client';
 import {API} from './api';
 import {getToken} from './auth';
+import {fbTrack} from './pixel';
 
 /** One wishlist for the whole site: hearts on cards, the header ♥ count and the Wishlist page all read this.
  *  Saved product IDs are kept in the browser so the count shows instantly; the server is the source of truth. */
@@ -21,6 +22,6 @@ export function loadWishlist(force=false):Promise<any[]>{
 export async function toggleWish(id:string,on:boolean):Promise<boolean>{
   const t=getToken();if(!t)return false;
   const before=wishIds();setIds(on?[...before,id]:before.filter(x=>x!==id));
-  try{const r=await fetch(API+'/customers/wishlist/'+id,{method:on?'PUT':'DELETE',headers:{Authorization:'Bearer '+t}});if(!r.ok)throw Error();return true}
+  try{const r=await fetch(API+'/customers/wishlist/'+id,{method:on?'PUT':'DELETE',headers:{Authorization:'Bearer '+t}});if(!r.ok)throw Error();if(on)fbTrack('AddToWishlist',{content_ids:[id],content_type:'product'});return true}
   catch{setIds(before);return false}
 }

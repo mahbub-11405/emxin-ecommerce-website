@@ -9,7 +9,7 @@ import {DropZone,MediaPicker} from '@/components/Media';
 
 const BLANK:any={name:'',name_bn:'',slug:'',subtitle:'',category_slug:'',brand_slug:'',model:'',sku:'',compare_note:'',price:0,sale_price:null,stock:0,low_stock_threshold:5,weight_kg:.3,
   colors:['Black'],color_hex:{Black:'#111111'},features:[],highlights:[],features_bn:[],specifications:[],box_contents:[],faq:[],description:'',description_bn:'',images:[],video_url:'',media:[],promo_image_url:'',
-  status:'draft',featured:false,new_collection:false,badge:'',has_camera:false,sort_order:0};
+  status:'draft',featured:false,new_collection:false,badge:'',has_camera:false,sort_order:0,seo_title:'',seo_description:''};
 const lines=(a:string[])=>(a||[]).join('\n');const toLines=(s:string)=>s.split('\n').map(x=>x.trim()).filter(Boolean);
 
 /** Specifications as a Label / Value table. Saved as "Label: Value" lines, so the website shows a clean two-column table. */
@@ -61,7 +61,7 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
     toast.ok(pid?'Changes saved':'Product created — you can keep editing');onSaved()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
   const off=f.sale_price&&Number(f.price)>Number(f.sale_price)?Math.round((1-f.sale_price/f.price)*100):0;
   return <form onSubmit={save} className="pform">
-    <Tabs value={tab} onChange={setTab} tabs={[{key:'basic',label:'Basics'},{key:'media',label:`Media (${f.media.length})`},{key:'content',label:'Content'},{key:'display',label:'Display & Variants'}]}/>
+    <Tabs value={tab} onChange={setTab} tabs={[{key:'basic',label:'Basics'},{key:'media',label:`Media (${f.media.length})`},{key:'content',label:'Content'},{key:'display',label:'Display & Variants'},{key:'seo',label:'SEO (Google)'}]}/>
     {tab==='basic'&&<div className="fgrid">
       <Field label="Product name *"><input required value={f.name} onChange={e=>set('name',e.target.value)}/></Field>
       <Field label="Subtitle" hint="Shown under the name on cards, e.g. AI Smart Glasses (With Camera)"><input value={f.subtitle} onChange={e=>set('subtitle',e.target.value)}/></Field>
@@ -94,6 +94,19 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
       <Field label="What's in the box (one per line)"><textarea rows={6} value={lines(f.box_contents)} onChange={e=>set('box_contents',toLines(e.target.value))}/></Field>
       <Field label="FAQ" span><div className="faq-ed">{(f.faq||[]).map((x:any,i:number)=><div key={i} className="row"><input placeholder="Question" value={x.question} onChange={e=>set('faq',f.faq.map((y:any,j:number)=>j===i?{...y,question:e.target.value}:y))}/><input placeholder="Answer" value={x.answer} onChange={e=>set('faq',f.faq.map((y:any,j:number)=>j===i?{...y,answer:e.target.value}:y))}/><button type="button" className="ib" onClick={()=>set('faq',f.faq.filter((_:any,j:number)=>j!==i))}><Icon name="trash" size={16}/></button></div>)}<button type="button" className="btn btn-sm btn-soft" onClick={()=>set('faq',[...(f.faq||[]),{question:'',answer:''}])}><Icon name="plus" size={15}/>Add FAQ</button></div></Field>
     </div>}
+    {tab==='seo'&&(()=>{const store=(process.env.NEXT_PUBLIC_STORE_URL||'https://tech.emxin.com').replace(/\/+$/,'');
+      const auto=`${f.name||'Product name'}${f.subtitle&&!String(f.name).toLowerCase().includes(String(f.subtitle).toLowerCase())?' – '+f.subtitle:''} Price in Bangladesh`;
+      const title=f.seo_title||auto;const price=Number(f.sale_price||f.price||0);
+      const autoDesc=String(f.description||'').replace(/\s+/g,' ').trim()||`Buy ${f.name||'this product'} in Bangladesh at ৳${price.toLocaleString('en-IN')}. 100% original, cash on delivery and fast delivery across Bangladesh from EMXIN Technologies.`;
+      const desc=f.seo_description||autoDesc;const full=title+' | EMXIN Technologies';
+      return <div className="fgrid">
+        <p className="span muted" style={{margin:0}}>How this product looks in Google search. Leave both empty to use the automatic text (shown in grey). Put the words people search first: brand, model, type, “price in Bangladesh”.</p>
+        <Field label="Google title" span hint={<span className={full.length>65?'seo-over':''}>{full.length}/65 characters with “| EMXIN Technologies”{full.length>65?' — Google will cut the end':''}</span>}><input maxLength={120} value={f.seo_title||''} placeholder={auto} onChange={e=>set('seo_title',e.target.value)}/></Field>
+        <Field label="Google description" span hint={<span className={desc.length>160?'seo-over':''}>{desc.length}/160 characters{desc.length>160?' — Google shows about the first 160':''}. Say what it is, the price benefit and why buy from EMXIN (original, COD, fast delivery).</span>}><textarea rows={3} maxLength={320} value={f.seo_description||''} placeholder={autoDesc.slice(0,200)} onChange={e=>set('seo_description',e.target.value)}/></Field>
+        <div className="span seo-prev" aria-label="Google preview"><small>Google preview</small><cite>{store.replace(/^https?:\/\//,'')} › product › {f.slug||'product-link'}</cite><b>{full.length>65?full.slice(0,62)+'…':full}</b>
+          <p>{desc.length>160?desc.slice(0,157)+'…':desc}</p><span className="seo-rich">৳ {price.toLocaleString('en-IN')} · {Number(f.stock)>0?'In stock':'Out of stock'}</span></div>
+        <p className="span muted tiny" style={{margin:0}}>Price, stock, pictures, brand, rating and the FAQ (Content tab) are sent to Google automatically, so it can show them under the result.</p>
+      </div>})()}
     {tab==='display'&&<div className="fgrid">
       <Field label="Status"><select value={f.status} onChange={e=>set('status',e.target.value)}><option value="active">Active (visible)</option><option value="draft">Draft</option><option value="hidden">Hidden</option></select></Field>
       <Field label="Card badge"><select value={f.badge} onChange={e=>set('badge',e.target.value)}>{['','Featured','New','Hot','Sale','Limited'].map(b=><option key={b} value={b}>{b||'None'}</option>)}</select></Field>
@@ -102,7 +115,7 @@ function ProductForm({initial,cats,brands,onSaved}:{initial:any;cats:any[];brand
       <div className="fld"><span>Placement</span><Toggle checked={f.featured} onChange={v=>set('featured',v)} label="Featured on homepage"/><Toggle checked={f.new_collection} onChange={v=>set('new_collection',v)} label="New Collection"/><Toggle checked={f.has_camera} onChange={v=>set('has_camera',v)} label="Has camera (shop filter)"/></div>
       <Field label="Frame colours" span hint="Each colour appears as a swatch and in the Quantity Request drawer"><div className="colors-ed">{f.colors.map((c:string,i:number)=><div key={i} className="row"><input type="color" value={f.color_hex?.[c]||'#111111'} onChange={e=>set('color_hex',{...f.color_hex,[c]:e.target.value})}/><input value={c} onChange={e=>{const n=e.target.value;const hex={...f.color_hex};hex[n]=hex[c];delete hex[c];set('colors',f.colors.map((x:string,j:number)=>j===i?n:x));set('color_hex',hex)}}/>{f.colors.length>1&&<button type="button" className="ib" onClick={()=>set('colors',f.colors.filter((_:any,j:number)=>j!==i))}><Icon name="trash" size={16}/></button>}</div>)}<button type="button" className="btn btn-sm btn-soft" onClick={()=>set('colors',[...f.colors,'White'])}><Icon name="plus" size={15}/>Add colour</button></div></Field>
     </div>}
-    <div className="pform-foot"><button type="submit" className="btn" disabled={busy}>{busy?'Saving…':pid?'Save changes':'Create product'}</button>{pid&&f.status==='active'&&<a className="btn btn-ghost" target="_blank" rel="noopener" href={`${process.env.NEXT_PUBLIC_STORE_URL||'https://emxin-dev.duckdns.org'}/product/${f.slug}`}><Icon name="eyeView" size={16}/>View on store</a>}</div>
+    <div className="pform-foot"><button type="submit" className="btn" disabled={busy}>{busy?'Saving…':pid?'Save changes':'Create product'}</button>{pid&&f.status==='active'&&<a className="btn btn-ghost" target="_blank" rel="noopener" href={`${process.env.NEXT_PUBLIC_STORE_URL||'https://tech.emxin.com'}/product/${f.slug}`}><Icon name="eyeView" size={16}/>View on store</a>}</div>
   </form>;
 }
 

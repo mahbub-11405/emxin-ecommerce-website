@@ -4,7 +4,15 @@ import ProductCard from '@/components/ProductCard';
 import Icon from '@/components/Icon';
 import SortSelect from './SortSelect';
 
-export const metadata={title:'Shop'};
+/** Google: one title, description and canonical address per category; search results and sorted / filtered copies are not indexed separately. */
+export async function generateMetadata({searchParams}:{searchParams:Promise<any>}){
+  const sp=await searchParams;const cats=await safeJSON<any[]>('/categories',[]);
+  const cat=(Array.isArray(cats)?cats:[]).find((c:any)=>c.slug===sp.category);
+  if(sp.q)return {title:`Search: ${String(sp.q).slice(0,60)}`,robots:{index:false,follow:true}};
+  if(cat){const title=`${cat.name} Price in Bangladesh`;const description=`Buy original ${cat.name} in Bangladesh from EMXIN Technologies. Latest models and prices, cash on delivery and fast delivery across Bangladesh.`;
+    return {title,description,alternates:{canonical:`/shop?category=${encodeURIComponent(cat.slug)}`},openGraph:{title,description,url:`/shop?category=${encodeURIComponent(cat.slug)}`,...(cat.thumbnail_url?{images:[cat.thumbnail_url]}:{})}}}
+  return {title:'Shop Smart Glasses, Sunglasses & Gadgets in Bangladesh',description:'Shop AI smart glasses, smart sunglasses, eye glasses and power banks in Bangladesh. Original products, cash on delivery and fast delivery from EMXIN Technologies.',alternates:{canonical:'/shop'}};
+}
 export default async function Shop({searchParams}:{searchParams:Promise<any>}){
   const sp=await searchParams;
   const keys=['category','brand','q','camera','availability','min_price','max_price','sort','collection'];

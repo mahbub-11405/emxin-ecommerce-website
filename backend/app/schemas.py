@@ -12,6 +12,8 @@ class OrderCreate(BaseModel):
     # manual = bKash/Nagad Send Money to EMXIN's number; customer gives the TrxID, Admin verifies it
     manual_channel: Optional[Literal['bkash','nagad']]=None; trx_id: Optional[str]=None; sender_number: Optional[str]=None
     coupon_code: Optional[str]=None; dealer_opt_in: bool=False; shop_name: Optional[str]=None
+    # Facebook ad attribution from the browser (cookies _fbp / _fbc and the page), sent on to the Conversions API
+    fbp: Optional[str]=Field(default=None,max_length=200); fbc: Optional[str]=Field(default=None,max_length=500); event_source_url: Optional[str]=Field(default=None,max_length=500)
 class OrderQuote(BaseModel):
     items: list[OrderItem]; district: str='Dhaka'; payment_method: Literal['cod','paystation','manual']='cod'; coupon_code: Optional[str]=None; dealer_opt_in: bool=False
 class ManualPaymentSubmit(BaseModel):
@@ -46,6 +48,7 @@ class ProductInput(BaseModel):
     model: str=''; sku: str=''; badge: Literal['','Featured','New','Hot','Sale','Limited']=''; subtitle: str=''; has_camera: bool=False
     color_hex: dict[str,str]={}; sort_order: int=0; image_fit: Literal['','contain','cover']=''; low_stock_threshold: int=Field(default=5,ge=0)
     compare_note: str=''; promo_image_url: str=''; highlights: list[str]=[]
+    seo_title: str=Field(default='',max_length=120); seo_description: str=Field(default='',max_length=320)  # Google title / description; empty = made from the name and description
 class CategoryInput(BaseModel):
     name: str; name_bn: str=''; slug: Optional[str]=None; order: int=0; visible: bool=True; thumbnail_url: str=''; image_fit: Literal['','contain','cover']=''; subtitle: str=''; icon: str=''; show_on_home: bool=True
     code: str=Field(default='',max_length=5,pattern=r'^[A-Za-z0-9]{0,5}$')  # short category code used in SKU / stock codes, e.g. SMG, SEG, SSG

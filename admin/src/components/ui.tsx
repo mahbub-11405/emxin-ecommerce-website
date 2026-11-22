@@ -34,7 +34,7 @@ export function Toaster(){const[list,setList]=useState<ToastT[]>([]);const[bx,se
       <button type="button" className="tn-x" aria-label="Dismiss" onClick={()=>drop(t.id)}><Icon name="close" size={15}/></button></div>
     :<div key={t.id} className={'toast '+t.kind}><Icon name={t.kind==='ok'?'checkCircle':'info'} size={18}/>{t.text}</div>)}</div><DeleteHost/></>}
 
-export function Field({label,hint,children,span}:{label:string;hint?:string;children:React.ReactNode;span?:boolean}){return <label className={'fld'+(span?' span':'')}><span>{label}</span>{children}{hint&&<small>{hint}</small>}</label>}
+export function Field({label,hint,children,span}:{label:string;hint?:React.ReactNode;children:React.ReactNode;span?:boolean}){return <label className={'fld'+(span?' span':'')}><span>{label}</span>{children}{hint&&<small>{hint}</small>}</label>}
 export function Toggle({checked,onChange,label}:{checked:boolean;onChange:(v:boolean)=>void;label:string}){return <label className="tgl"><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/><i/><span>{label}</span></label>}
 
 export function ImageInput({value,onChange,folder,label='Image',kind='image'}:{value:string;onChange:(url:string)=>void;folder:string;label?:string;kind?:'image'|'video'}){

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Query, Request, Body
+from fastapi import FastAPI, HTTPException, Header, Query, Request, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import ReturnDocument
 from bson import ObjectId
@@ -16,6 +16,8 @@ from .schemas import *
 from .pricing import calculate
 from .integrations import send_sms, sms_parts, PayStationClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
 from .admin_ext import router as v2_router, release_stock
+from . import meta_capi
+from .clientip import real_ip
 from .media_optimize import queue_video, big_images, optimize_existing_images
 from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_dealer_reactivated, t_order_confirmed, t_payment_rejected, t_order_cancelled
 
@@ -77,9 +79,8 @@ def otp_hash(phone,purpose,code):
     return hmac.new(settings.app_secret.encode(),f'{phone}|{purpose}|{code}'.encode(),hashlib.sha256).hexdigest()
 
 def client_ip(request: Request) -> str:
-    # Behind the reverse proxy the real visitor IP is the last X-Forwarded-For entry the proxy added.
-    xff=[x.strip() for x in (request.headers.get('x-forwarded-for') or '').split(',') if x.strip()]
-    return xff[-1] if xff else (request.client.host if request.client else '')
+    # Behind Nginx: the last X-Forwarded-For entry; behind Cloudflare: CF-Connecting-IP (only when the peer really is Cloudflare)
+    return real_ip(request)
 
 def otp_message(code: str) -> str:
     return settings.otp_sms_template.replace('\\n','\n').format(OTP=code,MINUTES=max(1,settings.otp_expire_seconds//60),DOMAIN=settings.site_domain)
@@ -217,7 +218,21 @@ def home():
 def site_content():
     home=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
     cfg=db.settings.find_one({'key':'commerce'},{'_id':0,'dealer_tiers':1,'bulk_threshold_qty':1,'digital_payment_discount_percent':1,'retail_max_qty_per_product':1}) or {}
-    return {k:home.get(k,{}) for k in ('branding','links','trust','policies','dealer_benefits','announcement','footer','seo')}|{'dealer_tiers':cfg.get('dealer_tiers') or [5,8,12,15],'bulk_threshold_qty':cfg.get('bulk_threshold_qty',20),'digital_payment_discount_percent':cfg.get('digital_payment_discount_percent',2),'retail_max_qty_per_product':cfg.get('retail_max_qty_per_product',5)}
+    t=home.get('tracking') or {}
+    tracking={'meta_pixel_id':meta_capi.pixel_id(),'facebook_domain_verification':str(t.get('facebook_domain_verification') or '')[:100]}  # public IDs only, never the API token
+    return {k:home.get(k,{}) for k in ('branding','links','trust','policies','dealer_benefits','announcement','footer','seo')}|{'tracking':tracking,'dealer_tiers':cfg.get('dealer_tiers') or [5,8,12,15],'bulk_threshold_qty':cfg.get('bulk_threshold_qty',20),'digital_payment_discount_percent':cfg.get('digital_payment_discount_percent',2),'retail_max_qty_per_product':cfg.get('retail_max_qty_per_product',5)}
+
+@app.get('/api/v1/feeds/products')
+def product_feed():
+    """Every active product with the fields the sitemap and the Facebook / Google catalog feed need (incl. description)."""
+    brands={b['slug']:b.get('name') for b in db.brands.find({},{'slug':1,'name':1})}
+    cats={c['slug']:c.get('name') for c in db.categories.find({},{'slug':1,'name':1})}
+    keep={k:1 for k in ('name','slug','subtitle','description','seo_title','seo_description','price','sale_price','stock','images','media','brand_slug','category_slug','colors','sku','model','updated_at','created_at')}
+    rows=list(db.products.find({'status':'active'},keep).sort([('sort_order',1),('created_at',1)]).limit(2000))
+    for p in rows:
+        p['brand_name']=brands.get(p.get('brand_slug')) or (p.get('brand_slug') or '').upper()
+        p['category_name']=cats.get(p.get('category_slug')) or (p.get('category_slug') or '').replace('-',' ').title()
+    return serialize(rows)
 
 @app.get('/api/v1/categories')
 def categories(): return serialize(list(db.categories.find({'visible':True}).sort('order',1)))
@@ -632,7 +647,7 @@ def manual_unverified(o)->bool:
     return o.get('payment_method')=='manual' and (o.get('manual_payment') or {}).get('status')!='verified'
 
 @app.post('/api/v1/orders')
-async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
+async def create_order(body: OrderCreate, request: Request, background: BackgroundTasks, authorization: str|None=Header(None)):
     identity=require_role(authorization,('customer',))
     buyer=db.customers.find_one({'_id':ObjectId(identity['sub'])})
     if not buyer or normalize_bd_phone(body.phone)!=normalize_bd_phone(buyer.get('phone','')):
@@ -683,6 +698,8 @@ async def create_order(body: OrderCreate, authorization: str|None=Header(None)):
     db.customers.update_one({'_id':buyer['_id'],'address':{'$in':[None,'']}},{'$set':{'address':body.address,'district':body.district}})
     db.ledger.insert_one({'order_id':order_id,'type':'order_created','amount':pricing['grand_total'],'payment_method':body.payment_method,'created_at':now()})
     response={'order_id':order_id,'status':status,'payment_status':payment_status,'pricing':pricing,'manual_payment':manual}
+    if meta_capi.enabled():  # Facebook ads: count this order (same event_id as the browser Pixel, so it is counted once)
+        background.add_task(meta_capi.send_purchase,doc,meta_capi.client_ip(request),request.headers.get('user-agent'),body.fbp,body.fbc,body.event_source_url)
     if body.payment_method=='paystation':
         response['paystation']=await start_paystation(doc)
     return response
@@ -1098,13 +1115,23 @@ def restore_cms(version_id:str,authorization: str|None=Header(None)):
 @app.put('/api/v1/admin/cms/homepage')
 def update_homepage(payload:dict,authorization: str|None=Header(None)):
     manager(authorization,'marketing')
-    allowed={'product_sort','hero','promo','sections','branding','links','policies','trust','dealer_benefits','footer','coming_soon','announcement','banner','category_section','featured_section','seo','hidden_sections','smart_section'}
+    allowed={'product_sort','hero','promo','sections','branding','links','policies','trust','dealer_benefits','footer','coming_soon','announcement','banner','category_section','featured_section','seo','hidden_sections','smart_section','tracking'}
     if set(payload)-allowed-{'key','updated_at','_id'}: raise HTTPException(400,'Unexpected homepage fields')
     if 'sections' in payload and (not isinstance(payload['sections'],list) or len(payload['sections'])>30 or any(not isinstance(x,str) for x in payload['sections'])):
         raise HTTPException(400,'Invalid homepage sections')
     current=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
     db.cms_versions.insert_one({'snapshot':current,'created_at':now(),'action':'before_publish'})
     if 'product_sort' in payload and payload['product_sort'] not in PRODUCT_SORTS: raise HTTPException(400,'Invalid product order')
+    if 'tracking' in payload:
+        t=payload['tracking'] if isinstance(payload['tracking'],dict) else {}
+        pid=re.sub(r'\s','',str(t.get('meta_pixel_id') or ''))
+        if pid and not re.fullmatch(r'\d{5,20}',pid): raise HTTPException(400,'Facebook Pixel ID must be numbers only (Events Manager → Data sources → your Pixel / Dataset ID)')
+        dv=str(t.get('facebook_domain_verification') or '').strip();mv=re.search(r'content=["\']([^"\']+)',dv)  # whole <meta> tag pasted: keep only the code
+        payload['tracking']={'meta_pixel_id':pid,'facebook_domain_verification':re.sub(r'[^A-Za-z0-9]','',mv.group(1) if mv else dv)[:100]}
+    if 'seo' in payload and isinstance(payload['seo'],dict):
+        g=str(payload['seo'].get('google_verification') or '').strip()
+        m_=re.search(r'content=["\']([^"\']+)',g)  # pasted the whole <meta> tag: keep only the code
+        payload['seo']['google_verification']=re.sub(r'[^A-Za-z0-9_-]','',m_.group(1) if m_ else g)[:100]
     cleaned={k:v for k,v in payload.items() if k in allowed}
     cleaned['updated_at']=now()
     db.homepage.update_one({'key':'home'},{'$set':cleaned},upsert=True)

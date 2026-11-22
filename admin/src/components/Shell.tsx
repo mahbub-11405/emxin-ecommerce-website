@@ -53,7 +53,7 @@ export default function Shell({children}:{children:React.ReactNode}){
           {kids&&isOpen&&<div className="side-sub">{kids.map(c=><Link key={c.href} href={c.href} className={active(c.href)&&!c.href.includes('?')?'on':''}>{c.label}{c.href==='/quantity-requests'&&counts.quantity_requests_new>0&&<em className="side-badge sm">{counts.quantity_requests_new}</em>}{c.href==='/reviews'&&(counts.reviews_pending+counts.questions_pending)>0&&<em className="side-badge sm">{counts.reviews_pending+counts.questions_pending}</em>}</Link>)}</div>}
         </div>})}</nav>
       <button className="side-store side-logout" onClick={signOut}><Icon name="logout" size={18}/>Logout</button>
-      <a className="side-store" href={process.env.NEXT_PUBLIC_STORE_URL||'https://emxin-dev.duckdns.org'} target="_blank" rel="noopener"><Icon name="eyeView" size={18}/>View storefront</a>
+      <a className="side-store" href={process.env.NEXT_PUBLIC_STORE_URL||'https://tech.emxin.com'} target="_blank" rel="noopener"><Icon name="eyeView" size={18}/>View storefront</a>
     </aside>
     <div className="side-scrim" onClick={()=>setMobile(false)}/>
     <div className="body">

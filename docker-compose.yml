@@ -18,6 +18,8 @@ services:
       # server-side rendering calls the API inside Docker instead of over the internet
       API_INTERNAL_URL: http://backend:8430/api/v1
       PAGE_CACHE_SECONDS: ${PAGE_CACHE_SECONDS:-30}
+      # the store's public address: sitemap, canonical links, Google / Facebook product feed
+      SITE_URL: ${FRONTEND_URL}
     depends_on:
       backend:
         condition: service_healthy

@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     pathao_username: str = ''
     pathao_password: str = ''
     pathao_webhook_secret: str = ''
+    # Facebook / Meta ads: the Pixel ID can also be set in Admin → Homepage Builder; the Conversions API token stays only here
+    meta_pixel_id: str = ''
+    meta_capi_token: str = ''
+    meta_test_event_code: str = ''  # from Events Manager → Test events; leave empty in normal use
 
     @property
     def origins(self):

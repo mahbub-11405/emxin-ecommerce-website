@@ -1,11 +1,12 @@
 'use client';
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import Link from 'next/link';
 import Icon from '@/components/Icon';
 import PayMethods from '@/components/PayMethods';
 import {API,postJSON,priceOf} from '@/lib/api';
 import {readCart,writeCart} from '@/lib/cart';
 import {track} from '@/lib/tracking';
+import {fbTrack,fbIds} from '@/lib/pixel';
 import {DISTRICTS} from '@/lib/districts';
 import {getToken,logout,readDraft,saveDraft,DRAFT} from '@/lib/auth';
 import {getProfile} from '@/lib/profile';
@@ -14,6 +15,9 @@ import QtyRule,{toCap,toBulk} from '@/components/QtyRule';
 export default function Checkout({productId,initialQty=1,initialColor='Black',settings={}}:{productId:string;initialQty?:number;initialColor?:string;settings?:any}){
   const[items,setItems]=useState<{product_id:string;quantity:number;frame_color:string}[]>([]);
   const[byId,setById]=useState<Record<string,any>>({});
+  const begun=useRef(false); // Facebook: InitiateCheckout once, when the products and prices are known
+  useEffect(()=>{if(begun.current||!items.length||!items.every(i=>byId[i.product_id]))return;begun.current=true;
+    fbTrack('InitiateCheckout',{content_ids:[...new Set(items.map(i=>i.product_id))],content_type:'product',num_items:items.reduce((n,i)=>n+i.quantity,0),value:items.reduce((n,i)=>n+priceOf(byId[i.product_id])*i.quantity,0)})},[items,byId]);
   // Payment options: PayStation only when it is switched on; bKash/Nagad Send Money when a number is saved in Admin → Settings.
   const psOn=!!settings.paystation_enabled;const accs=settings.payment_accounts||{};
   const chans=(['bkash','nagad'] as const).filter(k=>accs[k]?.enabled&&accs[k]?.number);
@@ -73,8 +77,11 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
     }
     setState({kind:'busy'});
     try{
-      const r=await postJSON('/orders',{...f,email:f.email||null,shop_name:f.shop_name||null,items,payment_method:pay,coupon_code:cp?.code||null,...(pay==='manual'?{manual_channel:mp.channel,trx_id:mp.trx_id,sender_number:mp.sender_number}:{})},token);
+      const r=await postJSON('/orders',{...f,email:f.email||null,shop_name:f.shop_name||null,items,payment_method:pay,coupon_code:cp?.code||null,...fbIds(),event_source_url:location.href.slice(0,500),...(pay==='manual'?{manual_channel:mp.channel,trx_id:mp.trx_id,sender_number:mp.sender_number}:{})},token);
       if(!productId)writeCart([]);
+      // Facebook: same event ID as the server's Conversions API event, so the order is counted once
+      fbTrack('Purchase',{value:Number(r.pricing?.grand_total)||0,content_ids:[...new Set(items.map(i=>i.product_id))],content_type:'product',num_items:items.reduce((n,i)=>n+i.quantity,0),
+        contents:items.map(i=>({id:i.product_id,quantity:i.quantity,item_price:priceOf(byId[i.product_id])}))},r.order_id);
       if(r.paystation?.payment_url){setState({kind:'redirect'});location.href=r.paystation.payment_url;return}
       setState({kind:'ok',order:r});
     }catch(err:any){

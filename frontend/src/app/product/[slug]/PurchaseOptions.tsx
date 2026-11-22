@@ -4,6 +4,8 @@ import Icon from '@/components/Icon';
 import WishlistHeart from '@/components/WishlistHeart';
 import {addToCart,inCart} from '@/lib/cart';
 import {track} from '@/lib/tracking';
+import {fbTrack} from '@/lib/pixel';
+import {priceOf} from '@/lib/api';
 const NAMED:Record<string,string>={black:'#111111',white:'#ffffff',silver:'#c0c4ca',grey:'#6b7280',gray:'#6b7280',blue:'#1e40af',brown:'#7c4a2d',gold:'#c8a24a',red:'#b91c1c',green:'#166534',tortoise:'#6b3f1d',transparent:'#e5edf7',clear:'#e5edf7'};
 export const swatch=(p:any,c:string)=>p.color_hex?.[c]||NAMED[c.toLowerCase()]||'#9ca3af';
 export default function PurchaseOptions({product:p}:{product:any}){
@@ -16,7 +18,7 @@ export default function PurchaseOptions({product:p}:{product:any}){
     if(got===0){ // already holding all the stock: don't add more, just say so (Buy Now still goes to checkout)
       if(go){location.href='/checkout?cart=1';return}
       setNote(`You already have all ${p.stock} in your cart.`);return}
-    track('add_to_cart',{product_id:p._id,product_name:p.name,metadata:{qty:got,color}});setAdded(true);
+    track('add_to_cart',{product_id:p._id,product_name:p.name,metadata:{qty:got,color}});fbTrack('AddToCart',{content_ids:[p._id],content_type:'product',content_name:p.name,value:priceOf(p)*got,contents:[{id:p._id,quantity:got}]});setAdded(true);
     if(got<qty)try{sessionStorage.setItem('cart_note',`Only ${p.stock} in stock — your cart now has the maximum.`)}catch{}
     location.href=go?'/checkout?cart=1':'/cart'}
   return <div className="pd-buy">

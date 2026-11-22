@@ -4,6 +4,9 @@ import {safeJSON,isHttp} from '@/lib/api';
 import AnalyticsTracker from '@/components/AnalyticsTracker';
 import Icon from '@/components/Icon';
 import LogoutUI from '@/components/LogoutUI';
+import MetaPixel from '@/components/MetaPixel';
+import JsonLd from '@/components/JsonLd';
+import {SITE_URL,SITE_NAME,abs} from '@/lib/seo';
 import {CartBadge,AccountLink,NavLinks,WishBadge} from '@/components/HeaderClient';
 import Social from '@/components/Social';
 import {OfferBar,OfferPopup} from '@/components/Offer';
@@ -12,7 +15,14 @@ export async function generateMetadata(){
   const site=await safeJSON<any>('/site-content',{});const seo=site.seo||{};
   const title=seo.title||'EMXIN Technologies — Smart Gadgets. Smarter Living.';
   const description=seo.description||'AI smart glasses, smart sunglasses and premium frames in Bangladesh. Fast delivery, secure payment and dealer pricing.';
-  return {title:{default:title,template:'%s | EMXIN Technologies'},description,openGraph:{title,description,images:isHttp(seo.image)?[seo.image]:[]},icons:{icon:isHttp(site.branding?.favicon_url)?[{url:site.branding.favicon_url}]:[{url:'/favicon-48.png',sizes:'48x48',type:'image/png'},{url:'/icon-192.png',sizes:'192x192',type:'image/png'}],apple:'/apple-touch-icon.png'}}; // EMXIN “E” icon unless another favicon is uploaded in Admin → Branding
+  const keywords=String(seo.keywords||'').split(',').map((k:string)=>k.trim()).filter(Boolean);
+  const fbv=site.tracking?.facebook_domain_verification;
+  return {metadataBase:new URL(SITE_URL),title:{default:title,template:'%s | EMXIN Technologies'},description,...(keywords.length?{keywords}:{}),applicationName:SITE_NAME,
+    openGraph:{type:'website',siteName:SITE_NAME,locale:'en_BD',title,description,url:'/',images:isHttp(seo.image)?[{url:seo.image,width:1200,height:630}]:[]},
+    twitter:{card:'summary_large_image',title,description,images:isHttp(seo.image)?[seo.image]:[]},
+    robots:{index:true,follow:true,googleBot:{index:true,follow:true,'max-image-preview':'large','max-snippet':-1}},
+    ...(seo.google_verification||fbv?{verification:{...(seo.google_verification?{google:seo.google_verification}:{}),...(fbv?{other:{'facebook-domain-verification':fbv}}:{})}}:{}),
+    icons:{icon:isHttp(site.branding?.favicon_url)?[{url:site.branding.favicon_url}]:[{url:'/favicon-48.png',sizes:'48x48',type:'image/png'},{url:'/icon-192.png',sizes:'192x192',type:'image/png'}],apple:'/apple-touch-icon.png'}}; // EMXIN “E” icon unless another favicon is uploaded in Admin → Branding
 }
 export const viewport={width:'device-width',initialScale:1,themeColor:'#1f5cff'};
 
@@ -26,7 +36,12 @@ export default async function Layout({children}:{children:React.ReactNode}){
     <link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin=""/>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet"/>
   </head><body>
-    <AnalyticsTracker/><LogoutUI/>
+    <AnalyticsTracker/><LogoutUI/><MetaPixel id={site.tracking?.meta_pixel_id||''}/>
+    <JsonLd data={[{'@context':'https://schema.org','@type':'Organization','@id':SITE_URL+'/#org',name:SITE_NAME,url:SITE_URL,logo:abs(logo),
+      ...(links.support_phone?{contactPoint:[{'@type':'ContactPoint',telephone:links.support_phone,contactType:'customer service',areaServed:'BD',availableLanguage:['en','bn']}]}:{}),
+      ...(links.support_email?{email:links.support_email}:{}),sameAs:[links.facebook_url,links.instagram_url,links.youtube_url].filter((x:any)=>isHttp(x))},
+      {'@context':'https://schema.org','@type':'WebSite','@id':SITE_URL+'/#site',name:SITE_NAME,url:SITE_URL,publisher:{'@id':SITE_URL+'/#org'},
+      potentialAction:{'@type':'SearchAction',target:{'@type':'EntryPoint',urlTemplate:SITE_URL+'/shop?q={search_term_string}'},'query-input':'required name=search_term_string'}}]}/>
     {offer?.code?<><OfferBar c={offer}/><OfferPopup c={offer}/></>:site.announcement?.enabled&&site.announcement?.text&&<div className="announce">{site.announcement.href?<Link href={site.announcement.href}>{site.announcement.text}</Link>:site.announcement.text}</div>}
     <header className="hdr"><div className="wrap hdr-row">
       <Link className="hdr-logo" href="/" aria-label="EMXIN Technologies home"><img src={logo} alt="EMXIN Technologies"/></Link>

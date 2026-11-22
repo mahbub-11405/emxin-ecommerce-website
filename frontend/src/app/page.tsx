@@ -18,6 +18,7 @@ const DEFAULT_ORDER=['categories','featured','smart_products','promo'];
 // Older saved trust rows promised "7 Days Return"; returns are conditional, so that item is swapped for COD.
 const fixTrust=(t:any)=>/\d+\s*days?\s*return/i.test(t?.title||'')?TRUST[3]:t;
 
+export const metadata={alternates:{canonical:'/'}};
 export default async function Home(){
   const d=await safeJSON<any>('/home',{});
   const hp=d.homepage||{};const h=hp.hero||{};
