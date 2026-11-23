@@ -24,7 +24,7 @@ const NAV:Item[]=[
   {href:'/dealers',label:'Dealers',icon:'dealers',badge:'dealers_pending',roles:[...MGR,'sales']},
   {href:'/coupons',label:'Coupons',icon:'coupons',roles:[...MGR,'marketing']},
   {href:'/marketing',label:'Marketing',icon:'marketing',roles:[...MGR,'marketing']},
-  {href:'/homepage-builder',label:'CMS / Homepage',icon:'cms',roles:[...MGR,'marketing'],children:[{href:'/homepage-builder',label:'Homepage Builder'},{href:'/homepage-builder?tab=pages',label:'Policy Pages'},{href:'/homepage-builder?tab=extras#seo',label:'SEO & Facebook ads'}]},
+  {href:'/homepage-builder',label:'CMS / Homepage',icon:'cms',roles:[...MGR,'marketing'],children:[{href:'/homepage-builder',label:'Homepage Builder'},{href:'/homepage-builder?tab=branding',label:'Logos & favicon'},{href:'/homepage-builder?tab=pages',label:'Policy Pages'},{href:'/homepage-builder?tab=extras#seo',label:'SEO & Facebook ads'}]},
   {href:'/reports',label:'Reports & Analytics',icon:'reports',roles:[...MGR,'sales','marketing'],children:[{href:'/reports',label:'Sales Reports'},{href:'/payments',label:'Payments',roles:[...MGR,'sales']},{href:'/ledger',label:'Ledger',roles:MGR}]},
   {href:'/recycle-bin',label:'Recycle Bin',icon:'trash',roles:MGR},
   {href:'/settings',label:'Settings',icon:'settings',roles:MGR,children:[{href:'/settings',label:'Store Settings'},{href:'/settings?tab=telegram',label:'Telegram alerts'},{href:'/staff',label:'Staff Accounts',roles:SA},{href:'/audit-log',label:'Audit Log',roles:SA}]},

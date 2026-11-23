@@ -497,3 +497,19 @@ img{max-width:100%}.ico{flex:none}.muted{color:var(--muted)}.tiny{font-size:12px
 .ab-items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13.5px}.ab-items li{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding-bottom:4px}
 .ab-note{background:#fffbeb;border-radius:8px;padding:6px 10px;margin:0}.ab-act{display:flex;gap:6px;flex-wrap:wrap}
 @media (max-width:640px){.ab-kpis{grid-template-columns:repeat(2,1fr)}.ab-list{grid-template-columns:1fr}}
+
+/* Homepage Builder → Branding */
+.brand-ed{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px}
+.brand-ed>p{grid-column:1/-1}
+.brand-card{display:flex;flex-direction:column;gap:12px;min-width:0}
+.brand-h{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}.brand-h h2{margin:0;font-size:18px}
+.brand-prev{border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px;align-items:flex-start;background:#f8fafc}
+.brand-prev.light{background:#fff;align-items:center}.brand-prev.dark{background:#0b1838;align-items:center}
+.brand-prev.light img,.brand-prev.dark img{max-height:56px;max-width:100%;object-fit:contain}
+.gserp{display:flex;align-items:center;gap:10px;background:#fff;border-radius:12px;padding:10px 14px;box-shadow:0 1px 3px rgba(15,23,42,.12);font-family:Arial,sans-serif;min-width:0;max-width:100%}
+.gserp-ic{width:28px;height:28px;border-radius:50%;background:#f1f3f4;border:1px solid #e5e7eb;display:grid;place-items:center;overflow:hidden;flex:none}.gserp-ic img{width:18px;height:18px;object-fit:contain}
+.gserp>span:last-child{display:flex;flex-direction:column;min-width:0}.gserp b{font-size:14px;color:#202124;font-weight:400}.gserp small{font-size:12px;color:#4d5156;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gtab{display:flex;align-items:center;gap:8px;background:#fff;border-radius:10px 10px 0 0;padding:8px 12px;font-size:12.5px;color:#334155;box-shadow:0 1px 3px rgba(15,23,42,.12);max-width:100%}
+.gtab img{width:16px;height:16px;object-fit:contain}.gtab span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gtab i{font-style:normal;color:#94a3b8;margin-left:8px}
+.brand-tips{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;line-height:1.5}
+@media (max-width:640px){.brand-ed{grid-template-columns:1fr}}

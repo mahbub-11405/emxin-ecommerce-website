@@ -40,7 +40,7 @@ export default async function Layout({children}:{children:React.ReactNode}){
     <JsonLd data={[{'@context':'https://schema.org','@type':'Organization','@id':SITE_URL+'/#org',name:SITE_NAME,url:SITE_URL,logo:abs(logo),
       ...(links.support_phone?{contactPoint:[{'@type':'ContactPoint',telephone:links.support_phone,contactType:'customer service',areaServed:'BD',availableLanguage:['en','bn']}]}:{}),
       ...(links.support_email?{email:links.support_email}:{}),sameAs:[links.facebook_url,links.instagram_url,links.youtube_url].filter((x:any)=>isHttp(x))},
-      {'@context':'https://schema.org','@type':'WebSite','@id':SITE_URL+'/#site',name:SITE_NAME,url:SITE_URL,publisher:{'@id':SITE_URL+'/#org'},
+      {'@context':'https://schema.org','@type':'WebSite','@id':SITE_URL+'/#site',name:SITE_NAME,alternateName:['EMXIN','EMXIN Tech','tech.emxin.com'],url:SITE_URL,publisher:{'@id':SITE_URL+'/#org'},
       potentialAction:{'@type':'SearchAction',target:{'@type':'EntryPoint',urlTemplate:SITE_URL+'/shop?q={search_term_string}'},'query-input':'required name=search_term_string'}}]}/>
     {offer?.code?<><OfferBar c={offer}/><OfferPopup c={offer}/></>:site.announcement?.enabled&&site.announcement?.text&&<div className="announce">{site.announcement.href?<Link href={site.announcement.href}>{site.announcement.text}</Link>:site.announcement.text}</div>}
     <header className="hdr"><div className="wrap hdr-row">
