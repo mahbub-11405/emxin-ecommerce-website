@@ -1141,30 +1141,40 @@ def get_cms(authorization: str|None=Header(None)):
 @app.get('/api/v1/admin/cms/versions')
 def cms_versions(authorization: str|None=Header(None)):
     admin(authorization)
-    return serialize(list(db.cms_versions.find({}, {'snapshot':0}).sort('created_at',-1).limit(30)))
+    from .cms_history import prune, KEEP_DAYS
+    prune()
+    rows=list(db.cms_versions.find({}, {'snapshot':0}).sort('created_at',-1).limit(100))
+    if rows:  # the newest version that matches the live homepage = "Live now"
+        top=db.cms_versions.find_one({'_id':rows[0]['_id']},{'snapshot':1}) or {}
+        live={k:v for k,v in (db.homepage.find_one({'key':'home'},{'_id':0}) or {}).items() if k not in ('key','updated_at')}
+        rows[0]['live']=rows[0].get('action') in ('publish','restore','start') and {k:v for k,v in (top.get('snapshot') or {}).items() if k not in ('key','updated_at','_id')}==live
+    return serialize({'keep_days':KEEP_DAYS,'rows':rows})
 
 @app.post('/api/v1/admin/cms/restore/{version_id}')
 def restore_cms(version_id:str,authorization: str|None=Header(None)):
-    manager(authorization,'marketing')
+    actor=manager(authorization,'marketing')
     try: version=db.cms_versions.find_one({'_id':ObjectId(version_id)})
     except Exception: raise HTTPException(400,'Invalid version ID')
     if not version: raise HTTPException(404,'Version not found')
     current=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
-    db.cms_versions.insert_one({'snapshot':current,'created_at':now(),'action':'before_restore'})
     restored={k:v for k,v in version['snapshot'].items() if k not in ('_id','key')}
     restored['updated_at']=now()
     db.homepage.replace_one({'key':'home'},{'key':'home',**restored},upsert=True)
-    return {'ok':True}
+    from .cms_history import save_version, actor_name
+    when=(version['created_at'].replace(tzinfo=timezone.utc)+timedelta(hours=6)).strftime('%d %b, %I:%M %p')
+    ch=save_version(current,restored,actor,'restore',f"Restored the version of {when}"+(f" by {version.get('by_name')}" if version.get('by_name') else ''))
+    return {'ok':True,'changes':ch}
 
 @app.put('/api/v1/admin/cms/homepage')
 def update_homepage(payload:dict,authorization: str|None=Header(None)):
-    manager(authorization,'marketing')
+    actor=manager(authorization,'marketing')
     allowed={'product_sort','hero','promo','sections','branding','links','policies','trust','dealer_benefits','footer','coming_soon','announcement','banner','category_section','featured_section','seo','hidden_sections','smart_section','tracking'}
     if set(payload)-allowed-{'key','updated_at','_id'}: raise HTTPException(400,'Unexpected homepage fields')
     if 'sections' in payload and (not isinstance(payload['sections'],list) or len(payload['sections'])>30 or any(not isinstance(x,str) for x in payload['sections'])):
         raise HTTPException(400,'Invalid homepage sections')
     current=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
-    db.cms_versions.insert_one({'snapshot':current,'created_at':now(),'action':'before_publish'})
+    if not db.cms_versions.count_documents({},limit=1):  # very first tracked publish: keep how the page looked before it
+        db.cms_versions.insert_one({'snapshot':{k:v for k,v in current.items() if k not in ('key','updated_at')},'created_at':now()-timedelta(seconds=1),'action':'start','by_name':'','changes':['How the homepage looked before this history started']})
     if 'product_sort' in payload and payload['product_sort'] not in PRODUCT_SORTS: raise HTTPException(400,'Invalid product order')
     if 'tracking' in payload:
         t=payload['tracking'] if isinstance(payload['tracking'],dict) else {}
@@ -1179,7 +1189,9 @@ def update_homepage(payload:dict,authorization: str|None=Header(None)):
     cleaned={k:v for k,v in payload.items() if k in allowed}
     cleaned['updated_at']=now()
     db.homepage.update_one({'key':'home'},{'$set':cleaned},upsert=True)
-    return {'ok':True}
+    from .cms_history import save_version
+    ch=save_version(current,db.homepage.find_one({'key':'home'},{'_id':0}) or {},actor)  # who published + what changed (nothing changed = no new version)
+    return {'ok':True,'changes':ch}
 
 
 @app.put('/api/v1/admin/settings/commerce')

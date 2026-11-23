@@ -4,12 +4,13 @@ import {api,uploadMedia} from '@/lib/api';
 import Shell from '@/components/Shell';
 import {SectionsEditor,ExtrasEditor,normalizeSections} from '@/components/BuilderExtras';
 import BrandingEditor from '@/components/BrandingEditor';
+import VersionHistory from '@/components/VersionHistory';
 
 type Notice={kind:'success'|'error'|'info';text:string};
 const validUrl=(s:unknown)=>typeof s==='string'&&/^https:\/\/[^\s]+$/i.test(s);
 const DEFAULT={hero:{title:'Smart Gadgets. Smarter Living.',subtitle:'Discover smart eyewear, sunglasses and frames.',cta:'Shop Now',image:'',fit_mode:'contain'},promo:{title:'New Collection',subtitle:'Fresh arrivals from EMXIN',cta:'Explore Collection',image:''},sections:[],branding:{},links:{},policies:{}};
 export default function HomepageBuilder(){
- const [data,setData]=useState<any>(DEFAULT),[notice,setNotice]=useState<Notice|null>(null),[busy,setBusy]=useState(false),[uploading,setUploading]=useState<string|null>(null),[versions,setVersions]=useState<any[]>([]),[tab,setTab]=useState<'hero'|'promo'|'pages'|'sections'|'branding'|'extras'>('hero');
+ const [data,setData]=useState<any>(DEFAULT),[notice,setNotice]=useState<Notice|null>(null),[busy,setBusy]=useState(false),[uploading,setUploading]=useState<string|null>(null),[versions,setVersions]=useState<any[]>([]),[keepDays,setKeepDays]=useState(7),[tab,setTab]=useState<'hero'|'promo'|'pages'|'sections'|'branding'|'extras'>('hero');
  const [localPreview,setLocalPreview]=useState<Record<string,string>>({});const inputRefs=useRef<Record<string,HTMLInputElement|null>>({});
  const notify=(kind:Notice['kind'],text:string)=>setNotice({kind,text});
  const change=(section:string,key:string,value:any)=>setData((old:any)=>({...old,[section]:{...(old[section]||{}),[key]:value}}));
@@ -17,7 +18,7 @@ export default function HomepageBuilder(){
  useEffect(()=>{ // ?tab=… opens that tab, #seo scrolls to it; also when a sidebar sub-link is clicked while already on this page
   const read=()=>{const t=new URLSearchParams(location.search).get('tab');if(t&&['hero','promo','pages','sections','branding','extras'].includes(t))setTab(t as any);if(location.hash)setTimeout(()=>document.getElementById(location.hash.slice(1))?.scrollIntoView({behavior:'smooth',block:'start'}),400)};
   read();window.addEventListener('admin:nav',read);return()=>window.removeEventListener('admin:nav',read)},[]);
- useEffect(()=>{refresh().catch(e=>notify('error',`Unable to load saved homepage: ${e.message}`));},[]);
+ useEffect(()=>{refresh().catch(e=>notify('error',`Unable to load saved homepage: ${e.message}`));loadVersions();},[]);
  useEffect(()=>()=>{Object.values(localPreview).forEach(url=>URL.revokeObjectURL(url));},[localPreview]);
  async function upload(section:'hero'|'promo'|'branding',file:File){
   if(!file.type.startsWith('image/')){notify('error','Choose a PNG, JPG, WebP or SVG image.');return;}
@@ -34,10 +35,12 @@ export default function HomepageBuilder(){
   for(const key of ['hero','promo'])if(data[key]?.image&&!validUrl(data[key].image))throw Error(`${key} image URL is invalid. Upload the image again.`);
   const response=await api('/admin/cms/homepage',{method:'PUT',body:JSON.stringify(data)});if(!response?.ok)throw Error('CMS did not confirm the publish.');
   const saved=await api('/admin/cms');if((saved.homepage?.hero?.image||'')!==(data.hero?.image||''))throw Error('Saved hero image differs from published image.');
-  notify('success','Homepage published successfully. Open the storefront to see your changes.');
+  notify('success',response.changes?.length?`Published: ${response.changes.join(' · ')}`:'Published. Nothing had changed, so no new version was saved.');loadVersions();
  }catch(e:any){notify('error',e.message||'Publish failed.');}finally{setBusy(false);}}
- async function loadVersions(){try{const list=await api('/admin/cms/versions');setVersions(Array.isArray(list)?list:[]);}catch(e:any){notify('error',e.message);}}
- async function restore(id:string){if(!window.confirm('Restore this homepage version?'))return;try{await api('/admin/cms/restore/'+id,{method:'POST'});await refresh();notify('success','Version restored. Refresh the storefront to review.');}catch(e:any){notify('error',e.message);}}
+ async function loadVersions(){try{const r=await api('/admin/cms/versions');setVersions(Array.isArray(r)?r:r?.rows||[]);if(r?.keep_days)setKeepDays(r.keep_days);}catch(e:any){notify('error',e.message);}}
+ async function restore(v:any){const when=new Date(v.created_at).toLocaleString('en-GB',{timeZone:'Asia/Dhaka',day:'numeric',month:'short',hour:'numeric',minute:'2-digit',hour12:true});
+  if(!window.confirm(`Put the homepage back to the version of ${when}${v.by_name?' by '+v.by_name:''}?\n\nThis goes live right away. The current version stays in the history, so you can undo it.`))return;
+  try{const r=await api('/admin/cms/restore/'+v._id,{method:'POST'});await refresh();loadVersions();notify('success',`Version of ${when} is live again${r?.changes?.length?' ('+r.changes.join(' · ')+')':''}.`);}catch(e:any){notify('error',e.message);}}
  function media(section:'hero'|'promo'|'branding'){
   const url=section==='branding'?data.branding?.logo_url:data[section]?.image;const preview=localPreview[section]||url;
   return <div className="em-media"><div className="em-media-preview">{preview?<img key={preview} src={preview} alt={`${section} preview`} onError={()=>notify('error','Image could not load from CloudFront. Check the URL and access permissions.')}/>:<div className="em-empty">No image uploaded yet<br/><small>Select a file from your computer</small></div>}</div><div className="em-media-actions"><input ref={el=>{inputRefs.current[section]=el;}} className="em-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={e=>{const f=e.target.files?.[0];if(f)upload(section,f);e.target.value='';}}/><button className="btn" disabled={!!uploading||busy} onClick={()=>inputRefs.current[section]?.click()}>{uploading===section?'Uploading…':preview?'Replace image':'Upload image'}</button><span className="muted">Automatic S3 upload & CloudFront URL. No link copying.</span></div></div>;
@@ -52,5 +55,5 @@ export default function HomepageBuilder(){
  {tab==='sections'&&<SectionsEditor data={data} setData={setData}/>}
  {tab==='extras'&&<ExtrasEditor data={data} setData={setData}/>}
  <div className="em-footer-actions"><button className="btn" disabled={busy||!!uploading} onClick={publish}>{busy?'Publishing…':'Publish Homepage'}</button><a href={process.env.NEXT_PUBLIC_STORE_URL||"https://tech.emxin.com"} target="_blank" rel="noopener noreferrer">Open storefront ↗</a></div>
- <section className="panel em-history"><div className="em-history-heading"><h2>Version history</h2><button className="btn gray" onClick={loadVersions}>Refresh versions</button></div>{versions.map(v=><div className="em-section" key={v._id}><span>{new Date(v.created_at).toLocaleString()} · {v.action}</span><button onClick={()=>restore(v._id)}>Restore</button></div>)}</section></div></Shell>;
+ <VersionHistory rows={versions} keepDays={keepDays} onRefresh={loadVersions} onRestore={restore}/></div></Shell>;
 }

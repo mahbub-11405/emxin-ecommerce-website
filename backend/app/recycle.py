@@ -16,7 +16,7 @@ from .admin_ext import audit, recompute_rating
 router = APIRouter()
 BIN_ROLES = ('super_admin', 'admin')
 KIND_LABEL = {'order': 'Order', 'product': 'Product', 'category': 'Category', 'brand': 'Brand', 'coupon': 'Coupon',
-              'review': 'Review', 'media': 'Media file', 'dealer': 'Dealer'}
+              'review': 'Review', 'media': 'Media file', 'dealer': 'Dealer', 'cms_version': 'Homepage version'}
 SECRET_FIELDS = ('password_hash',)  # kept in the bin for a perfect restore, never sent to the browser
 
 
@@ -154,6 +154,9 @@ def restore_entry(e: dict, actor: dict):
     doc = e['doc']
     if db[coll].find_one({'_id': doc['_id']}, {'_id': 1}):
         raise HTTPException(409, f"“{e.get('label')}” already exists again — nothing to restore")
+    if e['kind'] == 'cms_version':  # back in Homepage Builder → Version history for 7 more days (not moved straight back to the bin)
+        from datetime import timedelta
+        doc = {**doc, 'keep_until': now() + timedelta(days=7)}
     try:
         db[coll].insert_one(doc)
     except DuplicateKeyError:

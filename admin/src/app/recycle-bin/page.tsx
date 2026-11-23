@@ -5,8 +5,8 @@ import Icon from '@/components/Icon';
 import {PageHead,Tabs,Empty,Loading,toast,askDelete,Drawer} from '@/components/ui';
 import {api,postJSON,dt,tk} from '@/lib/api';
 
-const KINDS:[string,string][]=[['','All'],['order','Orders'],['product','Products'],['category','Categories'],['brand','Brands'],['coupon','Coupons'],['review','Reviews'],['media','Media'],['dealer','Dealers']];
-const WHERE:Record<string,string>={order:'Orders',product:'Products',category:'Categories',brand:'Brands',coupon:'Coupons',review:'Reviews & Q&A',media:'Media Library',dealer:'Dealers'};
+const KINDS:[string,string][]=[['','All'],['order','Orders'],['product','Products'],['category','Categories'],['brand','Brands'],['coupon','Coupons'],['review','Reviews'],['media','Media'],['dealer','Dealers'],['cms_version','Homepage versions']];
+const WHERE:Record<string,string>={order:'Orders',product:'Products',category:'Categories',brand:'Brands',coupon:'Coupons',review:'Reviews & Q&A',media:'Media Library',dealer:'Dealers',cms_version:'Homepage Builder → Version history (kept 7 more days)'};
 
 function Peek({id}:{id:string}){
   const[d,setD]=useState<any>(null);
