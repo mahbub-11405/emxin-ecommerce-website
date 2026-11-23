@@ -28,6 +28,7 @@ EVENTS = {  # key: (label in admin, on by default)
     'low_stock': ('Low stock after an order', True),
     'dealer_applied': ('New dealer application', True),
     'quantity_request': ('Quantity request (20+ pcs)', True),
+    'checkout_abandoned': ('Left checkout without ordering (call them)', True),
     'review': ('New review to approve', False),
     'question': ('New product question', False),
 }
@@ -181,6 +182,13 @@ def quantity_request(q: dict):
     text = (f"📋 <b>Quantity request: {e(q.get('product_name'))} × {q.get('total_quantity')} pcs</b>\n{e(q.get('name'))} · <code>{e(q.get('phone'))}</code>"
             + (f"\nShop: {e(q.get('shop_name'))}" if q.get('shop_name') else ''))
     notify('quantity_request', f"qr-{q.get('_id')}", text, admin_link('/quantity-requests'), 'Open requests')
+
+
+def checkout_abandoned(d: dict):
+    items = '\n'.join(f"• {e(i.get('name'))} × {i.get('quantity')} — {tk((i.get('unit_price') or 0) * (i.get('quantity') or 0))}" for i in (d.get('items') or [])[:6])
+    text = (f"🛒⏳ <b>Left checkout without ordering</b>\n{e(d.get('name') or 'No name')} · <code>{e(d.get('phone'))}</code>{(' · ' + e(d.get('district'))) if d.get('district') else ''}\n\n"
+            f"{items}\n\nCart {tk(d.get('total'))} · call them to help finish the order")
+    notify('checkout_abandoned', f"abandoned-{d.get('_id')}", text, admin_link('/abandoned'), 'Open list')
 
 
 def review(r: dict):

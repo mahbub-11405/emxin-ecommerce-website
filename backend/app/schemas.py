@@ -34,7 +34,7 @@ class CustomerRegister(BaseModel):
 class OTPRequest(BaseModel): phone: str; purpose: Literal['customer_register','dealer_register','login']='customer_register'; language: Literal['en','bn']='bn'
 class OTPVerify(BaseModel): phone: str; purpose: Literal['customer_register','dealer_register','login']='customer_register'; code: str=Field(min_length=4,max_length=8)
 class AnalyticsEvent(BaseModel):
-    event_type: Literal['page_view','product_view','wishlist','add_to_cart','checkout_started','quantity_request','dealer_interest']
+    event_type: Literal['page_view','product_view','wishlist','add_to_cart','checkout_started','checkout_details','checkout_submitted','otp_sent','otp_verified','quantity_request','dealer_interest']
     session_id: str; path: str=''; product_id: Optional[str]=None; product_name: Optional[str]=None; metadata: dict={}
 class ProductMedia(BaseModel):
     url: str

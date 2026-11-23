@@ -488,3 +488,12 @@ img{max-width:100%}.ico{flex:none}.muted{color:var(--muted)}.tiny{font-size:12px
 .tg-list li>span{display:flex;flex-direction:column;min-width:0}.tg-list li>span small{overflow-wrap:anywhere}
 .tg-list .good{color:#047857}.tg-list .bad{color:#b91c1c;overflow-wrap:anywhere}
 .tg-ev{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px 16px}
+
+/* Abandoned checkouts */
+.ab-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}.ab-kpis>div{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}.ab-kpis b{font-size:24px;display:block}.ab-kpis small{color:var(--muted)}
+.ab-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-top:14px}
+.ab-card{display:flex;flex-direction:column;gap:10px;min-width:0}
+.ab-top{display:flex;justify-content:space-between;gap:10px}.ab-top>div{display:flex;flex-direction:column;min-width:0}.ab-total{font-size:18px;white-space:nowrap}
+.ab-items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13.5px}.ab-items li{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding-bottom:4px}
+.ab-note{background:#fffbeb;border-radius:8px;padding:6px 10px;margin:0}.ab-act{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width:640px){.ab-kpis{grid-template-columns:repeat(2,1fr)}.ab-list{grid-template-columns:1fr}}

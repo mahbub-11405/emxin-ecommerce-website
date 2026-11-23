@@ -20,7 +20,7 @@ const NAV:Item[]=[
   {href:'/categories',label:'Categories',icon:'categories',roles:[...MGR,'inventory']},
   {href:'/media',label:'Media Library',icon:'upload',roles:[...MGR,'inventory','marketing']},
   {href:'/brands',label:'Brands',icon:'brands',roles:[...MGR,'inventory']},
-  {href:'/customers',label:'Customers',icon:'customers',roles:[...MGR,'sales','support','marketing'],children:[{href:'/customers',label:'Customers & CRM'},{href:'/quantity-requests',label:'Quantity Requests',roles:[...MGR,'sales','support','marketing']},{href:'/reviews',label:'Reviews & Q&A',roles:[...MGR,'support','marketing']}]},
+  {href:'/customers',label:'Customers',icon:'customers',roles:[...MGR,'sales','support','marketing'],children:[{href:'/customers',label:'Customers & CRM'},{href:'/abandoned',label:'Abandoned checkouts',roles:[...MGR,'sales','support','marketing']},{href:'/quantity-requests',label:'Quantity Requests',roles:[...MGR,'sales','support','marketing']},{href:'/reviews',label:'Reviews & Q&A',roles:[...MGR,'support','marketing']}]},
   {href:'/dealers',label:'Dealers',icon:'dealers',badge:'dealers_pending',roles:[...MGR,'sales']},
   {href:'/coupons',label:'Coupons',icon:'coupons',roles:[...MGR,'marketing']},
   {href:'/marketing',label:'Marketing',icon:'marketing',roles:[...MGR,'marketing']},
@@ -38,6 +38,8 @@ export default function Shell({children}:{children:React.ReactNode}){
   const[q,setQ]=useState('');const[res,setRes]=useState<any>(null);const[menu,setMenu]=useState(false);
   const searchRef=useRef<HTMLInputElement>(null);
   const signOut=()=>{if(!window.confirm('Log out of EMXIN Admin?'))return;try{localStorage.removeItem('admin_token')}catch{}router.push('/login')};
+  // this browser belongs to EMXIN staff: the store (same parent domain) leaves its visits out of the counts and Facebook ads data
+  useEffect(()=>{try{const h=location.hostname;const parent=h.startsWith('admin.')?h.slice(6):'';document.cookie=`emxin_staff=1; path=/; max-age=31536000; SameSite=Lax${parent?'; domain='+parent:''}${location.protocol==='https:'?'; Secure':''}`}catch{}},[]);
   useEffect(()=>{api('/admin/me').then(setMe).catch(()=>{});let q:any;const load=()=>api('/admin/counts').then(setCounts).catch(()=>{});const soon=()=>{clearTimeout(q);q=setTimeout(load,300)};load();startLive();const off=onLive(load,d=>d?.d,500);/* badges follow orders/payments live; the timer is only a fallback */const t=setInterval(()=>{if(liveState()!=='on')load()},60000);addEventListener('admin:changed',soon);addEventListener('focus',load);return()=>{off();clearInterval(t);clearTimeout(q);removeEventListener('admin:changed',soon);removeEventListener('focus',load)}},[]);
   useEffect(()=>{const g=NAV.find(n=>n.children?.some(c=>path.startsWith(c.href.split('?')[0])));if(g)setOpen(g.href);setMobile(false)},[path]);
   useEffect(()=>{const k=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();searchRef.current?.focus()}};addEventListener('keydown',k);return()=>removeEventListener('keydown',k)},[]);

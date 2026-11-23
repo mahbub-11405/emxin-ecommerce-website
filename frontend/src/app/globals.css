@@ -977,3 +977,14 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .rv-big img{max-width:100%;max-height:90vh;border-radius:12px}
 .rv-big button{position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;border:0;background:#fff;color:var(--navy);display:grid;place-items:center;cursor:pointer}
 .co-only{color:#1d4ed8;font-weight:600;font-size:12.5px}
+
+/* Checkout: confirm the mobile number by SMS code without leaving the page */
+.co-otp{max-width:420px}
+.co-otp-wait{display:flex;align-items:center;gap:10px;padding:18px 0;font-weight:600;color:var(--navy)}
+.co-otp-form{display:flex;flex-direction:column;gap:12px;margin:14px 0 6px}
+.co-otp-code{font-size:30px;letter-spacing:12px;text-align:center;font-weight:800;padding:12px 10px;border:2px solid var(--line);border-radius:14px;width:100%;font-variant-numeric:tabular-nums;color:var(--navy);background:#fff}
+.co-otp-code:focus{outline:0;border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.15)}
+.co-otp-links{display:flex;justify-content:space-between;gap:10px;margin:6px 0 10px}
+.linkish{border:0;background:none;padding:4px 0;color:#2563eb;font-weight:600;cursor:pointer;font-size:14px}.linkish:disabled{color:var(--muted);cursor:default}
+.co-otp-wait .spinner{width:22px;height:22px;border-width:3px;margin:0;flex:none}
+.co>*,.cart>*{min-width:0}  /* a long word inside must not make checkout wider than the phone */

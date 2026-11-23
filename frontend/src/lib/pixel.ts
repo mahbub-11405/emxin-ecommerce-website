@@ -1,8 +1,9 @@
 'use client';
 // Facebook / Meta Pixel events. Every call is a no-op when no Pixel ID is set in Admin (window.fbq is missing).
+import {isStaff} from './staff';
 declare global{interface Window{fbq?:any}}
 export function fbTrack(event:string,data:Record<string,any>={},eventID?:string){
-  try{if(typeof window!=='undefined'&&typeof window.fbq==='function')window.fbq('track',event,{currency:'BDT',...data},eventID?{eventID}:undefined)}catch{}
+  try{if(typeof window!=='undefined'&&typeof window.fbq==='function'&&!isStaff())window.fbq('track',event,{currency:'BDT',...data},eventID?{eventID}:undefined)}catch{}
 }
 const CLICK='emxin_fbclid';
 /** An ad click lands with ?fbclid=…; keep it so an order placed days later is still linked to that ad. */

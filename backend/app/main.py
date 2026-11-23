@@ -19,6 +19,7 @@ from .admin_ext import router as v2_router, release_stock
 from . import meta_capi
 from .clientip import real_ip
 from . import telegram as tg
+from . import abandoned
 from .media_optimize import queue_video, big_images, optimize_existing_images
 from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_dealer_reactivated, t_order_confirmed, t_payment_rejected, t_order_cancelled
 
@@ -45,6 +46,7 @@ class Speed:
 app.add_middleware(Speed)
 app.include_router(v2_router)
 app.include_router(tg.router)
+app.include_router(abandoned.router)
 from .courier import router as courier_router, steadfast_create, start_courier_sync
 app.include_router(courier_router)
 from .recycle import router as recycle_router
@@ -54,7 +56,7 @@ app.include_router(people_router)
 
 @app.on_event('startup')
 def startup():
-    client.admin.command('ping'); ensure_indexes(); start_sms_worker(); tg.start_worker(); start_courier_sync(); paystation_orders_to_cod(); migrate_people()
+    client.admin.command('ping'); ensure_indexes(); start_sms_worker(); tg.start_worker(); abandoned.start_worker(); start_courier_sync(); paystation_orders_to_cod(); migrate_people()
     if not db.admins.find_one({'email':settings.initial_admin_email.lower()}):
         db.admins.insert_one({'email':settings.initial_admin_email.lower(),'password_hash':hash_password(settings.initial_admin_password),'role':'super_admin','created_at':now()})
     if not db.settings.find_one({'key':'commerce'}):
@@ -729,6 +731,7 @@ async def create_order(body: OrderCreate, request: Request, background: Backgrou
     for i in body.items: db.products.update_one({'_id':ObjectId(i.product_id)},{'$inc':{'stock':-i.quantity,'reserved':i.quantity}})
     db.orders.insert_one(doc)
     tg.order_new(doc)  # Telegram alert to the team (queued; never slows the order)
+    abandoned.mark_converted(doc['phone'],order_id)
     took={}
     for i in body.items: took[i.product_id]=took.get(i.product_id,0)+i.quantity
     for pid,q in took.items(): tg.low_stock(pmap[pid],q)

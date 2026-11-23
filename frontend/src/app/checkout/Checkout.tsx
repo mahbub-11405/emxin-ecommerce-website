@@ -5,10 +5,11 @@ import Icon from '@/components/Icon';
 import PayMethods from '@/components/PayMethods';
 import {API,postJSON,priceOf} from '@/lib/api';
 import {readCart,writeCart} from '@/lib/cart';
-import {track} from '@/lib/tracking';
+import {track,sessionId} from '@/lib/tracking';
 import {fbTrack,fbIds} from '@/lib/pixel';
 import {DISTRICTS} from '@/lib/districts';
-import {getToken,logout,readDraft,saveDraft,DRAFT} from '@/lib/auth';
+import {getToken,logout,readDraft,saveDraft,DRAFT,validBD,localBD} from '@/lib/auth';
+import CheckoutOTP from './CheckoutOTP';
 import {getProfile} from '@/lib/profile';
 import QtyRule,{toCap,toBulk,qtyRuleStock} from '@/components/QtyRule';
 
@@ -26,7 +27,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const[f,setF]=useState({customer_name:'',phone:'',email:'',address:'',district:'Dhaka',shop_name:'',dealer_opt_in:false});
   const[me,setMe]=useState<any>(null);const[isDealer,setIsDealer]=useState(false);
   useEffect(()=>{setIsDealer(getProfile()?.dealer?.status==='Active')},[]);const[welcome,setWelcome]=useState(false);
-  const[state,setState]=useState<{kind:string;text?:string;order?:any}>({kind:'idle'});
+  const[state,setState]=useState<{kind:string;text?:string;order?:any}>({kind:'idle'});const[otp,setOtp]=useState(false);const detailsSent=useRef(false);
   const pct=Number(settings.digital_payment_discount_percent??2);
   useEffect(()=>{
     const list=productId?[{product_id:productId,quantity:initialQty,frame_color:initialColor}]:readCart();
@@ -39,6 +40,13 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
     if(ids.length)fetch(`${API}/products?ids=${ids.join(',')}`).then(r=>r.json()).then((a:any[])=>setById(Object.fromEntries(a.map(p=>[p._id,p])))).catch(()=>{});
     track('checkout_started',{product_id:productId||undefined,metadata:{items:list.length}});
   },[productId,initialQty,initialColor]);
+  // A valid mobile number typed: keep a small draft (name, number, district, products) so EMXIN can call if the order is not finished.
+  useEffect(()=>{if(!validBD(f.phone)||!items.length||otp||state.kind==='ok'||state.kind==='busy'||state.kind==='redirect')return;
+    const t=setTimeout(()=>{const tok=getToken();
+      if(!detailsSent.current){detailsSent.current=true;track('checkout_details')}
+      fetch(API+'/checkout/draft',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json',...(tok?{Authorization:'Bearer '+tok}:{})},
+        body:JSON.stringify({phone:localBD(f.phone),name:f.customer_name,district:f.district,session_id:sessionId(),items:items.map(i=>({product_id:i.product_id,quantity:i.quantity,frame_color:i.frame_color||''}))})}).catch(()=>{})},1500);
+    return()=>clearTimeout(t)},[f.phone,f.customer_name,f.district,items,state.kind,otp]);
   const changeQty=(k:number,q:number)=>setItems(list=>{const n=list.map((x,j)=>j===k?{...x,quantity:Math.max(1,q)}:x);if(!productId)writeCart(n);return n});
   const removeItem=(k:number)=>setItems(list=>{const n=list.filter((_,j)=>j!==k);if(!productId)writeCart(n);return n});
   const qty=items.reduce((n,x)=>n+x.quantity,0);
@@ -75,10 +83,14 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   async function go(e:React.FormEvent){
     e.preventDefault();
     const token=getToken();
-    if(!token){ // not registered / logged in yet → register, then come straight back here with everything filled in
-      saveDraft({f,pay,mp,coupon:cp?.code||coupon});
-      location.href='/login?tab=register&next='+encodeURIComponent(location.pathname+location.search);return;
+    track('checkout_submitted',{metadata:{guest:!token}});
+    if(!token){ // not logged in: confirm the number by SMS code right here (box on this page), then the order is placed
+      if(!validBD(f.phone)){setState({kind:'err',text:'Enter your mobile number as 01XXXXXXXXX (11 digits).'});return}
+      saveDraft({f,pay,mp,coupon:cp?.code||coupon});setState({kind:'idle'});setOtp(true);return;
     }
+    return placeOrder(token);
+  }
+  async function placeOrder(token:string){
     setState({kind:'busy'});
     try{
       const r=await postJSON('/orders',{...f,email:f.email||null,shop_name:f.shop_name||null,items,payment_method:pay,coupon_code:cp?.code||null,...fbIds(),event_source_url:location.href.slice(0,500),...(pay==='manual'?{manual_channel:mp.channel,trx_id:mp.trx_id,sender_number:mp.sender_number}:{})},token);
@@ -110,13 +122,13 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   if(state.kind==='redirect')return <div className="panel order-done"><span className="spinner"/><h2>Redirecting to secure payment…</h2><p className="muted">Complete the payment with bKash, Nagad, Rocket, Upay, card or internet banking on PayStation.</p></div>;
   if(!items.length)return <div className="empty-state panel"><Icon name="cart" size={40}/><h3>Your cart is empty</h3><Link className="btn" href="/shop">Browse products</Link></div>;
   const logged=!!me;
-  return <form className="co" onSubmit={go}>
+  return <><form className="co" onSubmit={go}>
     <div className="co-main">
       {welcome&&<p className="note-good big"><Icon name="checkCircle" size={18}/> Welcome{me?.name?`, ${me.name.split(' ')[0]}`:''}! Your account is ready and your details are filled in — review and place your order.</p>}
-      {!logged&&<div className="co-guest"><Icon name="user" size={20}/><span>New here? Fill in your details — we'll ask you to verify your mobile number with an OTP when you place the order. <Link href={'/login?next='+encodeURIComponent('/checkout?cart=1')} onClick={()=>saveDraft({f,pay,mp,coupon})}>Already registered? Log in</Link></span></div>}
+      {!logged&&<div className="co-guest"><Icon name="user" size={20}/><span>No account or password needed. Fill in your details and tap <b>Place Order</b>; we'll SMS a 6-digit code to confirm your number, right on this page.</span></div>}
       <section className="panel"><h2><span className="step">1</span>Delivery Details</h2><div className="grid-2">
         <label className="qr-field"><span>Full Name <em>*</em></span><input required value={f.customer_name} onChange={e=>setF({...f,customer_name:e.target.value})}/></label>
-        <label className="qr-field"><span>Mobile Number <em>*</em></span><input required type="tel" placeholder="017XXXXXXXX" value={f.phone} readOnly={logged} onChange={e=>setF({...f,phone:e.target.value})}/>{logged?<small className="muted">Verified account number</small>:<small className="muted">You'll verify this number by OTP</small>}</label>
+        <label className="qr-field"><span>Mobile Number <em>*</em></span><input required type="tel" placeholder="017XXXXXXXX" value={f.phone} readOnly={logged} onChange={e=>setF({...f,phone:e.target.value})}/>{logged?<small className="muted">Verified account number</small>:<small className="muted">We'll SMS a code to this number. If the order does not go through, EMXIN may call to help.</small>}</label>
         <label className="qr-field"><span>Email <small className="muted">(optional)</small></span><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
         <label className="qr-field"><span>District <em>*</em></span><select value={f.district} onChange={e=>setF({...f,district:e.target.value})}>{DISTRICTS.map(d=><option key={d}>{d}</option>)}</select></label>
         <label className="qr-field span-2"><span>Full Address <em>*</em></span><textarea required rows={2} value={f.address} onChange={e=>setF({...f,address:e.target.value})} placeholder="House, road, area, thana"/></label>
@@ -136,7 +148,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
             <label className="qr-field"><span>Transaction ID (TrxID) <em>*</em></span><input required value={mp.trx_id} onChange={e=>setMp({...mp,trx_id:e.target.value.toUpperCase().replace(/\s/g,'')})} placeholder="e.g. 9KX7A2B1QZ" autoComplete="off"/></label>
             <label className="qr-field"><span>Sent from ({chLabel} number) <em>*</em></span><input required type="tel" value={mp.sender_number} onChange={e=>setMp({...mp,sender_number:e.target.value})} placeholder="017XXXXXXXX"/></label>
           </div>
-          <small className="muted">Please send the exact amount. No separate save needed — the TrxID is sent with your order when you tap {logged?'Place Order':'Continue'} below{logged?'':' (it stays filled in while you verify your mobile)'}. EMXIN verifies it, then confirms your order and sends it to the courier.</small>
+          <small className="muted">Please send the exact amount. No separate save needed — the TrxID is sent with your order when you tap Place Order below{logged?'':' (it stays filled in while you confirm your number)'}. EMXIN verifies it, then confirms your order and sends it to the courier.</small>
         </div>}
         {psOn&&<label className={'pay-opt'+(pay==='paystation'?' on':'')}><input type="radio" name="pay" checked={pay==='paystation'} onChange={()=>setPay('paystation')}/><Icon name="lockCard" size={26}/><span><b>Digital Payment {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Secure checkout by PayStation</small><PayMethods small/></span><em className="save">SAVE {pct}%</em></label>}
         {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</b> with the <b>Advance Payment Discount</b>: {pct}% off the product price (not delivery) whenever you pay before delivery.</span></div>}
@@ -186,8 +198,11 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       {bulk&&<div className="sum-row"><span>Pay now (advance)</span><b>৳ {(quote?Math.round(quote.advance_required):est.adv).toLocaleString('en-IN')}</b></div>}
       {bulk&&!(quote?.bulk_discount>0)&&<p className="sum-check"><Icon name="checkCircle" size={16}/><span><b>Dealer / bulk discount</b> is added by EMXIN when your order is confirmed. You pay the advance now; the final price can only go down.</span></p>}
       {state.kind==='err'&&<p className="form-err" role="alert">{state.text}</p>}
-      <button className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<>Continue — verify mobile <Icon name="arrowRight" size={18}/></>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {sendAmt.toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
+      <button className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<><Icon name="check" size={19}/>Place Order · confirm by SMS code</>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {sendAmt.toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
       <p className="muted tiny">By placing this order you agree to our <Link href="/terms" target="_blank">Terms</Link>, including that EMXIN may <Link href="/terms#order-cancellation" target="_blank">cancel an order affected by a system error</Link> and refund any payment in full. Nothing is sent to the courier until EMXIN confirms your order.</p>
     </aside>
-  </form>;
+  </form>
+    {otp&&<CheckoutOTP phone={f.phone} name={f.customer_name} email={f.email} district={f.district} address={f.address} onClose={()=>setOtp(false)}
+      onDone={tok=>{setOtp(false);setWelcome(false);fetch(API+'/customers/me?lite=1',{headers:{Authorization:'Bearer '+tok}}).then(r=>r.ok?r.json():null).then(x=>x&&setMe(x)).catch(()=>{});placeOrder(tok)}}/>}
+  </>;
 }

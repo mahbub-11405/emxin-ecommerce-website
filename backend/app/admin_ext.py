@@ -286,7 +286,7 @@ _DASH_CACHE: dict = {}
 
 def _funnel(s, e):
     return {k: db.analytics_events.count_documents({'event_type': k, 'created_at': {'$gte': s, '$lt': e}})
-            for k in ('product_view', 'add_to_cart', 'checkout_started')}
+            for k in ('product_view', 'add_to_cart', 'checkout_started', 'checkout_details', 'checkout_submitted', 'otp_sent', 'otp_verified')}
 
 
 async def live_events(is_disconnected, tick=0.2, ping_every=15):
@@ -366,7 +366,8 @@ def dashboard_v2(range: str = 'today', start: str | None = None, end: str | None
         },
         'chart': {'labels': [bucket_label(k, bucket) for k in keys], 'visitors': cur['series']['visitors'], 'purchases': cur['series']['purchases']},
         'glance': {'visitors': cur['visitors'], 'product_views': funnel['product_view'], 'add_to_cart': funnel['add_to_cart'],
-                   'checkout_started': funnel['checkout_started'], 'orders_placed': cur['orders'], 'successful_purchases': cur['purchases']},
+                   'checkout_started': funnel['checkout_started'], 'checkout_details': funnel['checkout_details'], 'checkout_submitted': funnel['checkout_submitted'],
+                   'otp_sent': funnel['otp_sent'], 'otp_verified': funnel['otp_verified'], 'orders_placed': cur['orders'], 'successful_purchases': cur['purchases']},
         'payment_methods': {'total': sum(cur['methods'].values()), 'items': methods},
         'money': cur['money'],
         'customer_types': cur['customer_types'],
