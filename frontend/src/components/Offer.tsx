@@ -5,7 +5,9 @@ import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import Icon from './Icon';
 
-export type Featured={code:string;label:string;description?:string;min_order?:number;ends_at?:string|null;popup?:boolean};
+export type Featured={code:string;label:string;description?:string;min_order?:number;ends_at?:string|null;popup?:boolean;product_ids?:string[];products?:string[]};
+/** "on AIMB G2 Pro, TXK" for a coupon limited to some products ('' = every product). */
+export const onlyOn=(c:Featured)=>{const ids=c.product_ids||[];const n=c.products||[];if(!ids.length)return '';return ids.length<=2&&n.length===ids.length?'on '+n.join(' & '):`on ${ids.length} selected products`};
 const tk=(n:number)=>'৳ '+Math.round(n).toLocaleString('en-IN');
 
 function useCopy(){const[done,setDone]=useState(false);
@@ -28,7 +30,7 @@ export function OfferBar({c}:{c:Featured}){
   if(hide)return null;
   return <div className="offer-bar" role="region" aria-label="Current offer"><div className="wrap offer-row">
     <Icon name="percent" size={16} stroke={2.4}/>
-    <span className="offer-txt"><b>{c.label}</b>{c.description?<> · {c.description}</>:''}{(c.min_order||0)>1?<span className="offer-min"> · orders over {tk(c.min_order||0)}</span>:''}</span>
+    <span className="offer-txt"><b>{c.label}</b>{onlyOn(c)?<> {onlyOn(c)}</>:''}{c.description?<> · {c.description}</>:''}{(c.min_order||0)>1?<span className="offer-min"> · orders over {tk(c.min_order||0)}</span>:''}</span>
     <button type="button" className="offer-code" onClick={()=>copy(c.code)} aria-label={`Copy coupon code ${c.code}`}>{done?'Copied ✓':c.code}{!done&&<Icon name="copy" size={13}/>}</button>
     {ends&&<span className="offer-ends">{ends}</span>}
     <button type="button" className="offer-x" aria-label="Hide offer" onClick={()=>{setHide(true);try{sessionStorage.setItem('offer_bar_hidden',c.code)}catch{}}}>×</button>
@@ -53,6 +55,7 @@ export function OfferPopup({c}:{c:Featured}){
       <button type="button" className="offer-pop-x" aria-label="Close" onClick={()=>setOpen(false)}>×</button>
       <span className="offer-pop-tag">EXCLUSIVE OFFER</span>
       <h2 id="offer-pop-title">{c.label}</h2>
+      {onlyOn(c)&&<p className="offer-pop-desc"><b>{onlyOn(c).replace(/^on /,'Works on ')}</b></p>}
       {c.description&&<p className="offer-pop-desc">{c.description}</p>}
       <div className="offer-pop-code"><span>{c.code}</span><button type="button" className="btn btn-sm" onClick={()=>copy(c.code)}>{done?'Copied ✓':'Copy code'}</button></div>
       <small className="muted">{(c.min_order||0)>1?`On orders over ${tk(c.min_order||0)}. `:''}Paste it in the coupon box at checkout.{ends?` ${ends}.`:''}</small>

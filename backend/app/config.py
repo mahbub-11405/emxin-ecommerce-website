@@ -102,6 +102,7 @@ class Settings(BaseSettings):
     # Facebook / Meta ads: the Pixel ID can also be set in Admin → Homepage Builder; the Conversions API token stays only here
     meta_pixel_id: str = ''
     meta_capi_token: str = ''
+    telegram_bot_token: str = ''  # Telegram alerts for the team (from @BotFather). Server .env only.
     meta_test_event_code: str = ''  # from Events Manager → Test events; leave empty in normal use
 
     @property

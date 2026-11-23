@@ -27,7 +27,7 @@ const NAV:Item[]=[
   {href:'/homepage-builder',label:'CMS / Homepage',icon:'cms',roles:[...MGR,'marketing'],children:[{href:'/homepage-builder',label:'Homepage Builder'},{href:'/homepage-builder?tab=pages',label:'Policy Pages'},{href:'/homepage-builder?tab=extras#seo',label:'SEO & Facebook ads'}]},
   {href:'/reports',label:'Reports & Analytics',icon:'reports',roles:[...MGR,'sales','marketing'],children:[{href:'/reports',label:'Sales Reports'},{href:'/payments',label:'Payments',roles:[...MGR,'sales']},{href:'/ledger',label:'Ledger',roles:MGR}]},
   {href:'/recycle-bin',label:'Recycle Bin',icon:'trash',roles:MGR},
-  {href:'/settings',label:'Settings',icon:'settings',roles:MGR,children:[{href:'/settings',label:'Store Settings'},{href:'/staff',label:'Staff Accounts',roles:SA},{href:'/audit-log',label:'Audit Log',roles:SA}]},
+  {href:'/settings',label:'Settings',icon:'settings',roles:MGR,children:[{href:'/settings',label:'Store Settings'},{href:'/settings?tab=telegram',label:'Telegram alerts'},{href:'/staff',label:'Staff Accounts',roles:SA},{href:'/audit-log',label:'Audit Log',roles:SA}]},
 ];
 export const ROLE_LABEL:Record<string,string>={super_admin:'Super Admin',admin:'Admin',sales:'Sales',marketing:'Marketing',inventory:'Inventory',support:'Support'};
 // kept between pages: the sidebar, name and badges show instantly on every click (refreshed in the background)

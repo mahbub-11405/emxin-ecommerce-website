@@ -49,9 +49,12 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const overCap=!bulk?[...new Set(items.map(i=>i.product_id))].filter(id=>items.reduce((n,x)=>x.product_id===id?n+x.quantity:n,0)>cap):[];
   const qs=qtyRuleStock(items.filter(i=>byId[i.product_id]),byId,threshold,overCap);
   useEffect(()=>{if(bulk&&pay==='cod')setPay(chans.length?'manual':'paystation')},[bulk,pay]);
+  const cartParam=encodeURIComponent(items.map(i=>`${i.product_id}:${i.quantity}`).join(','));
   const est=useMemo(()=>{
     const sub=items.reduce((s,i)=>s+priceOf(byId[i.product_id])*i.quantity,0);
-    let c=0;if(cp){c=cp.type==='percentage'?sub*cp.value/100:cp.value;if(cp.max_discount)c=Math.min(c,cp.max_discount);c=Math.round(Math.min(c,sub))}
+    // a coupon for some products only is worked out on those products (the server quote below is the exact figure)
+    const base=cp?.product_ids?.length?items.reduce((s,i)=>cp.product_ids.includes(i.product_id)?s+priceOf(byId[i.product_id])*i.quantity:s,0):sub;
+    let c=0;if(cp){c=cp.type==='percentage'?base*cp.value/100:cp.value;if(cp.max_discount)c=Math.min(c,cp.max_discount);c=Math.round(Math.min(c,base))}
     const del=Number(f.district.toLowerCase()==='dhaka'?settings.dhaka_delivery_charge??70:settings.outside_dhaka_delivery_charge??130);
     const gross=sub-c+del;const saving=Math.round(sub*pct/100); // advance payment discount: on the products' actual price only (not lowered by a coupon, never on delivery)
     const total=pay!=='cod'?Math.round(gross-saving):Math.round(gross);
@@ -64,11 +67,11 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const acc=accs[mp.channel]||{};const chLabel=mp.channel==='nagad'?'Nagad':'bKash';
   const copy=(t:string)=>{try{navigator.clipboard?.writeText(t)}catch{}};
   const[offers,setOffers]=useState<any[]>([]);const[showOffers,setShowOffers]=useState(false);const[copied,setCopied]=useState('');
-  useEffect(()=>{if(!est.sub)return;const t=setTimeout(()=>fetch(`${API}/coupons/available?subtotal=${Math.round(est.sub)}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}}).then(r=>r.ok?r.json():[]).then(x=>setOffers(Array.isArray(x)?x:[])).catch(()=>{}),300);return()=>clearTimeout(t)},[est.sub]);
+  useEffect(()=>{if(!est.sub)return;const t=setTimeout(()=>fetch(`${API}/coupons/available?subtotal=${Math.round(est.sub)}&cart=${cartParam}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}}).then(r=>r.ok?r.json():[]).then(x=>setOffers(Array.isArray(x)?x:[])).catch(()=>{}),300);return()=>clearTimeout(t)},[est.sub,cartParam]);
   function removeCoupon(){setCp(null);setCoupon('');setCpMsg('Coupon removed.');try{const d=readDraft();if(d?.coupon){d.coupon='';saveDraft(d)}}catch{}}
   const useOffer=(code:string)=>{setCoupon(code);setShowOffers(false);applyCoupon(code)};
   const copyCode=(code:string)=>{try{navigator.clipboard?.writeText(code)}catch{}setCopied(code);setTimeout(()=>setCopied(''),1500)};
-  async function applyCoupon(code?:string){const c=(code??coupon).trim().toUpperCase();setCpMsg('');setCp(null);if(!c)return;try{const r=await fetch(`${API}/coupons/validate?code=${encodeURIComponent(c)}&subtotal=${est.sub}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}});const j=await r.json();if(!r.ok)throw new Error(j.detail);setCp(j);setCpMsg(`Coupon applied${j.description?': '+j.description:''}`)}catch(e:any){setCpMsg(e.message||'Invalid coupon')}}
+  async function applyCoupon(code?:string){const c=(code??coupon).trim().toUpperCase();setCpMsg('');setCp(null);if(!c)return;try{const r=await fetch(`${API}/coupons/validate?code=${encodeURIComponent(c)}&subtotal=${est.sub}&cart=${cartParam}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}});const j=await r.json();if(!r.ok)throw new Error(j.detail);setCp(j);const only=j.product_ids?.length?items.filter(i=>j.product_ids.includes(i.product_id)).map(i=>byId[i.product_id]?.name).filter(Boolean):[];setCpMsg(`Coupon applied${only.length&&only.length<new Set(items.map(i=>i.product_id)).size?' on '+[...new Set(only)].join(', ')+' only':''}${j.description?': '+j.description:''}`)}catch(e:any){setCpMsg(e.message||'Invalid coupon')}}
   async function go(e:React.FormEvent){
     e.preventDefault();
     const token=getToken();
@@ -160,7 +163,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       <Link className="co-editcart" href="/cart"><Icon name="cart" size={16}/>Edit cart · add more items<Icon name="arrowRight" size={15}/></Link>
       {!cp&&(()=>{const o=offers.find(x=>x.eligible);return o?<div className="co-offer-hint"><Icon name="percent" size={16} stroke={2.4}/><span>Offer for you: <b>{o.label}</b></span><button type="button" className="btn btn-sm" onClick={()=>useOffer(o.code)}>Apply {o.code}</button></div>:null})()}
       {cp?<div className="cp-on"><Icon name="percent" size={16} stroke={2.4}/><span><b>{cp.code||coupon}</b> applied{(quote?.coupon_discount??est.c)>0&&<> · you save <b>৳ {Math.round(quote?quote.coupon_discount:est.c).toLocaleString('en-IN')}</b></>}</span><button type="button" className="cp-x" onClick={removeCoupon} aria-label="Remove coupon"><Icon name="close" size={14}/>Remove</button></div>
-        :<div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={()=>applyCoupon()}>Apply</button></div>}{cpMsg&&<small className={cp?'qr-okline':'qr-warn'}>{cpMsg}</small>}
+        :<div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={()=>applyCoupon()}>Apply</button></div>}{cpMsg&&<small className={cp?'qr-okline':'qr-warn'}>{cpMsg}</small>}{cp?.product_ids?.length>0&&!items.some(i=>cp.product_ids.includes(i.product_id))&&<small className="qr-warn">Coupon {cp.code} does not work on the products now in your cart. Please remove it.</small>}
       {offers.length>0&&<button type="button" className="co-offers-btn" onClick={()=>setShowOffers(true)}><Icon name="percent" size={15} stroke={2.4}/>View available coupons<em>{offers.length}</em></button>}
       {showOffers&&<div className="co-modal" role="dialog" aria-modal="true" aria-labelledby="offers-title"><button type="button" className="co-modal-bg" aria-label="Close" onClick={()=>setShowOffers(false)}/>
         <div className="co-modal-box"><div className="co-modal-head"><h3 id="offers-title">Available coupons</h3><button type="button" className="co-x" aria-label="Close" onClick={()=>setShowOffers(false)}>×</button></div>
@@ -168,8 +171,9 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
           <div className="co-offer-list">{offers.map(o=><div key={o.code} className={'co-offer'+(o.eligible?'':' off')}>
             <div className="co-offer-top"><b>{o.label}</b></div>
             {o.description&&<p>{o.description}</p>}
+            {o.product_ids?.length>0&&<small className={o.fits_cart?'co-only':'co-short'}>{o.fits_cart?'Works on: ':'Not for the products in your cart. Works on: '}{(o.products||[]).join(', ')}{o.product_ids.length>(o.products||[]).length?'…':''}</small>}
             <small className="muted">{o.min_order>1?`Min. order ৳ ${Math.round(o.min_order).toLocaleString('en-IN')}`:'No minimum'}{o.ends_at?` · valid till ${new Date(new Date(o.ends_at).getTime()-1).toLocaleDateString('en-GB',{timeZone:'UTC'})}`:''}</small>
-            {!o.eligible&&<small className="co-short">Add ৳ {Math.round(o.short_by).toLocaleString('en-IN')} more to use this</small>}
+            {!o.eligible&&o.fits_cart!==false&&<small className="co-short">Add ৳ {Math.round(o.short_by).toLocaleString('en-IN')} more to use this</small>}
             <div className="co-offer-act"><span className="co-code">{o.code}</span><button type="button" className="btn btn-ghost btn-sm" onClick={()=>copyCode(o.code)}>{copied===o.code?'Copied ✓':'Copy'}</button><button type="button" className="btn btn-sm" disabled={!o.eligible} onClick={()=>useOffer(o.code)}>Apply</button></div>
           </div>)}</div></div></div>}
       <div className="sum-row"><span>Subtotal</span><span>৳ {est.sub.toLocaleString('en-IN')}</span></div>

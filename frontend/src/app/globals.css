@@ -976,3 +976,4 @@ main.container.section>.two>.panel h2,main.container.section>.two>div>h1{margin-
 .rv-big{position:fixed;inset:0;z-index:200;background:rgba(2,6,23,.85);display:grid;place-items:center;padding:16px;cursor:zoom-out}
 .rv-big img{max-width:100%;max-height:90vh;border-radius:12px}
 .rv-big button{position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;border:0;background:#fff;color:var(--navy);display:grid;place-items:center;cursor:pointer}
+.co-only{color:#1d4ed8;font-weight:600;font-size:12.5px}

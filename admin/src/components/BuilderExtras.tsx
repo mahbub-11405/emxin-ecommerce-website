@@ -1,5 +1,5 @@
 'use client';
-import {Field,Toggle,ImageInput} from './ui';
+import {Field,Toggle,ImageInput,NumInput} from './ui';
 export const SECTION_KEYS=['trust','categories','featured','smart_products','promo'];
 const LABEL:Record<string,string>={trust:'Trust row (delivery, payment, genuine, COD)',categories:'Shop by Category tiles',featured:'Featured Products / New Collection',smart_products:'Our Smart Products + Coming Soon card',promo:'“Experience the Future” promo banner'};
 const ALIAS:Record<string,string>={new_collection:'featured',best_sellers:'smart_products'};
@@ -17,10 +17,10 @@ export function SectionsEditor({data,setData}:{data:any;setData:(f:(v:any)=>any)
     {order.map((k,i)=><div className="em-section" key={k}><strong>{i+1}. {LABEL[k]}</strong><Toggle checked={!hidden.includes(k)} onChange={on=>setData((v:any)=>({...v,sections:order,hidden_sections:on?(v.hidden_sections||[]).filter((x:string)=>x!==k):[...(v.hidden_sections||[]),k]}))} label="Visible"/><button disabled={i===0} onClick={()=>mv(i,-1)}>↑</button><button disabled={i===order.length-1} onClick={()=>mv(i,1)}>↓</button></div>)}
     <h3 style={{marginTop:22}}>Section titles</h3><div className="fgrid">
       <Field label="Category section title"><input value={data.category_section?.title||''} placeholder="Shop by Category" onChange={e=>sub('category_section','title',e.target.value)}/></Field>
-      <Field label="Number of category tiles"><input type="number" min={1} max={6} value={data.category_section?.limit||3} onChange={e=>sub('category_section','limit',Number(e.target.value))}/></Field>
+      <Field label="Number of category tiles"><NumInput min={1} max={6} empty={3} value={data.category_section?.limit||3} onChange={n=>sub('category_section','limit',n)}/></Field>
       <Field label="Product order (homepage & shop)" hint="Manual uses each product's Sort order (Products → Display): 1 first, 2 second… Products left at 0 come after, cheapest first."><select value={data.product_sort||'price_asc'} onChange={e=>setData((v:any)=>({...v,product_sort:e.target.value}))}><option value="price_asc">Price: low → high</option><option value="price_desc">Price: high → low</option><option value="manual">Manual (Sort order)</option><option value="newest">Newest first</option></select></Field>
       <Field label="Featured section title"><input value={data.featured_section?.title||''} placeholder="Featured Products / New Collection" onChange={e=>sub('featured_section','title',e.target.value)}/></Field>
-      <Field label="Featured products shown"><input type="number" min={1} max={8} value={data.featured_section?.limit||4} onChange={e=>sub('featured_section','limit',Number(e.target.value))}/></Field>
+      <Field label="Featured products shown"><NumInput min={1} max={8} empty={4} value={data.featured_section?.limit||4} onChange={n=>sub('featured_section','limit',n)}/></Field>
       <Field label="Smart products title"><input value={data.smart_section?.title||''} placeholder="Our Smart Products" onChange={e=>sub('smart_section','title',e.target.value)}/></Field>
       <Field label="Smart products subtitle"><input value={data.smart_section?.subtitle||''} placeholder="Innovative gadgets for a smarter tomorrow." onChange={e=>sub('smart_section','subtitle',e.target.value)}/></Field>
     </div><p className="em-hint">Which products appear is controlled per product: tick <b>Featured on homepage</b> and set <b>Sort order</b> in Products.</p></section>;

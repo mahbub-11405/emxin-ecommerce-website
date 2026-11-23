@@ -7,6 +7,16 @@ def tk(x) -> float:
     which showed some discounts 1 taka short. Every line is rounded first, so the lines always add up to the total."""
     return float(math.floor(float(x)+0.5+1e-9))
 
+def coupon_applies(coupon, product_id) -> bool:
+    """A coupon with a product list works only on those products; an empty list means every product."""
+    ids=(coupon or {}).get('product_ids') or []
+    return not ids or str(product_id) in ids
+
+def coupon_base(coupon, items, products_by_id) -> float:
+    """Price of the cart lines the coupon works on (used for its minimum order)."""
+    return sum(float(products_by_id[i['product_id']].get('sale_price') or products_by_id[i['product_id']]['price'])*int(i['quantity'])
+               for i in items if i['product_id'] in products_by_id and coupon_applies(coupon,i['product_id']))
+
 def calculate(items, products_by_id, district: str, payment_method: str, coupon=None, db_settings=None):
     cfg=db_settings or {}
     bulk_threshold=int(cfg.get('bulk_threshold_qty',settings.bulk_threshold_qty))
@@ -21,23 +31,28 @@ def calculate(items, products_by_id, district: str, payment_method: str, coupon=
     is_bulk=qty>=bulk_threshold
     # dealer / bulk discount per line: a category can cap it ('fixed', e.g. power banks max 5%) or switch it off ('none')
     caps=cfg.get('category_dealer') or {}
-    bulk_discount_amount=0.0
-    if is_bulk and bulk_discount>0:
-        for it in items:
-            p=products_by_id[it['product_id']]; mode,cap=caps.get(p.get('category_slug'),('tiers',None))
+    bulk_discount_amount=0.0; coupon_lines=0.0  # coupon_lines: the products the coupon works on, after the dealer discount
+    for it in items:
+        p=products_by_id[it['product_id']]; line=float(p.get('sale_price') or p['price'])*int(it['quantity']); line_bulk=0.0
+        if is_bulk and bulk_discount>0:
+            mode,cap=caps.get(p.get('category_slug'),('tiers',None))
             pct=0.0 if mode=='none' else min(bulk_discount,float(cap)) if mode=='fixed' and cap is not None else bulk_discount
-            bulk_discount_amount+=float(p.get('sale_price') or p['price'])*int(it['quantity'])*pct/100
+            line_bulk=line*pct/100
+        bulk_discount_amount+=line_bulk
+        if coupon and coupon_applies(coupon,it['product_id']): coupon_lines+=line-line_bulk
     bulk_discount_amount=tk(bulk_discount_amount)
     after_bulk=subtotal-bulk_discount_amount
     coupon_discount=0.0
-    # A coupon is taken ONCE per order whatever the quantity, and also on bulk/dealer orders (on top of the dealer discount)
+    # A coupon is taken ONCE per order whatever the quantity, and also on bulk/dealer orders (on top of the dealer discount).
+    # A coupon limited to some products is worked out on those products only (e.g. not on power banks).
     if coupon:
+        base=min(coupon_lines,after_bulk)
         if coupon.get('type')=='percentage':
-            coupon_discount=after_bulk*float(coupon.get('value',0))/100
+            coupon_discount=base*float(coupon.get('value',0))/100
             cap=coupon.get('max_discount')
             if cap: coupon_discount=min(coupon_discount,float(cap))
         else: coupon_discount=float(coupon.get('value',0))
-        coupon_discount=tk(min(coupon_discount,after_bulk))
+        coupon_discount=tk(max(0.0,min(coupon_discount,base)))
     product_net=after_bulk-coupon_discount
     dhaka=(district or '').strip().lower() in ('dhaka','ঢাকা')
     delivery=float(cfg.get('dhaka_delivery_charge',settings.dhaka_delivery_charge) if dhaka else cfg.get('outside_dhaka_delivery_charge',settings.outside_dhaka_delivery_charge))

@@ -13,11 +13,12 @@ from .db import db, client, ensure_indexes
 from .helpers import serialize, now, slugify, next_product_codes, product_slug
 from .security import hash_password, verify_password, create_token, require_role, decode_token
 from .schemas import *
-from .pricing import calculate
+from .pricing import calculate, coupon_applies, coupon_base
 from .integrations import send_sms, sms_parts, PayStationClient, SteadfastClient, PathaoClient, IntegrationNotConfigured
 from .admin_ext import router as v2_router, release_stock
 from . import meta_capi
 from .clientip import real_ip
+from . import telegram as tg
 from .media_optimize import queue_video, big_images, optimize_existing_images
 from .notify import queue_sms, dispatch as sms_dispatch, start_worker as start_sms_worker, ensure_dealer_code, t_dealer_applied, t_dealer_approved, t_dealer_reactivated, t_order_confirmed, t_payment_rejected, t_order_cancelled
 
@@ -43,6 +44,7 @@ class Speed:
         await self.gz(scope,receive,timed)
 app.add_middleware(Speed)
 app.include_router(v2_router)
+app.include_router(tg.router)
 from .courier import router as courier_router, steadfast_create, start_courier_sync
 app.include_router(courier_router)
 from .recycle import router as recycle_router
@@ -52,7 +54,7 @@ app.include_router(people_router)
 
 @app.on_event('startup')
 def startup():
-    client.admin.command('ping'); ensure_indexes(); start_sms_worker(); start_courier_sync(); paystation_orders_to_cod(); migrate_people()
+    client.admin.command('ping'); ensure_indexes(); start_sms_worker(); tg.start_worker(); start_courier_sync(); paystation_orders_to_cod(); migrate_people()
     if not db.admins.find_one({'email':settings.initial_admin_email.lower()}):
         db.admins.insert_one({'email':settings.initial_admin_email.lower(),'password_hash':hash_password(settings.initial_admin_password),'role':'super_admin','created_at':now()})
     if not db.settings.find_one({'key':'commerce'}):
@@ -472,6 +474,7 @@ def customer_cancel(order_id:str,payload:dict|None=Body(None),authorization: str
          '$push':{'timeline':{'at':now(),'order_status':'Cancelled','note':'Cancelled by the customer'+(f': {reason}' if reason else ''),'role':'customer'}}})
     if not done: raise HTTPException(409,'EMXIN has just confirmed this order. Please message or call EMXIN to cancel it.')
     release_stock(done)  # no SMS: the customer did it themselves (saves SMS cost)
+    tg.order_cancelled(done,reason)
     return {'ok':True}
 
 @app.get('/api/v1/customers/me')
@@ -514,6 +517,7 @@ def quantity_request(body: QuantityRequest):
     if total<1: raise HTTPException(400,'Required quantity must be at least 1')
     doc=body.model_dump(); doc.update({'phone':normalize_bd_phone(body.phone),'total_quantity':total,'product_name':p['name'],'status':'New','created_at':now()})
     result=db.quantity_requests.insert_one(doc)
+    tg.quantity_request({**doc,'_id':result.inserted_id})
     if body.dealer_opt_in:
         db.dealer_leads.update_one({'phone':body.phone},{'$set':{'name':body.name,'shop_name':body.shop_name,'phone':body.phone,'email':body.email,'status':'Pending','source':'quantity_request','updated_at':now()}},upsert=True)
     return {'request_id':str(result.inserted_id),'status':'New'}
@@ -536,6 +540,7 @@ def dealer_apply(body: DealerApply):
         dealer_id=str(db.dealers.insert_one(doc).inserted_id)
     link_dealer(db.dealers.find_one({'_id':ObjectId(dealer_id)}))  # one person = one account: they can log in on the website with this number
     queue_sms(f'dealer-applied-{dealer_id}'+(f'-{n}' if n>1 else ''),phone,t_dealer_applied(),'dealer')
+    tg.dealer_applied(db.dealers.find_one({'_id':ObjectId(dealer_id)}) or {},n>1)
     return {'dealer_id':dealer_id,'status':'Pending','reapplied':n>1,'sms_queued':True}
 
 @app.post('/api/v1/dealers/login')
@@ -645,6 +650,7 @@ def resubmit_manual_payment(order_id:str,body:ManualPaymentSubmit,authorization:
     st='Awaiting Advance Verification' if pricing.get('is_bulk') else 'Awaiting Verification'
     db.orders.update_one({'_id':o['_id']},{'$set':{'manual_payment':mp,'payment_channel':mp['channel'],'payment_status':st,'updated_at':now()},
         '$push':{'timeline':{'at':now(),'payment_status':st,'note':f"Customer re-sent {mp['channel_label']} TrxID {mp['trx_id']}",'role':'customer'}}})
+    tg.payment_trx({**o,'manual_payment':mp})
     return {'ok':True,'payment_status':st}
 
 @app.post('/api/v1/admin/orders/{order_id}/manual-payment')
@@ -694,7 +700,8 @@ async def create_order(body: OrderCreate, request: Request, background: Backgrou
     if coupon and coupon.get('usage_limit') and db.orders.count_documents({'coupon_code':coupon['code'],'order_status':{'$nin':['Cancelled','Returned']}})>=coupon['usage_limit']: raise HTTPException(409,'Coupon usage limit reached')
     if coupon and coupon_used_up_by(coupon,body.phone,str(buyer['_id'])): raise HTTPException(409,f"You have already used coupon {coupon['code']}. Each customer can use it once.")
     if (why:=retail_qty_problem([x.model_dump() for x in body.items],commerce_settings())): raise HTTPException(400,why)
-    if coupon and coupon.get('min_order') and sum(float(pmap[i.product_id].get('sale_price') or pmap[i.product_id]['price'])*i.quantity for i in body.items)<float(coupon['min_order']): raise HTTPException(400,f"Minimum order ৳{coupon['min_order']} required for this coupon")
+    if coupon and not any(coupon_applies(coupon,i.product_id) for i in body.items): raise HTTPException(400,f"Coupon {coupon['code']} does not work on the products in your cart. Please remove it.")
+    if coupon and coupon.get('min_order') and coupon_base(coupon,[x.model_dump() for x in body.items],pmap)<float(coupon['min_order']): raise HTTPException(400,f"Minimum order ৳{coupon['min_order']:g} required for this coupon"+(' (on the products it works on)' if coupon.get('product_ids') else ''))
     dealer,cfg=order_pricing_cfg(body.phone,body.dealer_opt_in,sum(i.quantity for i in body.items))
     pricing=calculate([x.model_dump() for x in body.items],pmap,body.district,body.payment_method,coupon,cfg)
     pricing['dealer_discount_requires_approval']=bool(dealer and not dealer.get('discount_approved',False))
@@ -721,6 +728,10 @@ async def create_order(body: OrderCreate, request: Request, background: Backgrou
     # Reserve stock immediately for confirmed website intent; cancelled orders can release via admin action.
     for i in body.items: db.products.update_one({'_id':ObjectId(i.product_id)},{'$inc':{'stock':-i.quantity,'reserved':i.quantity}})
     db.orders.insert_one(doc)
+    tg.order_new(doc)  # Telegram alert to the team (queued; never slows the order)
+    took={}
+    for i in body.items: took[i.product_id]=took.get(i.product_id,0)+i.quantity
+    for pid,q in took.items(): tg.low_stock(pmap[pid],q)
     if customer:
         db.customers.update_one({'_id':customer['_id']},{'$inc':{'total_orders':1,'total_purchase':pricing['grand_total']},'$set':{'lead_status':'Converted','lead_priority':'Hot','last_active_at':now()}})
     db.customers.update_one({'_id':buyer['_id'],'address':{'$in':[None,'']}},{'$set':{'address':body.address,'district':body.district}})
@@ -772,6 +783,7 @@ async def verify_paystation(o):
             channel=channel if channel in ('bkash','nagad','rocket','upay') else ('card' if channel in ('visa','mastercard','amex','americanexpress') else 'paystation')
             r=db.orders.update_one({'_id':o['_id'],'payment_status':{'$nin':list(PAID_STATES)}},{'$set':{'payment_status':new_status,'payment_channel':channel,'paystation_trx_id':data.get('trx_id'),'paid_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'payment_status':new_status,'note':f"PayStation {data.get('payment_method','')} {data.get('trx_id','')} verified",'role':'system'}}})
             if r.modified_count:
+                tg.payment_online(o,paid_amount,str(data.get('payment_method') or ''))
                 db.ledger.insert_one({'order_id':o['order_id'],'type':'payment_received','amount':paid_amount,'payment_method':channel,'trx_id':data.get('trx_id'),'invoice_number':invoice,'note':'PayStation verified','created_at':now()})
                 db.payment_transactions.update_one({'trx_id':data.get('trx_id') or invoice},{'$setOnInsert':{'trx_id':data.get('trx_id') or invoice,'order_id':o['order_id'],'invoice_number':invoice,'amount':paid_amount,'method':data.get('payment_method'),'status':'success','payer':data.get('payer_mobile_no'),'created_at':now()}},upsert=True)
             return {'paid':True,'payment_status':new_status,'trx_id':data.get('trx_id'),'method':data.get('payment_method')}
@@ -896,6 +908,7 @@ def change_payment(order_id:str,body:PaymentChange,authorization: str|None=Heade
     delta=float(pricing['grand_total'])-old_total
     if delta and o.get('customer_id'): db.customers.update_one({'_id':ObjectId(o['customer_id'])},{'$inc':{'total_purchase':delta}})
     n=db.orders.find_one({'_id':o['_id']})
+    if n.get('payment_method')=='manual' and n.get('manual_payment'): tg.payment_trx(n)
     return {'ok':True,'order_id':order_id,'payment_method':n['payment_method'],'payment_status':n['payment_status'],'pricing':n['pricing'],'manual_payment':n.get('manual_payment')}
 
 @app.post('/api/v1/payments/paystation/ipn')

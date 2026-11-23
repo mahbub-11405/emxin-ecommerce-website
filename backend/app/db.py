@@ -77,6 +77,7 @@ def ensure_indexes():
     db.staff.create_index('email', unique=True)
 
     db.sms_outbox.create_index("event_key",unique=True)
+    db.tg_outbox.create_index("key",unique=True); db.tg_outbox.create_index([("status",1),("created_at",1)])
     db.reviews.create_index([("product_id",ASCENDING),("status",ASCENDING),("created_at",DESCENDING)])
     db.questions.create_index([("product_id",ASCENDING),("status",ASCENDING)])
     db.inventory_log.create_index([("product_id",ASCENDING),("created_at",DESCENDING)])

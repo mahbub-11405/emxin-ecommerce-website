@@ -72,6 +72,7 @@ class CouponInput(BaseModel):
     show_public: bool=True  # listed under “Available coupons” at checkout (off = secret code you share yourself)
     promote: bool=False      # featured on the website: offer bar on every page, product pages, cart & checkout
     promote_popup: bool=True # with promote: also a one-time welcome popup for new visitors
+    product_ids: list[str]=Field(default_factory=list,max_length=1000)  # empty = every product; otherwise the coupon works only on these
 class OrderStatusUpdate(BaseModel):
     order_status: Optional[Literal['Pending Confirmation','Confirmed','Processing','Sent to Courier','Delivered','Completed','Returned','Cancelled']]=None
     payment_status: Optional[Literal['Unpaid','Pending Payment','Pending Advance Payment','Advance Required','Awaiting Advance Verification','Advance Paid','Paid','COD Collected','Refunded','Failed']]=None

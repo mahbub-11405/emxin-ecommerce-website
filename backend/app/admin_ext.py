@@ -19,6 +19,7 @@ from pymongo.errors import DuplicateKeyError
 
 from .db import db, data_version, live_version
 from .helpers import now, serialize, slugify, next_product_codes
+from .pricing import coupon_applies, coupon_base
 from .security import require_role, decode_token
 from .schemas import (CategoryInput, BrandInput, CouponInput, OrderStatusUpdate,
                       ReviewInput, QuestionInput)
@@ -786,7 +787,32 @@ def coupon_doc(body: CouponInput):
     d['ends_at'] = parse_dt(d['ends_at'])
     if d['ends_at']:
         d['ends_at'] = d['ends_at'] + timedelta(days=1)
+    # only products that exist; empty = the coupon works on every product
+    want = list(dict.fromkeys(i for i in d.get('product_ids') or [] if ObjectId.is_valid(i)))
+    d['product_ids'] = [str(p['_id']) for p in db.products.find({'_id': {'$in': [ObjectId(i) for i in want]}}, {'_id': 1})] if want else []
     return d
+
+
+def parse_cart(cart: str) -> list:
+    """'id:qty,id:qty' from the checkout → [{'product_id', 'quantity'}]."""
+    out = []
+    for part in (cart or '').split(',')[:100]:
+        pid, _, q = part.partition(':')
+        if ObjectId.is_valid(pid.strip()):
+            try: out.append({'product_id': pid.strip(), 'quantity': max(1, min(1000, int(q or 1)))})
+            except ValueError: pass
+    return out
+
+
+def cart_products(items: list) -> dict:
+    ids = [ObjectId(i['product_id']) for i in items]
+    return {str(p['_id']): p for p in db.products.find({'_id': {'$in': ids}}, {'name': 1, 'price': 1, 'sale_price': 1})} if ids else {}
+
+
+def coupon_products(c) -> list:
+    ids = c.get('product_ids') or []
+    if not ids: return []
+    return [p['name'] for p in db.products.find({'_id': {'$in': [ObjectId(i) for i in ids if ObjectId.is_valid(i)]}}, {'name': 1}).limit(6)]
 
 
 @router.get('/api/v1/admin/coupons')
@@ -841,31 +867,45 @@ def delete_coupon(code: str, confirm: str = '', authorization: str | None = Head
 
 
 @router.get('/api/v1/coupons/validate')
-def validate_coupon(code: str, subtotal: float = 0, authorization: str | None = Header(None)):
+def validate_coupon(code: str, subtotal: float = 0, cart: str = '', authorization: str | None = Header(None)):
     c = db.coupons.find_one({'code': code.strip().upper(), 'active': True})
     n = now()
     if not c or (c.get('starts_at') and n < c['starts_at'].replace(tzinfo=timezone.utc)) or (c.get('ends_at') and n > c['ends_at'].replace(tzinfo=timezone.utc)):
         raise HTTPException(404, 'Coupon is invalid or expired')
     if c.get('usage_limit') and db.orders.count_documents({'coupon_code': c['code'], 'order_status': {'$nin': list(RELEASED_STATUSES)}}) >= c['usage_limit']:
         raise HTTPException(409, 'Coupon usage limit reached')
+    items = parse_cart(cart)
+    if items and c.get('product_ids'):
+        pm = cart_products(items)
+        items = [i for i in items if i['product_id'] in pm]
+        if not any(coupon_applies(c, i['product_id']) for i in items):
+            names = coupon_products(c)
+            raise HTTPException(400, f"Coupon {c['code']} does not work on the products in your cart." + (f" It works on: {', '.join(names)}{'…' if len(c['product_ids']) > len(names) else ''}." if names else ''))
+        subtotal = coupon_base(c, items, pm)
     if subtotal and subtotal < float(c.get('min_order') or 0):
-        raise HTTPException(400, f"Minimum order ৳{c.get('min_order')} required for this coupon")
+        raise HTTPException(400, f"Minimum order ৳{float(c.get('min_order')):g} required for this coupon" + (' (on the products it works on)' if c.get('product_ids') else ''))
     who = optional_customer(authorization)
     if who and customer_used(c, who['sub']):
         raise HTTPException(409, f"You have already used coupon {c['code']}. Each customer can use it once.")
     return {'code': c['code'], 'type': c['type'], 'value': c['value'], 'max_discount': c.get('max_discount'),
-            'min_order': c.get('min_order', 0), 'description': c.get('description', ''), 'allow_bulk': bool(c.get('allow_bulk'))}
+            'min_order': c.get('min_order', 0), 'description': c.get('description', ''), 'allow_bulk': bool(c.get('allow_bulk')),
+            'product_ids': c.get('product_ids') or [], 'products': coupon_products(c)}
 
 
-def coupon_public(c, subtotal: float = 0):
+def coupon_public(c, subtotal: float = 0, items: list | None = None):
     v = float(c['value']); cap = c.get('max_discount')
     label = (f"{v:g}% OFF" + (f" up to ৳{float(cap):,.0f}" if cap else '')) if c['type'] == 'percentage' else f"৳{v:,.0f} OFF"
     mo = float(c.get('min_order') or 0)
-    return {'code': c['code'], 'label': label, 'description': c.get('description', ''), 'min_order': mo,
+    fits = True
+    if items and c.get('product_ids'):  # a coupon for some products only: does the cart have any of them?
+        pm = cart_products(items)
+        fits = any(coupon_applies(c, i['product_id']) for i in items if i['product_id'] in pm)
+        subtotal = coupon_base(c, [i for i in items if i['product_id'] in pm], pm) if fits else subtotal
+    return {'product_ids': c.get('product_ids') or [], 'products': coupon_products(c), 'fits_cart': fits,'code': c['code'], 'label': label, 'description': c.get('description', ''), 'min_order': mo,
             # ends_at is stored as the start of the day AFTER the last valid day
             'ends_at': c['ends_at'].replace(tzinfo=timezone.utc).isoformat() if c.get('ends_at') else None,
             'allow_bulk': bool(c.get('allow_bulk')), 'popup': c.get('promote_popup', True) is not False,
-            'eligible': not subtotal or subtotal >= mo, 'short_by': max(0, mo - subtotal) if subtotal else 0}
+            'eligible': fits and (not subtotal or subtotal >= mo), 'short_by': max(0, mo - subtotal) if subtotal and fits else 0}
 
 
 def live_coupons(extra: dict):
@@ -887,10 +927,11 @@ def customer_used(c, customer_id: str) -> bool:
 
 
 @router.get('/api/v1/coupons/available')
-def available_coupons(subtotal: float = 0, authorization: str | None = Header(None)):
+def available_coupons(subtotal: float = 0, cart: str = '', authorization: str | None = Header(None)):
     """Coupons shown at checkout: active, in date, not used up, not secret, not already used by this customer."""
     who = optional_customer(authorization)
-    out = [coupon_public(c, subtotal) for c in live_coupons({}) if not (who and customer_used(c, who['sub']))][:20]
+    items = parse_cart(cart)
+    out = [coupon_public(c, subtotal, items) for c in live_coupons({}) if not (who and customer_used(c, who['sub']))][:20]
     out.sort(key=lambda x: (not x['eligible'], x['min_order']))
     return out
 
@@ -944,9 +985,11 @@ def submit_review(body: ReviewInput, authorization: str | None = Header(None)):
                                         'order_status': {'$in': ['Delivered', 'Completed']}}))
     # only photos this customer uploaded for this product through /reviews/photo
     photos = [u for u in dict.fromkeys(body.photos) if db.review_photos.find_one({'url': u, 'customer_id': ident['sub'], 'product_id': body.product_id})][:3]
-    db.reviews.insert_one({**body.model_dump(), 'photos': photos, 'product_name': p['name'], 'customer_id': ident['sub'],
+    rv = db.reviews.insert_one({**body.model_dump(), 'photos': photos, 'product_name': p['name'], 'customer_id': ident['sub'],
                            'customer_name': (c.get('name') or 'Customer').split(' ')[0], 'verified_purchase': verified,
                            'status': 'pending', 'created_at': now()})
+    from . import telegram as tg
+    tg.review(db.reviews.find_one({'_id': rv.inserted_id}) or {})
     return {'ok': True, 'status': 'pending', 'message': 'Thank you! Your review will appear after moderation.'}
 
 
@@ -962,8 +1005,10 @@ def ask_question(body: QuestionInput, authorization: str | None = Header(None)):
     p = db.products.find_one({'_id': to_oid(body.product_id, 'product id')})
     if not p:
         raise HTTPException(404, 'Product not found')
-    db.questions.insert_one({**body.model_dump(), 'product_name': p['name'], 'customer_id': ident['sub'] if ident else None,
-                             'status': 'pending', 'created_at': now()})
+    qd = {**body.model_dump(), 'product_name': p['name'], 'customer_id': ident['sub'] if ident else None, 'status': 'pending', 'created_at': now()}
+    qd['_id'] = db.questions.insert_one(qd).inserted_id
+    from . import telegram as tg
+    tg.question(qd)
     return {'ok': True, 'message': 'Question received. The answer will be published here.'}
 
 

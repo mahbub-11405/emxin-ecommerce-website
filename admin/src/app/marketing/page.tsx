@@ -7,7 +7,9 @@ import {api,postJSON,dt} from '@/lib/api';
 export default function Marketing(){
   const[d,setD]=useState<any>(null);const[box,setBox]=useState<any[]>([]);const[seg,setSeg]=useState('no_order');const[msg,setMsg]=useState('');const[busy,setBusy]=useState(false);
   const load=()=>{api('/admin/marketing/segments').then(setD).catch(e=>toast.err(e.message));api('/admin/sms/outbox').then(setBox).catch(()=>{})};useEffect(()=>{load()},[]);
-  const s=d?.segments?.find((x:any)=>x.key===seg);const parts=Math.ceil((msg.length+25)/(/[^\x00-\x7F]/.test(msg)?67:153))||1;
+  const s=d?.segments?.find((x:any)=>x.key===seg);// same rule as the phone network: 160 normal characters (70 for Bangla/emoji) fit in 1 SMS; longer ones split into 153 / 67
+    const full=msg+(/stop/i.test(msg)||msg.includes('বন্ধ')?'':' Reply STOP to opt out.');const gsm=/^[A-Za-z0-9 \r\n@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà^{}\\\[~\]|€]*$/.test(full);
+    const units=gsm?[...full].reduce((a,c)=>a+('^{}\\[~]|€'.includes(c)?2:1),0):[...full].length;const parts=units<=(gsm?160:70)?1:Math.ceil(units/(gsm?153:67));
   async function send(){if(!confirm(`Queue this SMS for ${s?.count||0} recipients? SMS credits will be used when you dispatch.`))return;setBusy(true);try{const r=await postJSON('/admin/marketing/campaigns',{segment:seg,message:msg});toast.ok(`${r.queued} messages queued`);setMsg('');load()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
   async function dispatch(){setBusy(true);try{const r=await postJSON('/admin/sms/dispatch',{});toast.ok(`Sent ${r.sent}, failed ${r.failed}`);load()}catch(e:any){toast.err(e.message)}finally{setBusy(false)}}
   return <Shell><PageHead title="Marketing" sub="SMS campaigns to customer segments via BulkSMSBD, plus the transactional SMS outbox."/>

@@ -34,6 +34,15 @@ export function Toaster(){const[list,setList]=useState<ToastT[]>([]);const[bx,se
       <button type="button" className="tn-x" aria-label="Dismiss" onClick={()=>drop(t.id)}><Icon name="close" size={15}/></button></div>
     :<div key={t.id} className={'toast '+t.kind}><Icon name={t.kind==='ok'?'checkCircle':'info'} size={18}/>{t.text}</div>)}</div><DeleteHost/></>}
 
+/** Number box that can be emptied while typing (a plain controlled number input snaps back to 0, so "6" could not become "5" on phones).
+ *  onChange gets a number only when the box holds one; leaving it empty puts back `empty` (default 0) when the box loses focus. */
+export function NumInput({value,onChange,empty=0,...rest}:{value:any;onChange:(n:number)=>void;empty?:number}&Omit<React.InputHTMLAttributes<HTMLInputElement>,'value'|'onChange'|'type'>){
+  const[txt,setTxt]=useState(value==null?'':String(value));
+  useEffect(()=>{setTxt(t=>t!==''&&Number(t)===Number(value)?t:value==null?'':String(value))},[value]);
+  return <input {...rest} type="number" inputMode="decimal" value={txt}
+    onChange={e=>{const t=e.target.value;setTxt(t);if(t!==''&&!isNaN(Number(t)))onChange(Number(t))}}
+    onBlur={e=>{if(txt===''||isNaN(Number(txt))){setTxt(String(empty));onChange(empty)}rest.onBlur?.(e)}}/>;
+}
 export function Field({label,hint,children,span}:{label:string;hint?:React.ReactNode;children:React.ReactNode;span?:boolean}){return <label className={'fld'+(span?' span':'')}><span>{label}</span>{children}{hint&&<small>{hint}</small>}</label>}
 export function Toggle({checked,onChange,label}:{checked:boolean;onChange:(v:boolean)=>void;label:string}){return <label className="tgl"><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/><i/><span>{label}</span></label>}
 

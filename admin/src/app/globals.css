@@ -438,3 +438,53 @@ img{max-width:100%}.ico{flex:none}.muted{color:var(--muted)}.tiny{font-size:12px
 .seo-prev p{margin:0;font-size:14px;line-height:1.55;color:#4d5156}
 .seo-rich{display:inline-block;margin-top:6px;font-size:13px;color:#4d5156}
 .seo-over{color:#dc2626;font-weight:600}
+
+/* Coupon: which products it works on */
+.cp-pick{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;background:#fbfcfe}
+.cp-pick-t{font-size:14px}
+.cp-pick-mode{display:flex;gap:8px;flex-wrap:wrap}
+.cp-pick-mode label{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;background:#fff;font-size:13.5px}
+.cp-pick-mode label.on{border-color:#2563eb;background:#eff6ff;color:#1d4ed8;font-weight:600}
+.cp-pick-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cp-pick-q{flex:1;min-width:160px;display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:10px;padding:0 10px;background:#fff}
+.cp-pick-q input{border:0!important;outline:0;box-shadow:none!important;flex:1;padding:8px 0;background:transparent}
+.cp-pick-n{font-size:12.5px;font-weight:700;color:#1d4ed8;background:#eff6ff;border-radius:99px;padding:4px 10px}.cp-pick-n.warn{color:#b45309;background:#fef3c7}
+.cp-pick-list{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:2px}
+.cp-pick-gh{display:flex;align-items:center;gap:8px;position:sticky;top:0;background:#fbfcfe;padding:4px 0;z-index:1}.cp-pick-gh b{font-size:13px}.cp-pick-gh .btn{margin-left:auto}
+.cp-pick-row{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;margin-top:6px}
+.cp-pick-row.on{border-color:#93c5fd;background:#f5f9ff}
+.cp-pick-row i{width:36px;height:36px;border-radius:8px;overflow:hidden;background:#f1f5f9;display:grid;place-items:center;flex:none;color:#94a3b8}.cp-pick-row img{width:100%;height:100%;object-fit:cover}
+.cp-pick-row span{flex:1;min-width:0;display:flex;flex-direction:column}.cp-pick-row span b{font-size:13.5px}.cp-pick-row span small{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cp-pick-row em{font-style:normal;font-size:13px;font-weight:600;white-space:nowrap}
+.cp-scope{display:inline-block;margin-top:3px;font-weight:600;color:#1d4ed8;background:#eff6ff;border-radius:6px;padding:1px 7px}
+
+/* ---- Phones: nothing may push the page wider than the screen ---- */
+.gsearch{min-width:0}.gsearch input{width:100%}
+.bar small{width:0;display:flex;justify-content:center;white-space:nowrap}  /* date labels under the sales bars must not widen the chart */
+@media (max-width:900px){
+  .top-right{gap:10px}
+  /* tables that are wider than the phone scroll sideways inside their card (before, the right columns - Edit / Delete - were cut off) */
+  .card.flush,.card .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .card.flush>.tbl{min-width:560px}
+  .tbl td.r.nowrap{position:sticky;right:0;background:#fff;box-shadow:-8px 0 10px -8px rgba(15,23,42,.18)}  /* action buttons stay visible at the right edge */
+  .tbl th.r:last-child{position:sticky;right:0;background:#fafbfc}
+}
+@media (max-width:900px){
+  .card:has(>table),.card:has(>.tbl){overflow-x:auto}
+  code{overflow-wrap:anywhere}
+}
+/* form grids: a long word (SKU, URL) must shrink/ellipsis instead of widening the drawer past the phone screen */
+.fgrid>*,.cp-pick,.cp-pick-g,.cp-pick-row{min-width:0}
+.drw-body{overflow-x:hidden}
+@media (max-width:640px){.cp-pick-mode label{flex:1 1 100%}}
+
+/* Settings → Telegram alerts */
+.tg{display:flex;flex-direction:column;gap:16px;padding-top:8px}
+.tg-box{border:1px solid var(--line);border-radius:14px;padding:16px;background:#fff;display:flex;flex-direction:column;gap:10px}
+.tg-box h3{margin:0;font-size:16px}.tg-box h4{margin:6px 0 0;font-size:14px}.tg-box ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;line-height:1.5}
+.tg-box.ok{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}.tg-box.warn{background:#fffbeb;border-color:#fde68a}.tg-box.bad{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+.tg-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tg-list li{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:0}
+.tg-list li>span{display:flex;flex-direction:column;min-width:0}.tg-list li>span small{overflow-wrap:anywhere}
+.tg-list .good{color:#047857}.tg-list .bad{color:#b91c1c;overflow-wrap:anywhere}
+.tg-ev{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px 16px}
