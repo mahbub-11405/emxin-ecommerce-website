@@ -7,6 +7,7 @@ class OrderItem(BaseModel):
     frame_color: str='Black'
 class OrderCreate(BaseModel):
     customer_name: str; phone: str; email: Optional[EmailStr]=None; address: str; district: str
+    thana: str=Field(default='',max_length=60)  # thana / upazila picked at checkout (the courier needs it)
     items: list[OrderItem]
     payment_method: Literal['cod','paystation','manual']='cod'
     # manual = bKash/Nagad Send Money to EMXIN's number; customer gives the TrxID, Admin verifies it
@@ -86,7 +87,7 @@ class QuestionInput(BaseModel):
 
 class PhoneRegister(BaseModel):
     name: str=Field(min_length=2,max_length=80); phone: str; verification_id: str
-    email: Optional[EmailStr]=None; district: Optional[str]=None; address: Optional[str]=None
+    email: Optional[EmailStr]=None; district: Optional[str]=None; address: Optional[str]=None; thana: Optional[str]=Field(default=None,max_length=60)
 class MediaOrganize(BaseModel):
     dry_run: bool=True
 

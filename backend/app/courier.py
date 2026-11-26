@@ -8,6 +8,9 @@ Webhook (set the callback URL + Bearer token in the Steadfast portal):
    delivery_charge, tracking_message, updated_at}
 """
 import re
+import hmac
+import json
+import hashlib
 import logging
 import httpx
 from bson import ObjectId
@@ -80,6 +83,22 @@ def tracking_url(o) -> str:
 
 
 # ------------------------------------------------------------ create
+def courier_address(o: dict) -> str:
+    """The address the courier gets: house / road / landmark, thana, district — a part already written in the address is not repeated."""
+    addr = re.sub(r'\s+', ' ', str(o.get('address') or '')).strip().strip(',')
+    th = re.sub(r'\s*\(.*?\)', '', str(o.get('thana') or '')).strip()  # "Bandar (Port)" → "Bandar"
+    d = str(o.get('district') or '').strip()
+    alias = {'chattogram': ('chittagong', 'ctg'), 'cumilla': ('comilla',), 'barishal': ('barisal',), 'bogura': ('bogra',), 'jashore': ('jessore',)}
+    low = addr.lower()
+    if th and th.lower() not in low: addr = f'{addr}, {th}'
+    names = (d.lower(),) + alias.get(d.lower(), ())
+    return addr if not d or any(n in addr.lower() for n in names) else f'{addr}, {d}'
+
+
+def item_description(o: dict) -> str:
+    return ', '.join(f"{i.get('name')} x{i.get('quantity')}" for i in (o.get('items') or []))[:200]
+
+
 async def steadfast_create(o: dict) -> dict:
     """Creates the Steadfast consignment and stores its IDs on the order. Raises on failure."""
     from .integrations import IntegrationNotConfigured
@@ -89,8 +108,9 @@ async def steadfast_create(o: dict) -> dict:
         raise IntegrationNotConfigured('Steadfast API key / secret key is missing')
     path = settings.steadfast_create_order_path or '/create_order'
     payload = {'invoice': o['order_id'], 'recipient_name': o['customer_name'], 'recipient_phone': '0' + re.sub(r'\D', '', o['phone'])[-10:],
-               'recipient_address': f"{o.get('address', '')}, {o.get('district', '')}".strip(', '),
-               'cod_amount': int(round(float((o.get('pricing') or {}).get('cod_due') or 0))), 'note': o.get('courier_note', '')}
+               'recipient_address': courier_address(o),
+               'cod_amount': int(round(float((o.get('pricing') or {}).get('cod_due') or 0))), 'note': (o.get('courier_note') or '')[:200],
+               'item_description': item_description(o)}
     async with httpx.AsyncClient(timeout=25) as c:
         r = await c.post(sf_base() + '/' + path.lstrip('/'), headers=sf_headers(), json=payload)
     r.raise_for_status()
@@ -134,7 +154,7 @@ def mark_delivered(o: dict, partial=False):
     return upd
 
 
-def record_event(o: dict, status: str | None, message: str = '', source: str = 'steadfast', extra: dict | None = None) -> bool:
+def record_event(o: dict, status: str | None, message: str = '', source: str = 'steadfast', extra: dict | None = None, alert: bool = True, payload: dict | None = None) -> bool:
     """Adds a courier event (status change and/or tracking message). Returns True when something new was stored."""
     status = norm_status(status) if status else (o.get('courier_status') or 'unknown')
     last = (o.get('courier_events') or [{}])[-1]
@@ -162,6 +182,9 @@ def record_event(o: dict, status: str | None, message: str = '', source: str = '
     if tl:
         push['timeline'] = tl
     db.orders.update_one({'_id': o['_id']}, {'$set': upd, '$push': push})
+    if alert:  # Telegram: delivered / problems (and, if switched on, every update)
+        from . import telegram as tg
+        tg.courier(status if status != o.get('courier_status') else None, o.get('courier_consignment_id'), message, o, {**(payload or {}), **(extra or {})})
     return True
 
 
@@ -199,22 +222,34 @@ async def sync_active(limit: int = 60) -> dict:
 
 # ------------------------------------------------------------ webhook
 @router.post('/api/v1/webhooks/steadfast')
-async def steadfast_webhook(request: Request, authorization: str | None = Header(None)):
-    secret = settings.steadfast_webhook_secret
-    if not secret or (authorization or '').replace('Bearer', '').strip() != secret:
+async def steadfast_webhook(request: Request, authorization: str | None = Header(None),
+                            x_signature: str | None = Header(None), idempotency_key: str | None = Header(None)):
+    secret = (settings.steadfast_webhook_secret or '').strip()
+    given = (authorization or '').removeprefix('Bearer').strip()
+    if not secret or not hmac.compare_digest(given.encode(), secret.encode()):
         raise HTTPException(401, 'Invalid token')
+    raw = await request.body()
+    # Steadfast also signs the raw body: X-Signature = HMAC-SHA256(body, auth token), hex
+    if x_signature and not hmac.compare_digest(x_signature.strip().lower(), hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()):
+        raise HTTPException(401, 'Invalid signature')
+    key = (idempotency_key or '').strip()[:120]
+    if key and db.courier_webhooks.find_one({'idempotency_key': key}, {'_id': 1}):
+        return {'status': 'success', 'message': 'Already received.'}  # a retry of an event we already stored
     try:
-        p = await request.json()
+        p = json.loads(raw or b'{}')
+        if not isinstance(p, dict): raise ValueError
     except Exception:
         raise HTTPException(400, 'Invalid JSON')
     cid, inv = str(p.get('consignment_id') or ''), str(p.get('invoice') or '')
     o = db.orders.find_one({'$or': [{'courier_consignment_id': cid}] + ([{'order_id': inv}] if inv else [])}) if (cid or inv) else None
-    db.courier_webhooks.insert_one({'courier': 'steadfast', 'payload': p, 'order_id': (o or {}).get('order_id'), 'received_at': now()})
-    if not o:
+    db.courier_webhooks.insert_one({'courier': 'steadfast', 'payload': p, 'idempotency_key': key or None, 'order_id': (o or {}).get('order_id'), 'received_at': now()})
+    if not o:  # a parcel booked by hand in the Steadfast portal: still tell the team on Telegram
+        from . import telegram as tg
+        tg.courier(norm_status(p.get('status')) if p.get('notification_type') == 'delivery_status' and p.get('status') else None, cid, p.get('tracking_message') or '', None, p)
         return {'status': 'success', 'message': 'Webhook received (order not found).'}
     status = p.get('status') if p.get('notification_type') == 'delivery_status' else None
     extra = {k: p[k] for k in ('cod_amount', 'delivery_charge') if p.get(k) is not None}
-    record_event(o, status, p.get('tracking_message') or '', 'steadfast_webhook', extra)
+    record_event(o, status, p.get('tracking_message') or '', 'steadfast_webhook', extra, payload=p)
     if p.get('delivery_charge') is not None:
         db.orders.update_one({'_id': o['_id']}, {'$set': {'courier_delivery_charge': p.get('delivery_charge')}})
     return {'status': 'success', 'message': 'Webhook received successfully.'}
@@ -223,7 +258,7 @@ async def steadfast_webhook(request: Request, authorization: str | None = Header
 # ------------------------------------------------------------ admin
 def shipment_row(o):
     p = o.get('pricing') or {}
-    return {'order_id': o['order_id'], 'customer_name': o.get('customer_name'), 'phone': o.get('phone'), 'district': o.get('district'),
+    return {'order_id': o['order_id'], 'customer_name': o.get('customer_name'), 'phone': o.get('phone'), 'district': o.get('district'), 'thana': o.get('thana'),
             'courier': o.get('courier'), 'courier_name': COURIER_NAMES.get(o.get('courier'), (o.get('courier') or '').title()),
             'consignment_id': o.get('courier_consignment_id'), 'tracking_code': o.get('courier_tracking_code'), 'tracking_url': tracking_url(o),
             'status': status_info(o.get('courier_status') or 'in_review'), 'order_status': o.get('order_status'),
@@ -293,6 +328,44 @@ async def courier_refresh(order_id: str, authorization: str | None = Header(None
         return await refresh_one(o)
     except httpx.HTTPError as e:
         raise HTTPException(502, f'Steadfast did not answer: {str(e)[:120]}')
+
+
+@router.post('/api/v1/admin/courier/orders/{order_id}/link')
+async def courier_link(order_id: str, payload: dict, authorization: str | None = Header(None)):
+    """An order whose parcel was booked by hand in the Steadfast portal: link it by the Steadfast parcel (consignment) ID,
+    so its status, delivery and COD now update by themselves like any other parcel."""
+    actor = allow(authorization, 'orders_write')
+    cid = re.sub(r'\D', '', str(payload.get('consignment_id') or ''))
+    if not 4 <= len(cid) <= 20:
+        raise HTTPException(400, 'Enter the Steadfast parcel ID (Consignment ID, numbers only)')
+    if not (settings.steadfast_enabled and settings.steadfast_api_key):
+        raise HTTPException(503, 'Steadfast API is not set up in the backend .env')
+    o = db.orders.find_one({'order_id': order_id})
+    if not o:
+        raise HTTPException(404, 'Order not found')
+    if o.get('order_status') in ('Cancelled', 'Returned'):
+        raise HTTPException(400, f"This order is {o['order_status']}")
+    if o.get('courier_consignment_id') and o['courier_consignment_id'] != cid:
+        raise HTTPException(409, f"This order is already linked to parcel {o['courier_consignment_id']}")
+    other = db.orders.find_one({'courier_consignment_id': cid, 'order_id': {'$ne': order_id}}, {'order_id': 1})
+    if other:
+        raise HTTPException(409, f"Parcel {cid} is already linked to order {other['order_id']}")
+    try:
+        st = await steadfast_status(cid)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f'Steadfast did not answer: {str(e)[:120]}')
+    if st == 'unknown':
+        raise HTTPException(400, f'Steadfast does not know parcel {cid}. Check the Consignment ID in the Steadfast portal.')
+    code = str(payload.get('tracking_code') or '').strip()[:40]
+    sent = o.get('order_status') not in ('Delivered', 'Completed')
+    db.orders.update_one({'_id': o['_id']}, {'$set': {'courier': 'steadfast', 'courier_consignment_id': cid, **({'courier_tracking_code': code} if code else {}),
+                                                     **({'order_status': 'Sent to Courier'} if sent else {}), 'courier_linked_by': actor.get('sub'), 'courier_linked_at': now(), 'updated_at': now()},
+                                            '$unset': {'courier_status': ''},
+                                            '$push': {'timeline': {'at': now(), **({'order_status': 'Sent to Courier'} if sent else {}), 'note': f'Linked to Steadfast parcel {cid} (booked in the Steadfast portal)'}}})
+    o = db.orders.find_one({'_id': o['_id']})
+    record_event(o, st, 'Linked to the parcel booked in Steadfast', 'linked', alert=False)  # delivered → marked delivered (COD counted once)
+    o = db.orders.find_one({'_id': o['_id']})
+    return {'ok': True, 'status': st, 'status_info': status_info(st), 'order_status': o.get('order_status')}
 
 
 @router.post('/api/v1/admin/courier/sync')

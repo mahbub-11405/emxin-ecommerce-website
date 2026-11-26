@@ -29,6 +29,9 @@ EVENTS = {  # key: (label in admin, on by default)
     'dealer_applied': ('New dealer application', True),
     'quantity_request': ('Quantity request (20+ pcs)', True),
     'checkout_abandoned': ('Left checkout without ordering (call them)', True),
+    'courier_delivered': ('Parcel delivered (Steadfast)', True),
+    'courier_problem': ('Parcel on hold / cancelled / returning (Steadfast)', True),
+    'courier_update': ('Every parcel update: picked up, on the way, rider notes (many messages)', False),
     'review': ('New review to approve', False),
     'question': ('New product question', False),
 }
@@ -189,6 +192,44 @@ def checkout_abandoned(d: dict):
     text = (f"🛒⏳ <b>Left checkout without ordering</b>\n{e(d.get('name') or 'No name')} · <code>{e(d.get('phone'))}</code>{(' · ' + e(d.get('district'))) if d.get('district') else ''}\n\n"
             f"{items}\n\nCart {tk(d.get('total'))} · call them to help finish the order")
     notify('checkout_abandoned', f"abandoned-{d.get('_id')}", text, admin_link('/abandoned'), 'Open list')
+
+
+# Steadfast status → (alert event, group used in the unique key, title). Pending-approval and final states share a group,
+# so "delivered (awaiting approval)" and "delivered" give ONE alert.
+COURIER = {
+    'delivered': ('courier_delivered', 'delivered', '✅ Delivered'), 'delivered_approval_pending': ('courier_delivered', 'delivered', '✅ Delivered'),
+    'partial_delivered': ('courier_delivered', 'partial', '🟡 Partly delivered'), 'partial_delivered_approval_pending': ('courier_delivered', 'partial', '🟡 Partly delivered'),
+    'cancelled': ('courier_problem', 'cancelled', '❌ Cancelled by courier · parcel comes back'), 'cancelled_approval_pending': ('courier_problem', 'cancelled', '❌ Cancelled by courier · parcel comes back'),
+    'hold': ('courier_problem', 'hold', '⏸️ On hold'), 'unknown': ('courier_problem', 'unknown', '❓ Unknown status'), 'unknown_approval_pending': ('courier_problem', 'unknown', '❓ Unknown status'),
+    'pending': ('courier_update', 'pending', '🚚 Picked up · on the way'), 'in_review': ('courier_update', 'in_review', '📝 Booked · in review'),
+}
+
+
+def courier(status: str | None, cid: str, message: str = '', o: dict | None = None, p: dict | None = None):
+    """A Steadfast parcel changed (webhook or the 30-minute check). o = the website order (None for a parcel booked by hand).
+    status None = only a new tracking message. Never raises."""
+    try:
+        import hashlib
+        p = p or {}; cid = str(cid or p.get('consignment_id') or '')
+        if status:
+            ev, grp, title = COURIER.get(status, ('courier_update', status, '🚚 ' + status.replace('_', ' ').capitalize()))
+            if grp == 'hold': grp = 'hold-' + now().strftime('%y%m%d')  # at most one hold alert a day
+        elif message:
+            ev, grp, title = 'courier_update', 'msg-' + hashlib.sha1(message.encode()).hexdigest()[:10], '💬 Courier note'
+        else: return
+        ref = o['order_id'] if o else (p.get('invoice') or f'parcel {cid}')
+        lines = [f"{title} · <b>{e(ref)}</b>"]
+        if o:
+            lines += [who(o), items_text(o, 4)]
+            cod = p.get('cod_amount') if p.get('cod_amount') is not None else (o.get('pricing') or {}).get('cod_due')
+        else:
+            lines.append(f"Steadfast parcel <code>{e(cid)}</code>{(' · invoice ' + e(p.get('invoice'))) if p.get('invoice') else ''} (booked in Steadfast, not linked to a website order)")
+            cod = p.get('cod_amount')
+        if cod is not None and ev == 'courier_delivered': lines.append(f"<b>COD collected {tk(cod)}</b>" + (f" · courier charge {tk(p.get('delivery_charge'))}" if p.get('delivery_charge') is not None else ''))
+        elif cod is not None: lines.append(f"COD {tk(cod)}")
+        if message: lines.append(f"📝 {e(message)[:400]}")
+        notify(ev, f"sf-{cid or ref}-{grp}", '\n'.join(lines), admin_link(f"/courier?open={o['order_id']}") if o else '', 'Open in Courier')
+    except Exception: log.exception('courier alert')
 
 
 def review(r: dict):

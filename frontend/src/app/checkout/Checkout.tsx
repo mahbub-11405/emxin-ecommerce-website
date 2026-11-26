@@ -7,13 +7,15 @@ import {API,postJSON,priceOf} from '@/lib/api';
 import {readCart,writeCart} from '@/lib/cart';
 import {track,sessionId} from '@/lib/tracking';
 import {fbTrack,fbIds} from '@/lib/pixel';
-import {DISTRICTS} from '@/lib/districts';
+import ThanaPicker from './ThanaPicker';
+import {deliveryDays,daysFor} from '@/lib/delivery';
 import {getToken,logout,readDraft,saveDraft,DRAFT,validBD,localBD} from '@/lib/auth';
 import CheckoutOTP from './CheckoutOTP';
 import {getProfile} from '@/lib/profile';
 import QtyRule,{toCap,toBulk,qtyRuleStock} from '@/components/QtyRule';
+import {waLink} from '@/lib/contact';
 
-export default function Checkout({productId,initialQty=1,initialColor='Black',settings={}}:{productId:string;initialQty?:number;initialColor?:string;settings?:any}){
+export default function Checkout({productId,initialQty=1,initialColor='Black',settings={},links={}}:{productId:string;initialQty?:number;initialColor?:string;settings?:any;links?:any}){
   const[items,setItems]=useState<{product_id:string;quantity:number;frame_color:string}[]>([]);
   const[byId,setById]=useState<Record<string,any>>({});
   const begun=useRef(false); // Facebook: InitiateCheckout once, when the products and prices are known
@@ -22,20 +24,25 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   // Payment options: PayStation only when it is switched on; bKash/Nagad Send Money when a number is saved in Admin → Settings.
   const psOn=!!settings.paystation_enabled;const accs=settings.payment_accounts||{};
   const chans=(['bkash','nagad'] as const).filter(k=>accs[k]?.enabled&&accs[k]?.number);
-  const[pay,setPay]=useState(psOn?'paystation':chans.length?'manual':'cod');
+  // Cash on Delivery first: a new visitor from Facebook trusts "pay when it arrives"; paying before is optional (with a small discount)
+  const[pay,setPay]=useState('cod');
   const[mp,setMp]=useState({channel:chans[0]||'bkash',trx_id:'',sender_number:''});const[quote,setQuote]=useState<any>(null);const[coupon,setCoupon]=useState('');const[cp,setCp]=useState<any>(null);const[cpMsg,setCpMsg]=useState('');
-  const[f,setF]=useState({customer_name:'',phone:'',email:'',address:'',district:'Dhaka',shop_name:'',dealer_opt_in:false});
+  const[f,setF]=useState({customer_name:'',phone:'',email:'',address:'',district:'Dhaka',thana:'',shop_name:'',dealer_opt_in:false});
   const[me,setMe]=useState<any>(null);const[isDealer,setIsDealer]=useState(false);
   useEffect(()=>{setIsDealer(getProfile()?.dealer?.status==='Active')},[]);const[welcome,setWelcome]=useState(false);
   const[state,setState]=useState<{kind:string;text?:string;order?:any}>({kind:'idle'});const[otp,setOtp]=useState(false);const detailsSent=useRef(false);
-  const pct=Number(settings.digital_payment_discount_percent??2);
+  const[showEmail,setShowEmail]=useState(false);const[other,setOther]=useState('');const autoCp=useRef(false);const cpRemoved=useRef(false);
+  const mainBtn=useRef<HTMLButtonElement>(null);const[mainSeen,setMainSeen]=useState(false);
+  useEffect(()=>{const b=mainBtn.current;if(!b||typeof IntersectionObserver==='undefined')return;const io=new IntersectionObserver(([e])=>setMainSeen(e.isIntersecting));io.observe(b);return()=>io.disconnect()});
+  const pct=Number(settings.digital_payment_discount_percent??2);const dd=deliveryDays(settings);
   useEffect(()=>{
     const list=productId?[{product_id:productId,quantity:initialQty,frame_color:initialColor}]:readCart();
     setItems(list);
     const d=readDraft();const token=getToken();
-    if(d){setF(v=>({...v,...d.f}));if(d.pay&&(d.pay!=='paystation'||psOn))setPay(d.pay);if(d.coupon){setCoupon(d.coupon);setTimeout(()=>applyCoupon(d.coupon),600)}if(d.mp)setMp(m=>({...m,...d.mp}));if(token){setWelcome(true);try{sessionStorage.removeItem(DRAFT)}catch{}}}
+    if(d){setF(v=>({...v,...d.f}));if(d.pay&&(d.pay!=='paystation'||psOn))setPay(d.pay);if(d.coupon){autoCp.current=true;setCoupon(d.coupon);setTimeout(()=>applyCoupon(d.coupon),600)}if(d.f?.email)setShowEmail(true);if(d.mp)setMp(m=>({...m,...d.mp}));if(token){setWelcome(true);try{sessionStorage.removeItem(DRAFT)}catch{}}}
     if(token)fetch(API+'/customers/me',{headers:{Authorization:'Bearer '+token}}).then(r=>{if(r.status===401){logout();return null}return r.ok?r.json():null}).then(x=>{if(!x?.customer)return;setMe(x.customer);
-      setF(v=>({...v,customer_name:v.customer_name||x.customer.name||'',phone:x.customer.phone||v.phone,email:v.email||x.customer.email||'',address:v.address||x.customer.address||'',district:d?.f?.district||x.customer.district||v.district}))}).catch(()=>{});
+      setF(v=>({...v,customer_name:v.customer_name||x.customer.name||'',phone:x.customer.phone||v.phone,email:v.email||x.customer.email||'',address:v.address||x.customer.address||'',district:d?.f?.district||x.customer.district||v.district,
+        ...(!v.thana&&x.customer.thana&&!d?.f?.thana?{thana:x.customer.thana,district:x.customer.district||v.district}:{})}))}).catch(()=>{});
     const ids=[...new Set(list.map(i=>i.product_id))];
     if(ids.length)fetch(`${API}/products?ids=${ids.join(',')}`).then(r=>r.json()).then((a:any[])=>setById(Object.fromEntries(a.map(p=>[p._id,p])))).catch(()=>{});
     track('checkout_started',{product_id:productId||undefined,metadata:{items:list.length}});
@@ -49,6 +56,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
     return()=>clearTimeout(t)},[f.phone,f.customer_name,f.district,items,state.kind,otp]);
   const changeQty=(k:number,q:number)=>setItems(list=>{const n=list.map((x,j)=>j===k?{...x,quantity:Math.max(1,q)}:x);if(!productId)writeCart(n);return n});
   const removeItem=(k:number)=>setItems(list=>{const n=list.filter((_,j)=>j!==k);if(!productId)writeCart(n);return n});
+  const thana=f.thana.trim();
   const qty=items.reduce((n,x)=>n+x.quantity,0);
   const threshold=Number(settings.bulk_threshold_qty||20);
   const bulk=qty>=threshold;
@@ -76,13 +84,19 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const copy=(t:string)=>{try{navigator.clipboard?.writeText(t)}catch{}};
   const[offers,setOffers]=useState<any[]>([]);const[showOffers,setShowOffers]=useState(false);const[copied,setCopied]=useState('');
   useEffect(()=>{if(!est.sub)return;const t=setTimeout(()=>fetch(`${API}/coupons/available?subtotal=${Math.round(est.sub)}&cart=${cartParam}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}}).then(r=>r.ok?r.json():[]).then(x=>setOffers(Array.isArray(x)?x:[])).catch(()=>{}),300);return()=>clearTimeout(t)},[est.sub,cartParam]);
-  function removeCoupon(){setCp(null);setCoupon('');setCpMsg('Coupon removed.');try{const d=readDraft();if(d?.coupon){d.coupon='';saveDraft(d)}}catch{}}
+  useEffect(()=>{if(autoCp.current||cpRemoved.current||cp||coupon.trim()||!offers.length||!est.sub)return;
+    const save=(o:any)=>{const base=o.product_ids?.length?items.reduce((s,i)=>o.product_ids.includes(i.product_id)?s+priceOf(byId[i.product_id])*i.quantity:s,0):est.sub;
+      let v=o.type==='percentage'?base*Number(o.value)/100:Number(o.value);if(o.max_discount)v=Math.min(v,Number(o.max_discount));return Math.min(v||0,base)};
+    const best=offers.filter(o=>o.eligible&&o.fits_cart!==false).map(o=>({o,v:save(o)})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v)[0];
+    if(!best)return;autoCp.current=true;setCoupon(best.o.code);applyCoupon(best.o.code,true)},[offers,est.sub,cp,coupon,items,byId]);
+  function removeCoupon(){cpRemoved.current=true;setCp(null);setCoupon('');setCpMsg('Coupon removed.');try{const d=readDraft();if(d?.coupon){d.coupon='';saveDraft(d)}}catch{}}
   const useOffer=(code:string)=>{setCoupon(code);setShowOffers(false);applyCoupon(code)};
   const copyCode=(code:string)=>{try{navigator.clipboard?.writeText(code)}catch{}setCopied(code);setTimeout(()=>setCopied(''),1500)};
-  async function applyCoupon(code?:string){const c=(code??coupon).trim().toUpperCase();setCpMsg('');setCp(null);if(!c)return;try{const r=await fetch(`${API}/coupons/validate?code=${encodeURIComponent(c)}&subtotal=${est.sub}&cart=${cartParam}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}});const j=await r.json();if(!r.ok)throw new Error(j.detail);setCp(j);const only=j.product_ids?.length?items.filter(i=>j.product_ids.includes(i.product_id)).map(i=>byId[i.product_id]?.name).filter(Boolean):[];setCpMsg(`Coupon applied${only.length&&only.length<new Set(items.map(i=>i.product_id)).size?' on '+[...new Set(only)].join(', ')+' only':''}${j.description?': '+j.description:''}`)}catch(e:any){setCpMsg(e.message||'Invalid coupon')}}
+  async function applyCoupon(code?:string,auto=false){const c=(code??coupon).trim().toUpperCase();const prev=cp;setCpMsg('');if(!c)return;if(prev&&prev.code===c){setCpMsg(`${c} is already applied.`);return}setCp(null);try{const r=await fetch(`${API}/coupons/validate?code=${encodeURIComponent(c)}&subtotal=${est.sub}&cart=${cartParam}`,{headers:getToken()?{Authorization:'Bearer '+getToken()}:{}});const j=await r.json();if(!r.ok)throw new Error(j.detail);setCp(j);setCoupon(c);setOther('');const only=j.product_ids?.length?items.filter(i=>j.product_ids.includes(i.product_id)).map(i=>byId[i.product_id]?.name).filter(Boolean):[];setCpMsg(`${auto?'🎉 Best offer applied for you':'Coupon applied'}${only.length&&only.length<new Set(items.map(i=>i.product_id)).size?' on '+[...new Set(only)].join(', ')+' only':''}${j.description?': '+j.description:''}`)}catch(e:any){if(auto){setCoupon('');return}if(prev){setCp(prev);setCoupon(prev.code);setCpMsg(`${c}: ${e.message||'this code does not work'}. Your ${prev.code} offer is still applied.`);return}setCpMsg(e.message||'Invalid coupon')}}
   async function go(e:React.FormEvent){
     e.preventDefault();
     const token=getToken();
+    if(thana.length<2){setState({kind:'err',text:'Please select your thana / area.'});document.getElementById('co-thana')?.focus();return}
     track('checkout_submitted',{metadata:{guest:!token}});
     if(!token){ // not logged in: confirm the number by SMS code right here (box on this page), then the order is placed
       if(!validBD(f.phone)){setState({kind:'err',text:'Enter your mobile number as 01XXXXXXXXX (11 digits).'});return}
@@ -93,7 +107,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   async function placeOrder(token:string){
     setState({kind:'busy'});
     try{
-      const r=await postJSON('/orders',{...f,email:f.email||null,shop_name:f.shop_name||null,items,payment_method:pay,coupon_code:cp?.code||null,...fbIds(),event_source_url:location.href.slice(0,500),...(pay==='manual'?{manual_channel:mp.channel,trx_id:mp.trx_id,sender_number:mp.sender_number}:{})},token);
+      const r=await postJSON('/orders',{...f,thana,email:f.email||null,shop_name:f.shop_name||null,items,payment_method:pay,coupon_code:cp?.code||null,...fbIds(),event_source_url:location.href.slice(0,500),...(pay==='manual'?{manual_channel:mp.channel,trx_id:mp.trx_id,sender_number:mp.sender_number}:{})},token);
       if(!productId)writeCart([]);
       // Facebook: same event ID as the server's Conversions API event, so the order is counted once
       fbTrack('Purchase',{value:Number(r.pricing?.grand_total)||0,content_ids:[...new Set(items.map(i=>i.product_id))],content_type:'product',num_items:items.reduce((n,i)=>n+i.quantity,0),
@@ -110,6 +124,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
     const online=!m&&r.paystation;const cod=Number(p.cod_due)>0;
     return <div className="panel order-done"><span className="done-ico"><Icon name="check" size={34} stroke={3}/></span><h2>Thank you! Order placed.</h2>
     <p>Your order ID is <b>{r.order_id}</b>. {m?'We are checking your payment now.':online?'Complete the online payment to finish your order.':'Our team will call you to confirm before dispatch.'}</p>
+    <p className="od-eta"><Icon name="truck" size={17}/>Delivery in <b>{daysFor(r.district||f.district,settings)} days</b> after we confirm your order{Number(p.cod_due)>0?' · pay the rider when it arrives':''}.</p>
     {m&&<div className="mp-done"><Icon name="checkCircle" size={18}/><span><b>{m.channel_label} payment received for verification</b><br/>TrxID <b>{m.trx_id}</b> · {tkf(m.amount_expected)}{m.is_advance?' advance':''}. Once EMXIN verifies it, your order will be confirmed and handed to the courier. We will SMS you, and you can follow it in My Orders.</span></div>}
     <div className="od-sum">
       {Number(p.payment_discount)>0&&<div className="sum-row good"><span>Advance Payment Discount</span><b>{tkf(p.payment_discount)}</b></div>}
@@ -122,20 +137,41 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   if(state.kind==='redirect')return <div className="panel order-done"><span className="spinner"/><h2>Redirecting to secure payment…</h2><p className="muted">Complete the payment with bKash, Nagad, Rocket, Upay, card or internet banking on PayStation.</p></div>;
   if(!items.length)return <div className="empty-state panel"><Icon name="cart" size={40}/><h3>Your cart is empty</h3><Link className="btn" href="/shop">Browse products</Link></div>;
   const logged=!!me;
+  const grand=quote?Math.round(quote.grand_total):est.total;const tk=(n:number)=>'৳ '+Math.round(n).toLocaleString('en-IN');
+  const dhaka=Number(settings.dhaka_delivery_charge??70),outside=Number(settings.outside_dhaka_delivery_charge??130);
+  const wa=waLink(links?.whatsapp,`Hi EMXIN, I want to order: ${items.map(i=>byId[i.product_id]?.name).filter(Boolean).join(', ')}`);const msgr=links?.messenger_url||'https://m.me/emxintechnologies';
   return <><form className="co" onSubmit={go}>
     <div className="co-main">
+      {/* phones: what you are buying, the total and why it is safe, before any form */}
+      <div className="co-top">
+        <div className="co-top-items">{items.map(i=>{const p=byId[i.product_id];const img=p?.images?.[0]||p?.media?.find((m:any)=>m.type!=='video')?.url;
+          return <div key={i.product_id+i.frame_color} className="co-top-it"><span className="co-thumb">{img?<img src={img} alt=""/>:<Icon name="glasses" size={20}/>}</span><span><b>{p?.name||'…'}</b><small>{i.frame_color} · Qty {i.quantity}</small></span></div>})}</div>
+        <div className="co-top-total"><span>Total{pay==='cod'&&!bulk?' · pay on delivery':''}</span><b>{tk(grand)}</b></div>
+        <p className="co-top-eta"><Icon name="truck" size={14}/><span>{f.thana?<>Delivery to {f.district} in <b>{daysFor(f.district,settings)} days</b></>:<>Delivery: Dhaka <b>{dd.dhaka} days</b> · outside Dhaka <b>{dd.outside} days</b></>}</span></p>
+        {(quote?quote.coupon_discount:est.c)>0&&<p className="co-top-save"><Icon name="percent" size={14} stroke={2.4}/>Offer applied: you save <b>{tk(quote?quote.coupon_discount:est.c)}</b></p>}
+      </div>
+      <ul className="co-trust" aria-label="Why order from EMXIN">
+        <li><Icon name="truck" size={18}/><span><b>Cash on Delivery</b><small>পণ্য হাতে পেয়ে টাকা দিন</small></span></li>
+        <li><Icon name="badgeCheck" size={18}/><span><b>100% Original</b><small>Official EMXIN stock</small></span></li>
+        <li><Icon name="phone" size={18}/><span><b>We call to confirm</b><small>Nothing ships before that</small></span></li>
+      </ul>
       {welcome&&<p className="note-good big"><Icon name="checkCircle" size={18}/> Welcome{me?.name?`, ${me.name.split(' ')[0]}`:''}! Your account is ready and your details are filled in — review and place your order.</p>}
-      {!logged&&<div className="co-guest"><Icon name="user" size={20}/><span>No account or password needed. Fill in your details and tap <b>Place Order</b>; we'll SMS a 6-digit code to confirm your number, right on this page.</span></div>}
+      {!logged&&<div className="co-guest"><Icon name="user" size={18}/><span><b>No account needed.</b> We SMS a 6-digit code to confirm your number.</span></div>}
       <section className="panel"><h2><span className="step">1</span>Delivery Details</h2><div className="grid-2">
         <label className="qr-field"><span>Full Name <em>*</em></span><input required value={f.customer_name} onChange={e=>setF({...f,customer_name:e.target.value})}/></label>
-        <label className="qr-field"><span>Mobile Number <em>*</em></span><input required type="tel" placeholder="017XXXXXXXX" value={f.phone} readOnly={logged} onChange={e=>setF({...f,phone:e.target.value})}/>{logged?<small className="muted">Verified account number</small>:<small className="muted">We'll SMS a code to this number. If the order does not go through, EMXIN may call to help.</small>}</label>
-        <label className="qr-field"><span>Email <small className="muted">(optional)</small></span><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
-        <label className="qr-field"><span>District <em>*</em></span><select value={f.district} onChange={e=>setF({...f,district:e.target.value})}>{DISTRICTS.map(d=><option key={d}>{d}</option>)}</select></label>
-        <label className="qr-field span-2"><span>Full Address <em>*</em></span><textarea required rows={2} value={f.address} onChange={e=>setF({...f,address:e.target.value})} placeholder="House, road, area, thana"/></label>
+        <label className="qr-field"><span>Mobile Number <em>*</em></span><input required type="tel" placeholder="017XXXXXXXX" value={f.phone} readOnly={logged} onChange={e=>setF({...f,phone:e.target.value})}/>{logged?<small className="muted">Verified account number</small>:<small className="muted">We SMS a code here and call this number to confirm.</small>}</label>
+        <label className="qr-field span-2"><span>Address <em>*</em> <small className="muted">house / flat, road or a landmark</small></span><input id="co-addr" required minLength={5} maxLength={300} autoComplete="street-address" value={f.address} onChange={e=>setF({...f,address:e.target.value})} placeholder="e.g. House 100, Howlader Mansion, Road 5"/></label>
+        <div className="qr-field span-2"><label htmlFor="co-thana">Thana <em>*</em> <small className="muted">type a few letters and pick yours</small></label>
+          <ThanaPicker inputId="co-thana" thana={f.thana} district={f.district} onPick={(p,done)=>{setF(v=>({...v,...p}));if(done)setTimeout(()=>{if(f.address.trim().length<5)document.getElementById('co-addr')?.focus();else document.getElementById('co-pay')?.scrollIntoView({behavior:'smooth',block:'start'})},60)}}/>
+          <small className="muted">{f.thana?`Delivery to ${f.district}: ${tk(f.district.toLowerCase()==='dhaka'?dhaka:outside)} · ${daysFor(f.district,settings)} days`:`Delivery: ${tk(dhaka)} Dhaka (${dd.dhaka} days) · ${tk(outside)} outside Dhaka (${dd.outside} days)`}</small></div>
+        {showEmail||f.email?<label className="qr-field"><span>Email <small className="muted">(optional)</small></span><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
+          :<button type="button" className="co-addmail" onClick={()=>setShowEmail(true)}>+ Add email for the order receipt (optional)</button>}
         {(bulk||f.dealer_opt_in)&&<label className="qr-field span-2"><span>Shop / Business Name <em>*</em></span><input required value={f.shop_name} onChange={e=>setF({...f,shop_name:e.target.value})}/></label>}
       </div></section>
-      <section className="panel"><h2><span className="step">2</span>Payment Method</h2><div className="pay-opts">
-        {chans.length>0&&<label className={'pay-opt'+(pay==='manual'?' on':'')}><input type="radio" name="pay" checked={pay==='manual'} onChange={()=>setPay('manual')}/><Icon name="phone" size={26}/><span><b>bKash / Nagad Send Money {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Send money to our number, then enter the Transaction ID</small></span><em className="save">SAVE {pct}%</em></label>}
+      <section className="panel" id="co-pay"><h2><span className="step">2</span>Payment Method</h2><div className="pay-opts">
+        {!bulk&&<label className={'pay-opt cod'+(pay==='cod'?' on':'')}><input type="radio" name="pay" checked={pay==='cod'} onChange={()=>setPay('cod')}/><Icon name="truck" size={26}/><span><b>Cash on Delivery</b><small>পণ্য হাতে পেয়ে টাকা দিন · pay the rider when the parcel arrives</small></span><em className="pop">MOST CHOSEN</em></label>}
+        {!bulk&&pay==='cod'&&est.saving>0&&chans.length>0&&<p className="co-paytip">Want to save {tk(est.saving)}? You can also pay now by bKash / Nagad (optional).</p>}
+        {chans.length>0&&<label className={'pay-opt'+(pay==='manual'?' on':'')}><input type="radio" name="pay" checked={pay==='manual'} onChange={()=>setPay('manual')}/><Icon name="phone" size={26}/><span><b>Pay now by bKash / Nagad {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Send Money to EMXIN and enter the TrxID{bulk?'':` · save ${tk(est.saving)}`}</small></span><em className="save">SAVE {pct}%</em></label>}
         {pay==='manual'&&<div className="mp-box">
           {chans.length>1&&<div className="mp-tabs">{chans.map(k=><button type="button" key={k} className={'mp-tab '+k+(mp.channel===k?' on':'')} onClick={()=>setMp({...mp,channel:k})}>{k==='bkash'?'bKash':'Nagad'}</button>)}</div>}
           <ol className="mp-steps">
@@ -152,8 +188,6 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
         </div>}
         {psOn&&<label className={'pay-opt'+(pay==='paystation'?' on':'')}><input type="radio" name="pay" checked={pay==='paystation'} onChange={()=>setPay('paystation')}/><Icon name="lockCard" size={26}/><span><b>Digital Payment {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Secure checkout by PayStation</small><PayMethods small/></span><em className="save">SAVE {pct}%</em></label>}
         {(pay==='paystation'||pay==='manual')&&<div className="save-box"><Icon name="percent" size={18} stroke={2.4}/><span>You save <b>৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</b> with the <b>Advance Payment Discount</b>: {pct}% off the product price (not delivery) whenever you pay before delivery.</span></div>}
-        {!bulk&&<label className={'pay-opt'+(pay==='cod'?' on':'')}><input type="radio" name="pay" checked={pay==='cod'} onChange={()=>setPay('cod')}/><Icon name="truck" size={26}/><span><b>Cash on Delivery</b><small>Pay when you receive the parcel · no digital discount</small></span></label>}
-        {pay==='cod'&&est.saving>0&&<p className="note-warn">Tip: pay by bKash / Nagad to save ৳ {est.saving.toLocaleString('en-IN')} on this order.</p>}
       </div>
         {bulk&&<p className="note-good"><Icon name="info" size={15}/> Bulk order ({threshold}+ pcs): pay {settings.bulk_advance_percent??50}% advance by bKash / Nagad; the rest is paid on delivery after EMXIN confirms. Dealer discount is applied by EMXIN on confirmation.</p>}
         {bulk?<label className="co-dealer on"><input type="checkbox" checked={f.dealer_opt_in} onChange={e=>setF({...f,dealer_opt_in:e.target.checked})}/><span><b>I am an EMXIN dealer / I want dealer pricing</b><small>Approved dealers get {(settings.dealer_tiers||[5])[0]}%–{(settings.dealer_tiers||[5,8,12,15]).slice(-1)[0]}% off bulk orders. Not a dealer yet? Tick this and EMXIN will contact you.</small></span></label>
@@ -175,7 +209,9 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       <Link className="co-editcart" href="/cart"><Icon name="cart" size={16}/>Edit cart · add more items<Icon name="arrowRight" size={15}/></Link>
       {!cp&&(()=>{const o=offers.find(x=>x.eligible);return o?<div className="co-offer-hint"><Icon name="percent" size={16} stroke={2.4}/><span>Offer for you: <b>{o.label}</b></span><button type="button" className="btn btn-sm" onClick={()=>useOffer(o.code)}>Apply {o.code}</button></div>:null})()}
       {cp?<div className="cp-on"><Icon name="percent" size={16} stroke={2.4}/><span><b>{cp.code||coupon}</b> applied{(quote?.coupon_discount??est.c)>0&&<> · you save <b>৳ {Math.round(quote?quote.coupon_discount:est.c).toLocaleString('en-IN')}</b></>}</span><button type="button" className="cp-x" onClick={removeCoupon} aria-label="Remove coupon"><Icon name="close" size={14}/>Remove</button></div>
-        :<div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={()=>applyCoupon()}>Apply</button></div>}{cpMsg&&<small className={cp?'qr-okline':'qr-warn'}>{cpMsg}</small>}{cp?.product_ids?.length>0&&!items.some(i=>cp.product_ids.includes(i.product_id))&&<small className="qr-warn">Coupon {cp.code} does not work on the products now in your cart. Please remove it.</small>}
+        :null}
+      {cp&&<div className="coupon cp-other"><input placeholder="Have another code? Type it here" value={other} onChange={e=>setOther(e.target.value.toUpperCase())} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();if(other.trim())applyCoupon(other)}}}/><button type="button" className="btn btn-outline btn-sm" disabled={!other.trim()} onClick={()=>applyCoupon(other)}>Use this</button></div>}
+      {cp?null:<div className="coupon"><input placeholder="Coupon code" value={coupon} onChange={e=>setCoupon(e.target.value.toUpperCase())}/><button type="button" className="btn btn-outline btn-sm" onClick={()=>applyCoupon()}>Apply</button></div>}{cpMsg&&<small className={cp&&!/still applied|already applied/.test(cpMsg)?'qr-okline':'qr-warn'}>{cpMsg}</small>}{cp?.product_ids?.length>0&&!items.some(i=>cp.product_ids.includes(i.product_id))&&<small className="qr-warn">Coupon {cp.code} does not work on the products now in your cart. Please remove it.</small>}
       {offers.length>0&&<button type="button" className="co-offers-btn" onClick={()=>setShowOffers(true)}><Icon name="percent" size={15} stroke={2.4}/>View available coupons<em>{offers.length}</em></button>}
       {showOffers&&<div className="co-modal" role="dialog" aria-modal="true" aria-labelledby="offers-title"><button type="button" className="co-modal-bg" aria-label="Close" onClick={()=>setShowOffers(false)}/>
         <div className="co-modal-box"><div className="co-modal-head"><h3 id="offers-title">Available coupons</h3><button type="button" className="co-x" aria-label="Close" onClick={()=>setShowOffers(false)}>×</button></div>
@@ -192,17 +228,21 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       {quote?.bulk_discount>0&&<div className="sum-row good"><span>Dealer discount</span><span>− ৳ {Math.round(quote.bulk_discount).toLocaleString('en-IN')}</span></div>}
       {(quote?quote.coupon_discount:est.c)>0&&<div className="sum-row good"><span>Coupon {cp?.code&&<small className="sum-note">{cp.code}</small>}<button type="button" className="sum-x" onClick={removeCoupon} title="Remove coupon" aria-label="Remove coupon"><Icon name="close" size={12}/></button></span><span>− ৳ {Math.round(quote?quote.coupon_discount:est.c).toLocaleString('en-IN')}</span></div>}
       {digital&&<div className="sum-row good strong"><span>Advance Payment Discount <small className="sum-note">{pct}% off products · paid before delivery</small></span><span className="sum-amt">− ৳ {(quote?Math.round(quote.payment_discount):est.saving).toLocaleString('en-IN')}</span></div>}
-      <div className="sum-row"><span>Delivery ({f.district})</span><span>৳ {est.del}</span></div>
+      <div className="sum-row"><span>Delivery ({f.district}) <small className="sum-note">{daysFor(f.district,settings)} days</small></span><span>৳ {est.del}</span></div>
       {quote?.estimated_shipping>0&&<div className="sum-row"><span>Extra shipping (weight)</span><span>৳ {Math.round(quote.estimated_shipping).toLocaleString('en-IN')}</span></div>}
       <div className="sum-row total"><span>Total</span><b>৳ {(quote?Math.round(quote.grand_total):est.total).toLocaleString('en-IN')}</b></div>
       {bulk&&<div className="sum-row"><span>Pay now (advance)</span><b>৳ {(quote?Math.round(quote.advance_required):est.adv).toLocaleString('en-IN')}</b></div>}
       {bulk&&!(quote?.bulk_discount>0)&&<p className="sum-check"><Icon name="checkCircle" size={16}/><span><b>Dealer / bulk discount</b> is added by EMXIN when your order is confirmed. You pay the advance now; the final price can only go down.</span></p>}
       {state.kind==='err'&&<p className="form-err" role="alert">{state.text}</p>}
-      <button className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<><Icon name="check" size={19}/>Place Order · confirm by SMS code</>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {sendAmt.toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
+      <button ref={mainBtn} className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<><Icon name="check" size={19}/>Place Order · confirm by SMS code</>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {sendAmt.toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
       <p className="muted tiny">By placing this order you agree to our <Link href="/terms" target="_blank">Terms</Link>, including that EMXIN may <Link href="/terms#order-cancellation" target="_blank">cancel an order affected by a system error</Link> and refund any payment in full. Nothing is sent to the courier until EMXIN confirms your order.</p>
+      <p className="co-help">Question before ordering? {wa&&<><a href={wa} target="_blank" rel="noopener">WhatsApp</a> · </>}<a href={msgr} target="_blank" rel="noopener">Messenger</a>{links?.support_phone&&<> · <a href={'tel:'+links.support_phone}>Call {links.support_phone}</a></>}</p>
     </aside>
+    {!otp&&!mainSeen&&state.kind!=='busy'&&<div className="co-sticky" role="region" aria-label="Place order">
+      <span><small>{pay==='cod'&&!bulk?'Pay on delivery':'Total'}</small><b>{tk(grand)}</b></span>
+      <button className="btn btn-lg" disabled={overCap.length>0}><Icon name="check" size={18}/>Place Order</button></div>}
   </form>
-    {otp&&<CheckoutOTP phone={f.phone} name={f.customer_name} email={f.email} district={f.district} address={f.address} onClose={()=>setOtp(false)}
+    {otp&&<CheckoutOTP phone={f.phone} name={f.customer_name} email={f.email} district={f.district} thana={thana} address={f.address} onClose={()=>setOtp(false)}
       onDone={tok=>{setOtp(false);setWelcome(false);fetch(API+'/customers/me?lite=1',{headers:{Authorization:'Bearer '+tok}}).then(r=>r.ok?r.json():null).then(x=>x&&setMe(x)).catch(()=>{});placeOrder(tok)}}/>}
   </>;
 }

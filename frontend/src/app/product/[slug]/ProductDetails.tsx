@@ -9,11 +9,13 @@ import QuantityRequest from './QuantityRequest';
 import {OfferChip} from '@/components/Offer';
 import {Reviews,Questions} from './Community';
 import {parseSpecs,parseFeature,sameText} from '@/lib/productText';
+import {waLink} from '@/lib/contact';
+import {MessengerLogo} from '@/components/Social';
 
 const specIcon=(label:string)=>{const l=label.toLowerCase();if(/chip|processor|ram|storage|memory/.test(l))return 'cube';if(/compat|app/.test(l))return 'phone';if(/control|touch/.test(l))return 'bolt';if(/model|brand/.test(l))return 'glasses';const i=featureIcon(l);return i==='badgeCheck'?'info':i};
 
 const TABS=['Product Details','Specifications',"What's in the Box",'Reviews','Q&A'] as const;
-export default function ProductDetails({product:p,bulkThreshold=20,retailCap=5,dealerPercent=5,dealerTiers=[],dealerFixed=false,defaultBanner='',offer=null}:{product:any;bulkThreshold?:number;retailCap?:number;dealerPercent?:number;dealerTiers?:number[];dealerFixed?:boolean;defaultBanner?:string;offer?:any}){
+export default function ProductDetails({product:p,bulkThreshold=20,retailCap=5,dealerPercent=5,dealerTiers=[],dealerFixed=false,defaultBanner='',offer=null,links={},delivery={dhaka:70,outside:130,dhakaDays:'1–2',outsideDays:'2–3'}}:{product:any;bulkThreshold?:number;retailCap?:number;dealerPercent?:number;dealerTiers?:number[];dealerFixed?:boolean;defaultBanner?:string;offer?:any;links?:any;delivery?:{dhaka:number;outside:number;dhakaDays?:string;outsideDays?:string}}){
   const media=useMemo(()=>{const m=p.media?.length?p.media:[...(p.images||[]).map((url:string)=>({url,type:'image'})),...(p.video_url?[{url:p.video_url,type:'video'}]:[])];return m.filter((x:any)=>x?.url)},[p]);
   const[sel,setSel]=useState(()=>Math.max(0,media.findIndex((m:any)=>m.type==='image')));
   const[tab,setTab]=useState<typeof TABS[number]>('Product Details');
@@ -55,13 +57,23 @@ export default function ProductDetails({product:p,bulkThreshold=20,retailCap=5,d
         <div className="pd-meta">{p.brand_name&&<span>Brand: {p.brand_name}</span>}{p.model&&<span>Model: {p.model}</span>}{p.sku&&<span>SKU: {p.sku}</span>}</div>
         <div className="pd-price"><b>৳ {price.toLocaleString('en-IN')}</b>{off>0&&<><del>৳ {Number(p.price).toLocaleString('en-IN')}</del><span className="off"><Icon name="flame" size={16} stroke={2.2}/>{off}% OFF</span></>}</div>
         {save>0&&<div className="pd-save"><Icon name="percent" size={15} stroke={2.4}/>You save <b>৳ {save.toLocaleString('en-IN')}</b> on this order</div>}
+        {p.stock>0&&<ul className="pd-trust" aria-label="Why order from EMXIN">
+          <li><Icon name="truck" size={17}/><span><b>Cash on Delivery</b> · পণ্য হাতে পেয়ে টাকা দিন</span></li>
+          <li><Icon name="badgeCheck" size={17}/><span><b>100% Original</b> · we call to confirm before shipping</span></li>
+          <li><Icon name="box" size={17}/><span><b>Fast delivery</b> · Dhaka <b>{delivery.dhakaDays||'1–2'} days</b> (৳ {delivery.dhaka}) · outside Dhaka <b>{delivery.outsideDays||'2–3'} days</b> (৳ {delivery.outside})</span></li>
+        </ul>}
         {offer&&<OfferChip c={offer} price={price}/>}
         <div className={'pd-stock'+(p.stock>0?'':' out')}><span><i><Icon name={p.stock>0?'check':'info'} size={14} stroke={3}/></i>{p.stock>0?<>In Stock: {p.stock} pcs</>:'Currently out of stock'}</span>{(p.compare_note||p.sku)&&<small>{p.compare_note||p.sku}</small>}</div>
+        <PurchaseOptions product={p} cap={retailCap} bulk={bulkThreshold} days={`${String(delivery.dhakaDays||'1–2').split('–')[0]}–${String(delivery.outsideDays||'2–3').split('–').pop()}`}/>
+        <div className="pd-ask"><span>Question before buying?</span>
+          {waLink(links?.whatsapp)&&<a className="pd-ask-wa" href={waLink(links.whatsapp,`Hi EMXIN, I have a question about ${p.name}: https://tech.emxin.com/product/${p.slug}`)} target="_blank" rel="noopener"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.8s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.1 1 2.1 1.3 2.4 1.5.3.1.5.1.6-.1l.9-1.1c.2-.3.4-.2.7-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.3z"/></svg>WhatsApp</a>}
+          <a className="pd-ask-msg" href={links?.messenger_url||'https://m.me/emxintechnologies'} target="_blank" rel="noopener"><MessengerLogo size={18}/>Messenger</a>
+          {links?.support_phone&&<a className="pd-ask-call" href={'tel:'+links.support_phone}><Icon name="phone" size={17}/>Call</a>}
+        </div>
         {features.length>0&&<div className="pd-feats-wrap">
           <div className="pd-feats" role="tablist" aria-label="Key features">{features.map((f,i)=><button type="button" role="tab" aria-selected={feat===i} key={i} className={feat===i?'on':''} onClick={()=>setFeat(i)} onMouseEnter={()=>setFeat(i)} onFocus={()=>setFeat(i)}><i><Icon name={featureIcon(f.full)} size={22} stroke={1.7}/></i><span>{f.title}</span></button>)}</div>
           {features[feat]?.detail&&<div className="pd-feat-detail" key={feat} role="tabpanel"><Icon name={featureIcon(features[feat].full)} size={18} stroke={2}/><p><b>{features[feat].title}</b><span>{features[feat].detail}</span></p></div>}
         </div>}
-        <PurchaseOptions product={p} cap={retailCap} bulk={bulkThreshold}/>
         <button type="button" className="dealer-cta" onClick={()=>setDrawer(true)}>
           <span className="dealer-cta-ico"><Icon name="percent" size={22} stroke={2.4}/></span>
           <span><b>Order {bulkThreshold}+ pcs?</b><small>{dealerPercent>0?(dealerFixed?`Dealer price: ${dealerPercent}% off on every bulk order`:`Become a Dealer & Get Extra ${dealerPercent}% Discount`):'Request a bulk quote from EMXIN'}</small></span>

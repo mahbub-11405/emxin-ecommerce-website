@@ -9,7 +9,7 @@ import {track} from '@/lib/tracking';
 /** Confirms the mobile number right on the checkout page (no separate register page).
  *  New number → account is created; known number → logged in; a device remembered from an earlier OTP needs no code.
  *  onDone(token) then places the order straight away. */
-export default function CheckoutOTP({phone,name,email,district,address,onDone,onClose}:{phone:string;name:string;email:string;district:string;address:string;onDone:(token:string)=>void;onClose:()=>void}){
+export default function CheckoutOTP({phone,name,email,district,thana='',address,onDone,onClose}:{phone:string;name:string;email:string;district:string;thana?:string;address:string;onDone:(token:string)=>void;onClose:()=>void}){
   const num=localBD(phone);
   const[mode,setMode]=useState<'register'|'login'>('register');const[code,setCode]=useState('');const[wait,setWait]=useState(0);
   const[step,setStep]=useState<'sending'|'code'|'checking'|'done'>('sending');const[msg,setMsg]=useState<{k:'ok'|'err';t:string}|null>(null);
@@ -31,7 +31,7 @@ export default function CheckoutOTP({phone,name,email,district,address,onDone,on
     try{const v=await postJSON('/auth/otp/verify',{phone:num,purpose:m==='login'?'login':'customer_register',code:d});
       track('otp_verified',{metadata:{mode:m}});
       const r=m==='login'?await postJSON('/customers/phone-login',{phone:num,verification_id:v.verification_id})
-        :await postJSON('/customers/register-phone',{phone:num,name:name.trim(),email:email.trim()||null,verification_id:v.verification_id,district,address});
+        :await postJSON('/customers/register-phone',{phone:num,name:name.trim(),email:email.trim()||null,verification_id:v.verification_id,district,thana,address});
       stopOtp.current();finish(r)}
     catch(e:any){setStep('code');setMsg({k:'err',t:e.message||'Incorrect code'});setTimeout(()=>box.current?.select(),30)}
   }

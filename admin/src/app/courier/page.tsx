@@ -29,7 +29,7 @@ function Detail({id,onChanged}:{id:string;onChanged:()=>void}){
       <div><small>Tracking code</small><b className="mono">{d.tracking_code||'—'}{d.tracking_code&&<button className="ib" title="Copy" onClick={()=>copy(d.tracking_code)}><Icon name="copy" size={13}/></button>}</b></div>
       <div><small>Collect on delivery</small><b>{tk(d.cod_due)}</b>{d.delivery_charge!=null&&<small>Courier charge {tk(d.delivery_charge)}</small>}</div>
     </div>
-    <p><b>{d.customer_name}</b> · <a className="lnk" href={`tel:${d.phone}`}>{d.phone}</a><br/><span className="muted">{d.address}, {d.district}</span></p>
+    <p><b>{d.customer_name}</b> · <a className="lnk" href={`tel:${d.phone}`}>{d.phone}</a><br/><span className="muted">{d.address}{d.thana?`, ${d.thana}`:''}, {d.district}</span></p>
     <p className="muted tiny">{d.items_list?.map((i:any)=>`${i.name} × ${i.quantity}`).join(' · ')} · <PayBadge o={d}/></p>
 
     <section className="cr-rider"><b><Icon name="truck" size={16}/> Delivery man</b>

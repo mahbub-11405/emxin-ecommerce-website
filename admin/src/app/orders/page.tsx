@@ -31,20 +31,63 @@ function ManualPay({o,busy,run}:{o:any;busy:string;run:(label:string,fn:()=>Prom
   </section>;
 }
 
+/** Parcel already booked by hand in the Steadfast portal: link it here so status, delivery and COD update by themselves. */
+function LinkParcel({id,busy,run}:{id:string;busy:boolean;run:(label:string,fn:()=>Promise<any>)=>Promise<boolean>}){
+  const[open,setOpen]=useState(false);const[cid,setCid]=useState('');
+  if(!open)return <p className="tiny"><button type="button" className="lnk" onClick={()=>setOpen(true)}>Booked this parcel by hand in Steadfast? Link it →</button></p>;
+  return <div className="link-parcel"><p className="tiny muted">Steadfast portal → the parcel → <b>Consignment ID</b> (numbers). After linking, delivery and COD update by themselves and Telegram alerts come for it.</p>
+    <div className="row"><input inputMode="numeric" placeholder="Consignment ID, e.g. 123456789" value={cid} onChange={e=>setCid(e.target.value.replace(/\D/g,''))} style={{maxWidth:240}}/>
+      <button type="button" className="btn btn-sm" disabled={busy||cid.length<4} onClick={()=>run('Parcel linked',()=>postJSON(`/admin/courier/orders/${id}/link`,{consignment_id:cid}))}>Link parcel</button>
+      <button type="button" className="btn btn-sm btn-ghost" onClick={()=>setOpen(false)}>Cancel</button></div></div>;
+}
+
+const ALIAS:Record<string,string[]>={chattogram:['chittagong','ctg'],cumilla:['comilla'],barishal:['barisal'],bogura:['bogra'],jashore:['jessore']};
+/** what the courier gets as the address (same rule as the backend: the district is added unless already written) */
+const courierAddr=(a:string,t:string,d:string)=>{let x=a.replace(/\s+/g,' ').trim().replace(/^,|,$/g,'');const th=t.replace(/\s*\(.*?\)/g,'').trim();
+  if(th&&!x.toLowerCase().includes(th.toLowerCase()))x=`${x}, ${th}`;const n=[d.toLowerCase(),...(ALIAS[d.toLowerCase()]||[])];return !d||n.some(k=>x.toLowerCase().includes(k))?x:`${x}, ${d}`};
+const NOTE_CHIPS=['Urgent: কালকের মধ্যে ডেলিভারি দিন','ডেলিভারির আগে কাস্টমারকে ফোন দিন','সাবধানে রাখুন (fragile)','বিকাল ৫টার পরে ডেলিভারি দিন'];
+/** Review & send: check what goes to the courier, fix the address after the confirmation call, add a note for the rider. */
+function SendBox({o,courier,busy,onSend,onCancel}:{o:any;courier:'steadfast'|'pathao';busy:boolean;onSend:(b:any)=>void;onCancel:()=>void}){
+  const[addr,setAddr]=useState(o.address||'');const[thana,setThana]=useState(o.thana||'');const[note,setNote]=useState(o.courier_note||'');
+  const words=addr.trim().split(/[\s,]+/).filter(Boolean).length;const parts=addr.split(/[,،\n।]/).filter((x:string)=>x.trim()).length;
+  // incomplete: very short, or one place name only (no house/road number and no area/thana after a comma), e.g. "chittagong medical college"
+  // with a thana picked at checkout only a very short address is a problem; older orders without a thana need the area in the address
+  const short=thana.trim().length>=2?addr.trim().length<8:(addr.trim().length<20||words<3||(!/\d/.test(addr)&&parts<2&&words<6));
+  const addChip=(t:string)=>setNote((n:string)=>n.includes(t)?n:(n.trim()?n.trim()+' · ':'')+t);
+  const name=courier==='steadfast'?'Steadfast':'Pathao';
+  return <section className="sendbox"><h4><Icon name="truck" size={17}/>Review &amp; send to {name}</h4>
+    <dl className="sendbox-ro"><div><dt>Name</dt><dd>{o.customer_name}</dd></div><div><dt>Phone</dt><dd>{o.phone}</dd></div>
+      <div><dt>District</dt><dd>{o.district}</dd></div><div><dt>Thana</dt><dd>{o.thana||<span className="muted">not given (older order)</span>}</dd></div><div><dt>Cash to collect</dt><dd><b>{tk(o.pricing?.cod_due||0)}</b></dd></div>
+      <div className="span"><dt>Items</dt><dd>{(o.items||[]).map((i:any)=>`${i.name} ×${i.quantity}`).join(', ')}</dd></div></dl>
+    <label className="fld"><span>Delivery address <small className="muted">(fix it after the call: area / thana + landmark)</small></span>
+      <textarea rows={3} value={addr} maxLength={250} onChange={e=>setAddr(e.target.value)} placeholder="e.g. Chittagong Medical College hostel, Panchlaish, Chattogram"/></label>
+    <label className="fld"><span>Thana / area <small className="muted">(change it only if the customer said another one)</small></span><input value={thana} maxLength={60} onChange={e=>setThana(e.target.value)} placeholder="e.g. Panchlaish"/></label>
+    {short&&<p className="sendbox-warn"><Icon name="info" size={15}/>Address looks incomplete. Ask the customer for the {thana.trim()?'house / road or a nearby landmark':'area / thana and a nearby landmark'}, so the courier does not put it on hold.</p>}
+    <label className="fld"><span>Note for {name} / the rider <small className="muted">(optional · {200-note.length} left)</small></span>
+      <textarea rows={2} value={note} maxLength={200} onChange={e=>setNote(e.target.value)} placeholder="e.g. Urgent: deliver by tomorrow"/></label>
+    <div className="sendbox-chips">{NOTE_CHIPS.map(t=><button type="button" key={t} className={'chip'+(note.includes(t)?' on':'')} onClick={()=>addChip(t)}>+ {t}</button>)}</div>
+    <p className="sendbox-final"><small className="muted">{name} gets this address:</small><br/><b>{courierAddr(addr,thana,o.district||'')||'—'}</b></p>
+    <div className="row"><button type="button" className="btn" disabled={busy||addr.trim().length<5} onClick={()=>onSend({address:addr,thana,note})}><Icon name="truck" size={17}/>{busy?'Sending…':`Send to ${name}`}</button>
+      <button type="button" className="btn btn-ghost" disabled={busy} onClick={onCancel}>Cancel</button></div>
+  </section>;
+}
+
 function OrderDetail({id,onChanged,onDeleted}:{id:string;onChanged:()=>void;onDeleted:()=>void}){
-  const[d,setD]=useState<any>(null);const[busy,setBusy]=useState('');
+  const[d,setD]=useState<any>(null);const[busy,setBusy]=useState('');const[sendTo,setSendTo]=useState<''|'steadfast'|'pathao'>('');
   const[f,setF]=useState({order_status:'',payment_status:'',payment_channel:'',note:''});
   const load=useCallback(()=>api(`/admin/orders/${id}/detail`).then(x=>{setD(x);setF({order_status:x.order.order_status,payment_status:x.order.payment_status,payment_channel:x.order.payment_channel||'',note:''})}).catch(e=>toast.err(e.message)),[id]);
   useEffect(()=>{load()},[load]);
-  async function run(label:string,fn:()=>Promise<any>){setBusy(label);try{await fn();toast.ok(label+' — done');await load();onChanged()}catch(e:any){toast.err(e.message)}finally{setBusy('')}}
+  async function run(label:string,fn:()=>Promise<any>):Promise<boolean>{setBusy(label);try{await fn();toast.ok(label+' — done');await load();onChanged();return true}catch(e:any){toast.err(e.message);return false}finally{setBusy('')}}
   if(!d)return <Loading/>;
   const o=d.order;const p=o.pricing||{};
   const locked=['Cancelled','Returned'].includes(o.order_status);
   return <div className="od">
     <div className="od-top"><div><Status s={o.order_status}/> <Status s={o.payment_status}/> <span className="st st-gray">{payLabel(o)}</span>{switchedLabel(o)&&<> <span className="st st-sky">{switchedLabel(o)}</span></>}{p.is_bulk&&<> <span className="st st-purple">Bulk</span></>}</div><small className="muted">{dt(o.created_at)}</small></div>
+    {sendTo&&['Confirmed','Approved'].includes(o.order_status)&&<SendBox o={o} courier={sendTo} busy={!!busy} onCancel={()=>setSendTo('')}
+      onSend={(body:any)=>run(sendTo==='steadfast'?'Sent to Steadfast':'Sent to Pathao',()=>postJSON(`/admin/orders/${o.order_id}/send-courier?courier=${sendTo}`,body)).then(ok=>{if(ok)setSendTo('')})}/>}
     {!locked&&<div className="od-actions">
       {o.order_status==='Pending Confirmation'&&!(o.payment_method==='manual'&&o.manual_payment?.status!=='verified')&&!(o.payment_method==='paystation'&&!['Paid','Advance Paid'].includes(o.payment_status))&&<button className="btn" disabled={!!busy} onClick={()=>run('Confirmed',()=>postJSON(`/admin/orders/${o.order_id}/confirm`,{}))}><Icon name="phone" size={17}/>Customer confirmed</button>}
-      {['Confirmed','Approved'].includes(o.order_status)&&<><button className="btn" disabled={!!busy} onClick={()=>run('Sent to Steadfast',()=>api(`/admin/orders/${o.order_id}/send-courier?courier=steadfast`,{method:'POST'}))}><Icon name="truck" size={17}/>Send to Steadfast</button><button className="btn btn-soft" disabled={!!busy} onClick={()=>run('Sent to Pathao',()=>api(`/admin/orders/${o.order_id}/send-courier?courier=pathao`,{method:'POST'}))}>Send to Pathao</button></>}
+      {['Confirmed','Approved'].includes(o.order_status)&&!sendTo&&<><button className="btn" disabled={!!busy} onClick={()=>setSendTo('steadfast')}><Icon name="truck" size={17}/>Send to Steadfast</button><button className="btn btn-soft" disabled={!!busy} onClick={()=>setSendTo('pathao')}>Send to Pathao</button></>}
       {o.order_status==='Pending Confirmation'&&o.payment_method==='paystation'&&!['Paid','Advance Paid'].includes(o.payment_status)&&!p.is_bulk&&<button className="btn btn-soft" disabled={!!busy} onClick={()=>{if(confirm('Change this unpaid online order to Cash on Delivery? The digital discount is removed and the courier collects the full amount.'))run('Changed to Cash on Delivery',()=>postJSON(`/admin/orders/${o.order_id}/payment-to-cod`,{}))}}><Icon name="truck" size={17}/>Switch to Cash on Delivery</button>}
       <button className="btn btn-ghost" onClick={()=>window.open(`/orders/invoice?id=${o.order_id}`,'_blank')}><Icon name="download" size={17}/>Invoice</button>
       {!['Delivered','Completed'].includes(o.order_status)&&<button className="btn btn-ghost danger" disabled={!!busy} onClick={()=>{const r=prompt(`Cancel order ${o.order_id}?\n\nReason (the customer sees it in My Orders and Track Order; the SMS only says the order was cancelled by EMXIN). Leave empty for no reason.`,'');if(r===null)return;run('Order cancelled · customer gets an SMS',()=>postJSON(`/admin/orders/${o.order_id}/cancel`,{reason:r.trim()}))}}><Icon name="close" size={17}/>Cancel order</button>}
@@ -53,8 +96,8 @@ function OrderDetail({id,onChanged,onDeleted}:{id:string;onChanged:()=>void;onDe
     {o.switched_from&&o.manual_payment?.status==='pending'&&<p className="note-info"><Icon name="info" size={15}/> The customer ordered with {o.switched_from==='cod'?'Cash on Delivery':'online payment'} and then paid by {o.manual_payment.channel_label}. The price was updated with the digital discount. Verify the TrxID below; “Verify & confirm” confirms the order and SMSes the customer.</p>}
     {o.manual_payment&&<ManualPay o={o} busy={busy} run={run}/>}
     <div className="od-grid">
-      <section><h4>Customer</h4><p><b>{o.customer_name}</b>{o.shop_name&&<> · {o.shop_name}</>}<br/><a className="lnk" href={`tel:${o.phone}`}>{o.phone}</a>{o.email&&<><br/>{o.email}</>}</p><p className="muted">{o.address}, {o.district}</p><p className="tiny muted">{d.previous_orders} previous order(s) from this phone{d.customer?` · Lead: ${d.customer.lead_status||'—'}`:''}</p></section>
-      <section><h4>Delivery</h4><p>Courier: <b>{o.courier?o.courier[0].toUpperCase()+o.courier.slice(1):'Not sent'}</b>{o.courier_status&&<> · {String(o.courier_status).replace(/_/g,' ')}</>}</p>{o.courier_consignment_id&&<p>Consignment: <b className="mono">{o.courier_consignment_id}</b>{o.courier_tracking_code&&<> · Tracking <b className="mono">{o.courier_tracking_code}</b></>}</p>}{o.courier&&<p><Link className="lnk" href={`/courier?open=${o.order_id}`}>Open courier tracking →</Link></p>}<p className="tiny muted">{o.courier_billing_mode==='merchant_periodic_bill'?'Prepaid: courier bills merchant periodically':'COD: courier charge deducted from collection'}</p></section>
+      <section><h4>Customer</h4><p><b>{o.customer_name}</b>{o.shop_name&&<> · {o.shop_name}</>}<br/><a className="lnk" href={`tel:${o.phone}`}>{o.phone}</a>{o.email&&<><br/>{o.email}</>}</p><p className="muted">{o.address}{o.thana?<>, <b>{o.thana}</b></>:null}, {o.district}</p><p className="tiny muted">{d.previous_orders} previous order(s) from this phone{d.customer?` · Lead: ${d.customer.lead_status||'—'}`:''}</p></section>
+      <section><h4>Delivery</h4><p>Courier: <b>{o.courier?o.courier[0].toUpperCase()+o.courier.slice(1):'Not sent'}</b>{o.courier_status&&<> · {String(o.courier_status).replace(/_/g,' ')}</>}</p>{o.courier_consignment_id&&<p>Consignment: <b className="mono">{o.courier_consignment_id}</b>{o.courier_tracking_code&&<> · Tracking <b className="mono">{o.courier_tracking_code}</b></>}</p>}{o.courier&&<p><Link className="lnk" href={`/courier?open=${o.order_id}`}>Open courier tracking →</Link></p>}{!o.courier&&!locked&&<LinkParcel id={o.order_id} busy={!!busy} run={run}/>}<p className="tiny muted">{o.courier_billing_mode==='merchant_periodic_bill'?'Prepaid: courier bills merchant periodically':'COD: courier charge deducted from collection'}</p></section>
     </div>
     <h4>Items</h4><table className="tbl compact"><tbody>{o.items.map((i:any,k:number)=><tr key={k}><td>{i.name}<br/><small className="muted">{i.frame_color}</small></td><td>× {i.quantity}</td><td className="r">{tk(i.unit_price*i.quantity)}</td></tr>)}</tbody></table>
     <div className="od-price">{[['Subtotal',p.subtotal],['Bulk / dealer discount',-p.bulk_discount],['Coupon'+(o.coupon_code?` (${o.coupon_code})`:''),-p.coupon_discount],['Delivery',p.delivery_charge],['Estimated shipping',p.estimated_shipping],[`Advance payment discount${p.digital_payment_discount_percent?` (${p.digital_payment_discount_percent}% on products)`:''}`,-p.payment_discount]].filter(([,v])=>Number(v)).map(([l,v])=><div key={l as string}><span>{l}</span><span>{Number(v)<0?'− ':''}{tk(Math.abs(Number(v)))}</span></div>)}

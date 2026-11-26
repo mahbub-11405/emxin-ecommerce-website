@@ -7,6 +7,7 @@ import {API,postJSON,payLabel,firstImage} from '@/lib/api';
 import {getToken,logout} from '@/lib/auth';
 import {refreshProfile} from '@/lib/profile';
 import {DISTRICTS} from '@/lib/districts';
+import {THANAS} from '@/lib/thanas';
 import OrderBill,{payLine} from '@/components/OrderBill';
 const PENDING=['Pending Payment','Pending Advance Payment','Advance Required'];
 function ResendTrx({o,onDone}:{o:any;onDone:()=>void}){
@@ -119,7 +120,7 @@ function MyOrders({orders,busy,pay,onSwitch,onChanged,onError}:{orders:any[];bus
 }
 export default function Account(){
   const[d,setD]=useState<any>();const[edit,setEdit]=useState(false);const[saving,setSaving]=useState(false);const[ferr,setFerr]=useState('');const[f,setF]=useState<any>({});const[msg,setMsg]=useState('');const[busy,setBusy]=useState('');const[sw,setSw]=useState<any>(null);const[ok,setOk]=useState('');
-  const load=()=>{const t=getToken();if(!t){location.href='/login?next=/account';return}fetch(API+'/customers/me',{headers:{Authorization:`Bearer ${t}`}}).then(async r=>{if(r.status===401){logout();location.href='/login?next=/account';return}const j=await r.json();setD(j);setF({name:j.customer.name||'',email:j.customer.email||'',address:j.customer.address||'',district:j.customer.district||'Dhaka'});if(new URLSearchParams(location.search).get('edit')){setEdit(true);history.replaceState(null,'','/account')}}).catch(()=>setMsg('Could not load your account.'))};
+  const load=()=>{const t=getToken();if(!t){location.href='/login?next=/account';return}fetch(API+'/customers/me',{headers:{Authorization:`Bearer ${t}`}}).then(async r=>{if(r.status===401){logout();location.href='/login?next=/account';return}const j=await r.json();setD(j);setF({name:j.customer.name||'',email:j.customer.email||'',address:j.customer.address||'',district:j.customer.district||'Dhaka',thana:j.customer.thana||''});if(new URLSearchParams(location.search).get('edit')){setEdit(true);history.replaceState(null,'','/account')}}).catch(()=>setMsg('Could not load your account.'))};
   useEffect(load,[]);
   async function save(e:React.FormEvent){e.preventDefault();setSaving(true);setFerr('');try{const r=await fetch(API+'/customers/me',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+getToken()},body:JSON.stringify(f)});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(typeof j.detail==='string'?j.detail:'Could not save. Please check the fields.');
     setD((x:any)=>({...x,customer:{...x.customer,...f,email:f.email||x.customer.email}}));setEdit(false);setOk('Profile saved.');refreshProfile();load()}catch(x:any){setFerr(x.message||'Could not save. Please try again.')}finally{setSaving(false)}}
@@ -134,7 +135,8 @@ export default function Account(){
         return <p className="muted tiny">Orders: <b>{all.length}</b>{cx>0&&<> ({cx} cancelled)</>} · Total purchase: <b>৳ {Math.round(spent).toLocaleString('en-IN')}</b>{cx>0&&<> <span title="Cancelled and returned orders are not counted">(cancelled not counted)</span></>}</p>})()}
       {!edit?<button className="btn btn-outline btn-sm" onClick={()=>setEdit(true)}><Icon name="user" size={15}/>Edit profile</button>:<form className="stack-form" onSubmit={save}>
         <label className="qr-field"><span>Name</span><input required value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></label><label className="qr-field"><span>Email</span><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
-        <label className="qr-field"><span>District</span><select value={f.district} onChange={e=>setF({...f,district:e.target.value})}>{DISTRICTS.map(x=><option key={x}>{x}</option>)}</select></label><label className="qr-field"><span>Default address</span><textarea rows={2} value={f.address} onChange={e=>setF({...f,address:e.target.value})}/></label>
+        <label className="qr-field"><span>District</span><select value={f.district} onChange={e=>setF({...f,district:e.target.value,thana:''})}>{DISTRICTS.map(x=><option key={x}>{x}</option>)}</select></label>
+        <label className="qr-field"><span>Thana / Area</span><select value={(THANAS[f.district]||[]).includes(f.thana)?f.thana:''} onChange={e=>setF({...f,thana:e.target.value})}><option value="">Select thana</option>{(THANAS[f.district]||[]).map(x=><option key={x}>{x}</option>)}</select></label><label className="qr-field"><span>House / Flat, Road &amp; Landmark</span><textarea rows={2} value={f.address} onChange={e=>setF({...f,address:e.target.value})}/></label>
         {ferr&&<p className="form-err" role="alert">{ferr}</p>}
         <div className="row-gap"><button className="btn btn-sm" disabled={saving}>{saving?'Saving…':'Save'}</button><button type="button" className="btn btn-ghost btn-sm" onClick={()=>setEdit(false)}>Cancel</button></div></form>}</section>
     <MyOrders orders={d.orders||[]} busy={busy} pay={pay} onSwitch={(o:any)=>{setOk('');setSw(o)}} onChanged={(m:string)=>{setOk(m);load()}} onError={setMsg}/></div></main>;

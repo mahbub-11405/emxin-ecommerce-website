@@ -3,6 +3,7 @@ import ProductDetails from './ProductDetails';
 import ProductViewTracker from '@/components/ProductViewTracker';
 import Link from 'next/link';
 import JsonLd from '@/components/JsonLd';
+import {deliveryDays} from '@/lib/delivery';
 import {SITE_URL,SITE_NAME,abs,clip,productImages,price} from '@/lib/seo';
 
 /** "AIMB G2 Pro – AI Smart Glasses (With Camera)": what people type in Google, without repeating words. */
@@ -42,5 +43,5 @@ export default async function Product({params}:{params:Promise<{slug:string}>}){
       {'@type':'ListItem',position:p.category_slug?3:2,name:p.name,item:url}]}];
   const faq=(p.faq||[]).filter((x:any)=>x?.question&&x?.answer);
   if(faq.length)ld.push({'@context':'https://schema.org','@type':'FAQPage',mainEntity:faq.map((x:any)=>({'@type':'Question',name:x.question,acceptedAnswer:{'@type':'Answer',text:x.answer}}))});
-  return <main className="wrap section-sm"><JsonLd data={ld}/><ProductViewTracker id={p._id} name={p.name} value={price(p)}/><ProductDetails product={p} bulkThreshold={Number(cfg.bulk_threshold_qty||20)} retailCap={Number(site.retail_max_qty_per_product||cfg.retail_max_qty_per_product||5)} dealerPercent={dealerPercent} dealerTiers={dealerTiers} dealerFixed={mode==='fixed'} offer={offer?.code&&(!offer.product_ids?.length||offer.product_ids.includes(p._id))?offer:null} defaultBanner={cat.banner_url||site.branding?.product_banner_url||''}/></main>;
+  return <main className="wrap section-sm"><JsonLd data={ld}/><ProductViewTracker id={p._id} name={p.name} value={price(p)}/><ProductDetails product={p} bulkThreshold={Number(cfg.bulk_threshold_qty||20)} retailCap={Number(site.retail_max_qty_per_product||cfg.retail_max_qty_per_product||5)} dealerPercent={dealerPercent} dealerTiers={dealerTiers} dealerFixed={mode==='fixed'} offer={offer?.code&&(!offer.product_ids?.length||offer.product_ids.includes(p._id))?offer:null} defaultBanner={cat.banner_url||site.branding?.product_banner_url||''} links={site.links||{}} delivery={{dhaka:Number(cfg.dhaka_delivery_charge??70),outside:Number(cfg.outside_dhaka_delivery_charge??130),...(()=>{const d=deliveryDays(cfg);return {dhakaDays:d.dhaka,outsideDays:d.outside}})()}}/></main>;
 }

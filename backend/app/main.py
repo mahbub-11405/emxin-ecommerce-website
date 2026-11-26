@@ -421,7 +421,7 @@ def customer_register_phone(body: PhoneRegister, request: Request):
     if db.customers.find_one({'phone':phone}): raise HTTPException(409,'This number is already registered. Please log in.')
     email=body.email.lower().strip() if body.email else None
     if not consume_phone_verification(phone,'customer_register',body.verification_id): raise HTTPException(401,'Valid phone OTP verification required')
-    doc={'name':body.name.strip(),'phone':phone,'phone_verified':True,'district':body.district,'address':body.address,'account_type':'customer','lead_status':'New Lead','lead_priority':'Cold','total_orders':0,'total_purchase':0.0,'created_at':now(),'last_login_at':now(),'last_active_at':now(),'assigned_sales_person':None,'sales_notes':[],'next_followup_at':None}
+    doc={'name':body.name.strip(),'phone':phone,'phone_verified':True,'district':body.district,'thana':(body.thana or '').strip()[:60] or None,'address':body.address,'account_type':'customer','lead_status':'New Lead','lead_priority':'Cold','total_orders':0,'total_purchase':0.0,'created_at':now(),'last_login_at':now(),'last_active_at':now(),'assigned_sales_person':None,'sales_notes':[],'next_followup_at':None}
     if email: doc['email']=email
     r=db.customers.insert_one(doc)
     return {'access_token':create_token(str(r.inserted_id),'customer'),**issue_device(str(r.inserted_id),phone,request),'customer':serialize({**doc,'_id':r.inserted_id})}
@@ -429,7 +429,7 @@ def customer_register_phone(body: PhoneRegister, request: Request):
 @app.put('/api/v1/customers/me')
 def customer_update_me(payload: dict, authorization: str|None=Header(None)):
     auth=require_role(authorization,('customer',))
-    upd={k:str(v).strip()[:300] for k,v in payload.items() if k in ('name','address','district') and v is not None}
+    upd={k:str(v).strip()[:300] for k,v in payload.items() if k in ('name','address','district','thana') and v is not None}
     if payload.get('email'):
         email=str(payload['email']).lower().strip()
         if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',email): raise HTTPException(400,'Invalid email')
@@ -685,6 +685,9 @@ def manual_unverified(o)->bool:
 @app.post('/api/v1/orders')
 async def create_order(body: OrderCreate, request: Request, background: BackgroundTasks, authorization: str|None=Header(None)):
     identity=require_role(authorization,('customer',))
+    body.thana=re.sub(r'\s+',' ',body.thana or '').strip()[:60]; body.address=re.sub(r'\s+',' ',body.address or '').strip()[:300]
+    if len(body.thana)<2: raise HTTPException(400,'Please select your thana / area')
+    if len(body.address)<5: raise HTTPException(400,'Please write your house / flat, road or a landmark')
     buyer=db.customers.find_one({'_id':ObjectId(identity['sub'])})
     if not buyer or normalize_bd_phone(body.phone)!=normalize_bd_phone(buyer.get('phone','')):
         raise HTTPException(403,'Checkout phone must match your verified account')
@@ -725,7 +728,7 @@ async def create_order(body: OrderCreate, request: Request, background: Backgrou
         p=pmap[i.product_id]
         items.append({'product_id':i.product_id,'name':p['name'],'slug':p['slug'],'quantity':i.quantity,'frame_color':i.frame_color,'unit_price':float(p.get('sale_price') or p['price'])})
     customer=buyer
-    doc={'order_id':order_id,'customer_name':body.customer_name,'phone':normalize_bd_phone(body.phone),'timeline':[{'at':now(),'order_status':status,'payment_status':payment_status,'note':'Order placed on website','role':'customer'}],'email':body.email,'customer_id':str(customer['_id']) if customer else None,'address':body.address,'district':body.district,'items':items,'pricing':pricing,'payment_method':body.payment_method,'payment_status':payment_status,'order_status':status,'coupon_code':coupon.get('code') if coupon else None,'dealer_opt_in':body.dealer_opt_in,'shop_name':body.shop_name,'dealer_id':str(dealer['_id']) if dealer else None,'customer_type':'dealer' if dealer else 'retail','dealer_discount_approved':bool(dealer and dealer.get('discount_approved')), 'courier':None,'courier_data':None,'courier_billing_mode':('deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill'),'created_at':now(),'updated_at':now()}
+    doc={'order_id':order_id,'customer_name':body.customer_name,'phone':normalize_bd_phone(body.phone),'timeline':[{'at':now(),'order_status':status,'payment_status':payment_status,'note':'Order placed on website','role':'customer'}],'email':body.email,'customer_id':str(customer['_id']) if customer else None,'address':body.address,'district':body.district,'thana':body.thana,'items':items,'pricing':pricing,'payment_method':body.payment_method,'payment_status':payment_status,'order_status':status,'coupon_code':coupon.get('code') if coupon else None,'dealer_opt_in':body.dealer_opt_in,'shop_name':body.shop_name,'dealer_id':str(dealer['_id']) if dealer else None,'customer_type':'dealer' if dealer else 'retail','dealer_discount_approved':bool(dealer and dealer.get('discount_approved')), 'courier':None,'courier_data':None,'courier_billing_mode':('deduct_from_cod_collection' if pricing.get('cod_due',0)>0 else 'merchant_periodic_bill'),'created_at':now(),'updated_at':now()}
     if manual: doc['manual_payment']=manual; doc['payment_channel']=manual['channel']; doc['timeline'][0]['note']=f"Order placed · {manual['channel_label']} Send Money TrxID {manual['trx_id']} (to verify)"
     # Reserve stock immediately for confirmed website intent; cancelled orders can release via admin action.
     for i in body.items: db.products.update_one({'_id':ObjectId(i.product_id)},{'$inc':{'stock':-i.quantity,'reserved':i.quantity}})
@@ -738,6 +741,7 @@ async def create_order(body: OrderCreate, request: Request, background: Backgrou
     if customer:
         db.customers.update_one({'_id':customer['_id']},{'$inc':{'total_orders':1,'total_purchase':pricing['grand_total']},'$set':{'lead_status':'Converted','lead_priority':'Hot','last_active_at':now()}})
     db.customers.update_one({'_id':buyer['_id'],'address':{'$in':[None,'']}},{'$set':{'address':body.address,'district':body.district}})
+    db.customers.update_one({'_id':buyer['_id'],'thana':{'$in':[None,'']}},{'$set':{'thana':body.thana}})
     db.ledger.insert_one({'order_id':order_id,'type':'order_created','amount':pricing['grand_total'],'payment_method':body.payment_method,'created_at':now()})
     response={'order_id':order_id,'status':status,'payment_status':payment_status,'pricing':pricing,'manual_payment':manual}
     if meta_capi.enabled():  # Facebook ads: count this order (same event_id as the browser Pixel, so it is counted once)
@@ -1057,11 +1061,29 @@ def cancel_order(order_id:str,payload:dict|None=Body(None),authorization: str|No
     return {'ok':True}
 
 @app.post('/api/v1/admin/orders/{order_id}/send-courier')
-async def send_courier(order_id:str,courier:str='steadfast',authorization: str|None=Header(None)):
-    require_role(authorization,ORDER_WRITE); o=db.orders.find_one({'order_id':order_id})
+async def send_courier(order_id:str,courier:str='steadfast',payload:dict|None=Body(None),authorization: str|None=Header(None)):
+    actor=require_role(authorization,ORDER_WRITE); o=db.orders.find_one({'order_id':order_id})
     if not o: raise HTTPException(404,'Order not found')
     if o['order_status'] not in ('Confirmed','Approved'): raise HTTPException(409,'Confirm the customer/order first')
     if manual_unverified(o): raise HTTPException(409,'Verify the bKash/Nagad payment first')
+    # "Review & send" box: the address can be corrected (after the confirmation call) and a note for Steadfast / the rider added
+    payload=payload or {}
+    if 'address' in payload or 'note' in payload or 'thana' in payload:
+        addr=re.sub(r'\s+',' ',str(payload.get('address',o.get('address')) or '')).strip()[:250]
+        note=re.sub(r'\s+',' ',str(payload.get('note') or '')).strip()[:200]
+        if len(addr)<5: raise HTTPException(400,'Write the delivery address (area / thana and a landmark)')
+        st={'courier_note':note,'updated_at':now()};push=[]
+        if 'thana' in payload:
+            th=re.sub(r'\s+',' ',str(payload.get('thana') or '')).strip()[:60]
+            if th!=(o.get('thana') or ''):
+                st['thana']=th;push.append({'at':now(),'note':f"Thana set to “{th}” before sending to the courier"+(f" (was “{o.get('thana')}”)" if o.get('thana') else ''),'role':'admin'})
+        if addr!=(o.get('address') or '').strip():
+            from .cms_history import actor_name
+            st.update({'address':addr,'address_before_fix':o.get('address')})
+            push.append({'at':now(),'note':f"Address corrected by {actor_name(actor)} before sending to the courier: “{o.get('address') or ''}” → “{addr}”",'role':'admin'})
+        if note: push.append({'at':now(),'note':f'Note for the courier: {note}','role':'admin'})
+        db.orders.update_one({'_id':o['_id']},{'$set':st,**({'$push':{'timeline':{'$each':push}}} if push else {})})
+        o=db.orders.find_one({'_id':o['_id']})
     if courier=='steadfast':
         try: data=await steadfast_create(o)
         except IntegrationNotConfigured as e: raise HTTPException(503,str(e))
@@ -1197,8 +1219,13 @@ def update_homepage(payload:dict,authorization: str|None=Header(None)):
 @app.put('/api/v1/admin/settings/commerce')
 def update_commerce(payload:dict,authorization: str|None=Header(None)):
     manager(authorization)
-    permitted={'dhaka_delivery_charge','outside_dhaka_delivery_charge','estimated_shipping_from_qty','extra_shipping_per_kg','bulk_threshold_qty','bulk_discount_percent','bulk_advance_percent','digital_payment_discount_percent','payment_accounts','return_label','express_surcharge_by_district','dealer_tiers','retail_max_qty_per_product'}
+    permitted={'delivery_days_dhaka','delivery_days_outside','dhaka_delivery_charge','outside_dhaka_delivery_charge','estimated_shipping_from_qty','extra_shipping_per_kg','bulk_threshold_qty','bulk_discount_percent','bulk_advance_percent','digital_payment_discount_percent','payment_accounts','return_label','express_surcharge_by_district','dealer_tiers','retail_max_qty_per_product'}
     cleaned={k:v for k,v in payload.items() if k in permitted}
+    for key in ('delivery_days_dhaka','delivery_days_outside'):  # shown to customers, e.g. "1–2" (days)
+        if key in cleaned:
+            v=str(cleaned[key] or '').strip().replace('-','–').replace(' ','')
+            if not re.fullmatch(r'\d{1,2}(–\d{1,2})?',v): raise HTTPException(400,'Delivery time: write days like 1–2 or 3')
+            cleaned[key]=v
     for key in permitted & cleaned.keys():
         if key.endswith('_percent') and (not isinstance(cleaned[key],(int,float)) or not 0<=cleaned[key]<=100): raise HTTPException(400,f'Invalid {key}')
         if key.endswith('_charge') or key in ('estimated_shipping_from_qty','extra_shipping_per_kg','bulk_threshold_qty'):

@@ -30,14 +30,14 @@ export function OfferBar({c}:{c:Featured}){
   if(hide)return null;
   return <div className="offer-bar" role="region" aria-label="Current offer"><div className="wrap offer-row">
     <Icon name="percent" size={16} stroke={2.4}/>
-    <span className="offer-txt"><b>{c.label}</b>{onlyOn(c)?<> {onlyOn(c)}</>:''}{c.description?<> · {c.description}</>:''}{(c.min_order||0)>1?<span className="offer-min"> · orders over {tk(c.min_order||0)}</span>:''}</span>
+    <span className="offer-txt"><b>{c.label}</b>{onlyOn(c)?<> {onlyOn(c)}</>:''}{c.description?<span className="offer-desc"> · {c.description}</span>:''}{(c.min_order||0)>1?<span className="offer-min"> · orders over {tk(c.min_order||0)}</span>:''}</span>
     <button type="button" className="offer-code" onClick={()=>copy(c.code)} aria-label={`Copy coupon code ${c.code}`}>{done?'Copied ✓':c.code}{!done&&<Icon name="copy" size={13}/>}</button>
     {ends&&<span className="offer-ends">{ends}</span>}
     <button type="button" className="offer-x" aria-label="Hide offer" onClick={()=>{setHide(true);try{sessionStorage.setItem('offer_bar_hidden',c.code)}catch{}}}>×</button>
   </div></div>;
 }
 
-const QUIET=['/checkout','/login','/register','/account','/payment-result','/cart'];
+const QUIET=['/product','/checkout','/login','/register','/account','/payment-result','/cart'];
 export function OfferPopup({c}:{c:Featured}){
   const path=usePathname()||'/';const[open,setOpen]=useState(false);const{done,copy}=useCopy();const ends=useEnds(c.ends_at);
   useEffect(()=>{

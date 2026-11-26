@@ -902,7 +902,9 @@ def coupon_public(c, subtotal: float = 0, items: list | None = None):
         pm = cart_products(items)
         fits = any(coupon_applies(c, i['product_id']) for i in items if i['product_id'] in pm)
         subtotal = coupon_base(c, [i for i in items if i['product_id'] in pm], pm) if fits else subtotal
-    return {'product_ids': c.get('product_ids') or [], 'products': coupon_products(c), 'fits_cart': fits,'code': c['code'], 'label': label, 'description': c.get('description', ''), 'min_order': mo,
+    return {'product_ids': c.get('product_ids') or [], 'products': coupon_products(c), 'fits_cart': fits,'code': c['code'], 'label': label,
+            'type': c['type'], 'value': v, 'max_discount': float(cap) if cap else None,  # type/value let the checkout pick the best offer
+            'description': c.get('description', ''), 'min_order': mo,
             # ends_at is stored as the start of the day AFTER the last valid day
             'ends_at': c['ends_at'].replace(tzinfo=timezone.utc).isoformat() if c.get('ends_at') else None,
             'allow_bulk': bool(c.get('allow_bulk')), 'popup': c.get('promote_popup', True) is not False,
