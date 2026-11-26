@@ -1034,9 +1034,9 @@ async def confirm_order(order_id:str,authorization: str|None=Header(None)):
         raise HTTPException(409,'The online payment is not done yet (COD would be ৳0). Use "Switch to Cash on Delivery" first, or wait for the payment.')
     db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Confirmed','confirmed_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Confirmed','note':'Order confirmed by EMXIN'}}})
     queue_sms('order-confirmed-'+order_id,o['phone'],t_order_confirmed(o),'order',order_id=order_id)
-    # Business rule: after EMXIN calls the customer and Admin confirms, create the default
-    # Steadfast consignment automatically. Nothing is sent to courier before this click.
-    if settings.courier_default=='steadfast' and settings.steadfast_enabled:
+    # The parcel is booked when Admin presses "Send to Steadfast" (Review & send: fix the address, add a rider note).
+    # COURIER_AUTO_SEND=true brings back booking straight on "Customer confirmed".
+    if settings.courier_auto_send and settings.courier_default=='steadfast' and settings.steadfast_enabled:
         refreshed=db.orders.find_one({'_id':o['_id']})
         try: await steadfast_create(refreshed)
         except IntegrationNotConfigured: pass

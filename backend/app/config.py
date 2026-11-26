@@ -83,6 +83,7 @@ class Settings(BaseSettings):
 
     courier_default: str = 'steadfast'
     steadfast_enabled: bool = False
+    courier_auto_send: bool = False  # true = "Customer confirmed" also books the Steadfast parcel at once (skips Review & send)
     steadfast_base_url: str = ''
     steadfast_create_order_path: str = ''
     steadfast_status_path: str = ''

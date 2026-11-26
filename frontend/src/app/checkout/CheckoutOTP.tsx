@@ -20,13 +20,13 @@ export default function CheckoutOTP({phone,name,email,district,thana='',address,
     try{const r=await postJSON('/auth/otp/request',{phone:num,purpose:m==='login'?'login':'customer_register',language:'en'});
       setMode(m);setWait(Number(r.resend_in)||60);setStep('code');track('otp_sent',{metadata:{mode:m}});
       stopOtp.current();stopOtp.current=listenWebOTP(c=>{setCode(c);setTimeout(()=>verify(c,m),50)});
-      setMsg({k:'ok',t:r.test_code?`Test code: ${r.test_code}`:`We sent a 6-digit code by SMS to ${num}.`});setTimeout(()=>box.current?.focus(),60)}
+      setMsg({k:'ok',t:r.test_code?`Test code: ${r.test_code}`:`${num}-এ SMS-এ ৬ সংখ্যার কোড পাঠানো হয়েছে।`});setTimeout(()=>box.current?.focus(),60)}
     catch(e:any){
       if(m==='register'&&/already registered/i.test(e.message))return send('login'); // has an account already → log in with the same code flow
       setStep('code');setMsg({k:'err',t:e.message||'Could not send the code. Please try again.'})}
   }
   async function verify(c=code,m=mode){
-    const d=c.replace(/\D/g,'');if(d.length!==6){setMsg({k:'err',t:'Enter the 6-digit code from the SMS.'});return}
+    const d=c.replace(/\D/g,'');if(d.length!==6){setMsg({k:'err',t:'SMS-এ আসা ৬ সংখ্যার কোডটা লিখুন।'});return}
     setStep('checking');setMsg(null);
     try{const v=await postJSON('/auth/otp/verify',{phone:num,purpose:m==='login'?'login':'customer_register',code:d});
       track('otp_verified',{metadata:{mode:m}});
@@ -46,21 +46,21 @@ export default function CheckoutOTP({phone,name,email,district,thana='',address,
   return <div className="co-modal" role="dialog" aria-modal="true" aria-labelledby="otp-title">
     <button type="button" className="co-modal-bg" aria-label="Close" onClick={()=>{if(step!=='checking')onClose()}}/>
     <div className="co-modal-box co-otp">
-      <div className="co-modal-head"><h3 id="otp-title">Confirm your mobile number</h3><button type="button" className="co-x" aria-label="Close" disabled={step==='checking'} onClick={onClose}>×</button></div>
-      {step==='sending'?<p className="co-otp-wait"><span className="spinner"/> {deviceFor(num)?'Checking this device…':`Sending a code to ${num}…`}</p>:
-      step==='done'?<p className="co-otp-wait"><span className="spinner"/> Number confirmed. Placing your order…</p>:<>
-        <p className="muted">Last step: type the 6-digit code we sent to <b>{num}</b>. Your order is placed right after{mode==='register'?' and your EMXIN account is created (no password needed)':''}.</p>
+      <div className="co-modal-head"><h3 id="otp-title">মোবাইল নম্বর নিশ্চিত করুন</h3><button type="button" className="co-x" aria-label="Close" disabled={step==='checking'} onClick={onClose}>×</button></div>
+      {step==='sending'?<p className="co-otp-wait"><span className="spinner"/> {deviceFor(num)?'এই ফোনটা যাচাই হচ্ছে…':`${num}-এ কোড পাঠানো হচ্ছে…`}</p>:
+      step==='done'?<p className="co-otp-wait"><span className="spinner"/> নম্বর নিশ্চিত হয়েছে। অর্ডার হচ্ছে…</p>:<>
+        <p className="muted">শেষ ধাপ: <b>{num}</b>-এ পাঠানো <b>৬ সংখ্যার কোড</b> লিখুন। কোড দিলেই অর্ডার হয়ে যাবে{mode==='register'?' (পাসওয়ার্ড লাগবে না)':''}।</p>
         <div className="co-otp-form">
           <input ref={box} className="co-otp-code" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} placeholder="••••••" aria-label="6-digit code"
             value={code} onChange={e=>{const v=e.target.value.replace(/\D/g,'').slice(0,6);setCode(v);if(v.length===6)verify(v)}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();verify()}}} disabled={step==='checking'}/>
-          <button type="button" className="btn btn-lg btn-block" onClick={()=>verify()} disabled={step==='checking'||code.length!==6}>{step==='checking'?'Checking…':<><Icon name="check" size={18}/>Confirm &amp; place order</>}</button>
+          <button type="button" className="btn btn-lg btn-block" onClick={()=>verify()} disabled={step==='checking'||code.length!==6}>{step==='checking'?'যাচাই হচ্ছে…':<><Icon name="check" size={18}/>কনফার্ম করে অর্ডার দিন</>}</button>
         </div>
         {msg&&<p className={msg.k==='ok'?'qr-okline':'form-err'} role="status">{msg.t}</p>}
         <div className="co-otp-links">
-          <button type="button" className="linkish" disabled={wait>0} onClick={()=>send()}>{wait>0?`Resend code in ${wait}s`:'Resend code'}</button>
-          <button type="button" className="linkish" onClick={onClose}>Change number</button>
+          <button type="button" className="linkish" disabled={wait>0} onClick={()=>send()}>{wait>0?`আবার পাঠান (${wait}s)`:'কোড আসেনি? আবার পাঠান'}</button>
+          <button type="button" className="linkish" onClick={onClose}>নম্বর বদলান</button>
         </div>
-        <small className="muted">Your cart and details stay filled in. Next time on this device no code is needed.</small>
+        <small className="muted">আপনার দেওয়া তথ্য ঠিক থাকবে। এই ফোন থেকে পরের বার আর কোড লাগবে না।</small>
       </>}
     </div></div>;
 }

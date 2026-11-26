@@ -79,6 +79,9 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
   const digital=pay!=='cod';
   // Exact amount from the server (delivery, extra shipping, dealer tier) — a Send Money customer must send exactly this.
   useEffect(()=>{if(!items.length)return;const t=setTimeout(()=>{const tok=getToken();fetch(API+'/orders/quote',{method:'POST',headers:{'Content-Type':'application/json',...(tok?{Authorization:'Bearer '+tok}:{})},body:JSON.stringify({items,district:f.district,payment_method:pay,coupon_code:cp?.code||null,dealer_opt_in:f.dealer_opt_in})}).then(r=>r.ok?r.json():null).then(setQuote).catch(()=>setQuote(null))},250);return()=>clearTimeout(t)},[items,f.district,pay,cp,f.dealer_opt_in]);
+  // the two totals side by side: Cash on Delivery vs paying first by bKash / Nagad
+  const digSave=!bulk&&chans.length>0?Math.round(est.saving):0;const grandNow=quote?Math.round(quote.grand_total):est.total;
+  const codTotal=pay==='cod'?grandNow:grandNow+digSave;const digTotal=pay==='cod'?grandNow-digSave:grandNow;
   const sendAmt=quote?Math.round(quote.is_bulk?quote.advance_required:quote.grand_total):(bulk?est.adv:est.total);
   const acc=accs[mp.channel]||{};const chLabel=mp.channel==='nagad'?'Nagad':'bKash';
   const copy=(t:string)=>{try{navigator.clipboard?.writeText(t)}catch{}};
@@ -157,21 +160,20 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       </ul>
       {welcome&&<p className="note-good big"><Icon name="checkCircle" size={18}/> Welcome{me?.name?`, ${me.name.split(' ')[0]}`:''}! Your account is ready and your details are filled in — review and place your order.</p>}
       {!logged&&<div className="co-guest"><Icon name="user" size={18}/><span><b>No account needed.</b> We SMS a 6-digit code to confirm your number.</span></div>}
-      <section className="panel"><h2><span className="step">1</span>Delivery Details</h2><div className="grid-2">
-        <label className="qr-field"><span>Full Name <em>*</em></span><input required value={f.customer_name} onChange={e=>setF({...f,customer_name:e.target.value})}/></label>
-        <label className="qr-field"><span>Mobile Number <em>*</em></span><input required type="tel" placeholder="017XXXXXXXX" value={f.phone} readOnly={logged} onChange={e=>setF({...f,phone:e.target.value})}/>{logged?<small className="muted">Verified account number</small>:<small className="muted">We SMS a code here and call this number to confirm.</small>}</label>
-        <label className="qr-field span-2"><span>Address <em>*</em> <small className="muted">house / flat, road or a landmark</small></span><input id="co-addr" required minLength={5} maxLength={300} autoComplete="street-address" value={f.address} onChange={e=>setF({...f,address:e.target.value})} placeholder="e.g. House 100, Howlader Mansion, Road 5"/></label>
-        <div className="qr-field span-2"><label htmlFor="co-thana">Thana <em>*</em> <small className="muted">type a few letters and pick yours</small></label>
+      <section className="panel"><h2><span className="step">1</span>Delivery Details <span className="bn">/ ডেলিভারির তথ্য</span></h2><div className="grid-2">
+        <label className="qr-field"><span>Full Name <span className="bn">/ নাম</span> <em>*</em></span><input required value={f.customer_name} onChange={e=>setF({...f,customer_name:e.target.value})}/></label>
+        <label className="qr-field"><span>Mobile Number <span className="bn">/ মোবাইল নম্বর</span> <em>*</em></span><input required type="tel" placeholder="017XXXXXXXX" value={f.phone} readOnly={logged} onChange={e=>setF({...f,phone:e.target.value})}/>{logged?<small className="muted">Verified account number</small>:<small className="muted">এই নম্বরে ৬ সংখ্যার কোড যাবে, আর আমরা এই নম্বরে ফোন করে অর্ডার নিশ্চিত করব।</small>}</label>
+        <label className="qr-field span-2"><span>Address <span className="bn">/ ঠিকানা</span> <em>*</em> <small className="muted">বাসা/ফ্ল্যাট, রোড বা কাছের জায়গা</small></span><input id="co-addr" required minLength={5} maxLength={300} autoComplete="street-address" value={f.address} onChange={e=>setF({...f,address:e.target.value})} placeholder="e.g. House 100, Howlader Mansion, Road 5"/></label>
+        <div className="qr-field span-2"><label htmlFor="co-thana">Thana <span className="bn">/ থানা</span> <em>*</em> <small className="muted">কয়েকটা অক্ষর লিখে বেছে নিন</small></label>
           <ThanaPicker inputId="co-thana" thana={f.thana} district={f.district} onPick={(p,done)=>{setF(v=>({...v,...p}));if(done)setTimeout(()=>{if(f.address.trim().length<5)document.getElementById('co-addr')?.focus();else document.getElementById('co-pay')?.scrollIntoView({behavior:'smooth',block:'start'})},60)}}/>
           <small className="muted">{f.thana?`Delivery to ${f.district}: ${tk(f.district.toLowerCase()==='dhaka'?dhaka:outside)} · ${daysFor(f.district,settings)} days`:`Delivery: ${tk(dhaka)} Dhaka (${dd.dhaka} days) · ${tk(outside)} outside Dhaka (${dd.outside} days)`}</small></div>
-        {showEmail||f.email?<label className="qr-field"><span>Email <small className="muted">(optional)</small></span><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
-          :<button type="button" className="co-addmail" onClick={()=>setShowEmail(true)}>+ Add email for the order receipt (optional)</button>}
+        {showEmail||f.email?<label className="qr-field"><span>Email <span className="bn">/ ইমেইল</span> <small className="muted">(optional)</small></span><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></label>
+          :<button type="button" className="co-addmail" onClick={()=>setShowEmail(true)}>+ Email / ইমেইল (optional)</button>}
         {(bulk||f.dealer_opt_in)&&<label className="qr-field span-2"><span>Shop / Business Name <em>*</em></span><input required value={f.shop_name} onChange={e=>setF({...f,shop_name:e.target.value})}/></label>}
       </div></section>
-      <section className="panel" id="co-pay"><h2><span className="step">2</span>Payment Method</h2><div className="pay-opts">
-        {!bulk&&<label className={'pay-opt cod'+(pay==='cod'?' on':'')}><input type="radio" name="pay" checked={pay==='cod'} onChange={()=>setPay('cod')}/><Icon name="truck" size={26}/><span><b>Cash on Delivery</b><small>পণ্য হাতে পেয়ে টাকা দিন · pay the rider when the parcel arrives</small></span><em className="pop">MOST CHOSEN</em></label>}
-        {!bulk&&pay==='cod'&&est.saving>0&&chans.length>0&&<p className="co-paytip">Want to save {tk(est.saving)}? You can also pay now by bKash / Nagad (optional).</p>}
-        {chans.length>0&&<label className={'pay-opt'+(pay==='manual'?' on':'')}><input type="radio" name="pay" checked={pay==='manual'} onChange={()=>setPay('manual')}/><Icon name="phone" size={26}/><span><b>Pay now by bKash / Nagad {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Send Money to EMXIN and enter the TrxID{bulk?'':` · save ${tk(est.saving)}`}</small></span><em className="save">SAVE {pct}%</em></label>}
+      <section className="panel" id="co-pay"><h2><span className="step">2</span>Payment Method <span className="bn">/ পেমেন্ট</span></h2><div className="pay-opts">
+        {!bulk&&<label className={'pay-opt cod'+(pay==='cod'?' on':'')}><input type="radio" name="pay" checked={pay==='cod'} onChange={()=>setPay('cod')}/><Icon name="truck" size={26}/><span><b>Cash on Delivery</b><small>পণ্য হাতে পেয়ে টাকা দিন · pay the rider when the parcel arrives</small>{digSave>0&&<strong className="pay-total">মোট {tk(codTotal)}</strong>}</span><em className="pop">MOST CHOSEN</em></label>}
+        {chans.length>0&&<label className={'pay-opt'+(pay==='manual'?' on':'')}><input type="radio" name="pay" checked={pay==='manual'} onChange={()=>setPay('manual')}/><Icon name="phone" size={26}/><span><b>Pay now by bKash / Nagad {bulk&&<small className="muted">· {settings.bulk_advance_percent??50}% advance</small>}</b><small>Send Money করে TrxID দিন</small>{digSave>0&&<><strong className="pay-total good">মোট {tk(digTotal)}</strong><span className="pay-win">💰 আগে পেমেন্টে <b>{tk(digSave)}</b> বেশি ছাড়!</span></>}</span>{digSave>0?null:<em className="save">SAVE {pct}%</em>}</label>}
         {pay==='manual'&&<div className="mp-box">
           {chans.length>1&&<div className="mp-tabs">{chans.map(k=><button type="button" key={k} className={'mp-tab '+k+(mp.channel===k?' on':'')} onClick={()=>setMp({...mp,channel:k})}>{k==='bkash'?'bKash':'Nagad'}</button>)}</div>}
           <ol className="mp-steps">
@@ -194,7 +196,7 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
         :<Link className="co-dealer" href="/dealer"><Icon name="handshake" size={22}/><span><b>Buying for your shop?</b><small>Order {threshold}+ pcs as an EMXIN dealer and save {(settings.dealer_tiers||[5])[0]}%–{(settings.dealer_tiers||[5,8,12,15]).slice(-1)[0]}%. Already a dealer? Just order {threshold}+ pcs.</small></span><Icon name="arrowRight" size={16}/></Link>}
       </section>
     </div>
-    <aside className="panel co-sum"><h3>Order Summary</h3>
+    <aside className="panel co-sum"><h3>Order Summary <span className="bn">/ অর্ডারের হিসাব</span></h3>
       <div className="co-items">{items.map((i,k)=>{const p=byId[i.product_id];const img=p?.images?.[0]||p?.media?.find((m:any)=>m.type!=='video')?.url;const max=Math.max(1,(Number(p?.stock)||99)-items.reduce((n,x,j)=>j!==k&&x.product_id===i.product_id?n+x.quantity:n,0));
         return <div className="co-item2" key={i.product_id+i.frame_color}>
           <span className="co-thumb">{img?<img src={img} alt=""/>:<Icon name="glasses" size={22}/>}</span>
@@ -234,13 +236,15 @@ export default function Checkout({productId,initialQty=1,initialColor='Black',se
       {bulk&&<div className="sum-row"><span>Pay now (advance)</span><b>৳ {(quote?Math.round(quote.advance_required):est.adv).toLocaleString('en-IN')}</b></div>}
       {bulk&&!(quote?.bulk_discount>0)&&<p className="sum-check"><Icon name="checkCircle" size={16}/><span><b>Dealer / bulk discount</b> is added by EMXIN when your order is confirmed. You pay the advance now; the final price can only go down.</span></p>}
       {state.kind==='err'&&<p className="form-err" role="alert">{state.text}</p>}
-      <button ref={mainBtn} className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'Placing order…':!logged?<><Icon name="check" size={19}/>Place Order · confirm by SMS code</>:pay==='manual'?<><Icon name="check" size={19}/>Place Order · ৳ {sendAmt.toLocaleString('en-IN')} sent by {chLabel}</>:pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {sendAmt.toLocaleString('en-IN')} securely</>:'Place Order (Cash on Delivery)'}</button>
+      <button ref={mainBtn} className="btn btn-lg btn-block" disabled={overCap.length>0||state.kind==='busy'}>{state.kind==='busy'?'অর্ডার হচ্ছে… / Placing order…':pay==='paystation'?<><Icon name="secure" size={19}/>Pay ৳ {sendAmt.toLocaleString('en-IN')} securely</>:<><Icon name="check" size={19}/>অর্ডার করুন · Place Order</>}</button>
+      {!logged&&state.kind!=='busy'&&<p className="co-nextstep"><Icon name="phone" size={15}/>পরের ধাপে আপনার মোবাইলে ৬ সংখ্যার কোড যাবে — কোড দিলেই অর্ডার কনফার্ম।</p>}
+      {logged&&pay==='manual'&&<p className="co-nextstep">{tk(sendAmt)} {chLabel}-এ পাঠানোর TrxID সহ অর্ডার যাবে।</p>}
       <p className="muted tiny">By placing this order you agree to our <Link href="/terms" target="_blank">Terms</Link>, including that EMXIN may <Link href="/terms#order-cancellation" target="_blank">cancel an order affected by a system error</Link> and refund any payment in full. Nothing is sent to the courier until EMXIN confirms your order.</p>
       <p className="co-help">Question before ordering? {wa&&<><a href={wa} target="_blank" rel="noopener">WhatsApp</a> · </>}<a href={msgr} target="_blank" rel="noopener">Messenger</a>{links?.support_phone&&<> · <a href={'tel:'+links.support_phone}>Call {links.support_phone}</a></>}</p>
     </aside>
     {!otp&&!mainSeen&&state.kind!=='busy'&&<div className="co-sticky" role="region" aria-label="Place order">
       <span><small>{pay==='cod'&&!bulk?'Pay on delivery':'Total'}</small><b>{tk(grand)}</b></span>
-      <button className="btn btn-lg" disabled={overCap.length>0}><Icon name="check" size={18}/>Place Order</button></div>}
+      <button className="btn btn-lg" disabled={overCap.length>0}><Icon name="check" size={18}/>অর্ডার করুন</button></div>}
   </form>
     {otp&&<CheckoutOTP phone={f.phone} name={f.customer_name} email={f.email} district={f.district} thana={thana} address={f.address} onClose={()=>setOtp(false)}
       onDone={tok=>{setOtp(false);setWelcome(false);fetch(API+'/customers/me?lite=1',{headers:{Authorization:'Bearer '+tok}}).then(r=>r.ok?r.json():null).then(x=>x&&setMe(x)).catch(()=>{});placeOrder(tok)}}/>}
