@@ -37,7 +37,7 @@ export function OfferBar({c}:{c:Featured}){
   </div></div>;
 }
 
-const QUIET=['/product','/checkout','/login','/register','/account','/payment-result','/cart'];
+const QUIET=['/product','/track-order','/t/','/checkout','/login','/register','/account','/payment-result','/cart'];
 export function OfferPopup({c}:{c:Featured}){
   const path=usePathname()||'/';const[open,setOpen]=useState(false);const{done,copy}=useCopy();const ends=useEnds(c.ends_at);
   useEffect(()=>{

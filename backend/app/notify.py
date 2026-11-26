@@ -48,11 +48,14 @@ def t_dealer_suspended(code: str='', reason: str='') -> str:
 def t_dealer_reactivated(code: str='') -> str:
     return f"EMXIN: Good news! Your dealer account{' '+code if code else ''} is active again. You get dealer prices from now on. {settings.site_domain}/dealer"
 def t_order_confirmed(o: dict) -> str:
-    p=o.get('pricing') or {}; due=float(p.get('cod_due') or 0); paid=float(p.get('grand_total') or 0)-due
-    money=(f'Paid {tk(paid)}, due {tk(due)} on delivery.' if paid>0 and due>0 else f'Pay {tk(due)} on delivery.' if due>0 else f'Paid {tk(paid)}.')
-    full=f"EMXIN: Your order {o['order_id']} is confirmed. {money} Ships by courier soon. Track: {settings.site_domain}/track-order"
+    """The one order SMS, sent when Admin confirms: confirmed + it goes by courier + what is left to pay + track link (always 1 part)."""
+    p=o.get('pricing') or {}; due=float(p.get('cod_due') or 0)
+    money=f' Pay {tk(due)} on delivery.' if due>0 else ''  # fully paid by bKash/Nagad/online: nothing to say about money
     from .integrations import sms_parts
-    return full if sms_parts(full)==1 else f"EMXIN: Your order {o['order_id']} is confirmed. {money} Track: {settings.site_domain}/track-order"  # big amounts: drop the extra line, stay 1 SMS
+    for extra in (' It will be sent by courier.',''):
+        msg=f"EMXIN: Your order {o['order_id']} is confirmed.{extra}{money} Track: {short_track(o)}"
+        if sms_parts(msg)==1: return msg
+    return msg
 def t_order_cancelled(o: dict) -> str:
     # no reason in the SMS (the customer sees it on the website): keeps it 1 short part
     return f"EMXIN: Your order {o['order_id']} has been cancelled by EMXIN. See details in My Orders: {settings.site_domain}/account or call us."
@@ -69,6 +72,9 @@ def ensure_dealer_code(dealer: dict) -> str:
     r=db.dealers.update_one({'_id':dealer['_id'],'dealer_code':{'$exists':False}},{'$set':{'dealer_code':code,'dealer_code_at':now()}})
     return code if r.modified_count else (db.dealers.find_one({'_id':dealer['_id']},{'dealer_code':1}) or {}).get('dealer_code',code)
 
+def short_track(o: dict) -> str:
+    """tech.emxin.com/t/261125-FCBF36 → opens Track order with the order ID filled in."""
+    return f"{settings.site_domain}/t/{str(o['order_id']).removeprefix('EMX-')}"
 # ---------- outbox ----------
 def queue_sms(event_key: str, phone: str, message: str, kind: str='transactional', **extra) -> bool:
     """Adds one SMS to the outbox (ignored if this event_key was already queued). Returns True if newly queued."""

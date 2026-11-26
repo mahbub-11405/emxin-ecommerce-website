@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from pymongo.errors import DuplicateKeyError
 
 from .db import db, data_version, live_version
+from .pubcache import pub_cached
 from .helpers import now, serialize, slugify, next_product_codes
 from .pricing import coupon_applies, coupon_base
 from .security import require_role, decode_token
@@ -940,6 +941,7 @@ def available_coupons(subtotal: float = 0, cart: str = '', authorization: str | 
 
 
 @router.get('/api/v1/coupons/featured')
+@pub_cached(30)
 def featured_coupon():
     """The one coupon promoted on the website (offer bar, popup, product pages). Biggest discount wins if several are promoted."""
     c = next(live_coupons({'promote': True}), None)

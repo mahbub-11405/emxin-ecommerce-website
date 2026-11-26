@@ -238,7 +238,10 @@ def catalog(f:dict,mode:str|None,n:int)->list:
     except Exception:  # test double without aggregation support
         return sort_products(list(db.products.find(f,LIST_HIDE).limit(2000)),mode)[:n]
 
+from .pubcache import pub_cached
+
 @app.get('/api/v1/home')
+@pub_cached(60)
 def home():
     mode=(db.homepage.find_one({'key':'home'},{'product_sort':1}) or {}).get('product_sort') or 'price_asc'
     pick=lambda f,n: serialize(with_names(catalog({'status':'active',**f},mode,n)))
@@ -247,6 +250,7 @@ def home():
             'featured':pick({'featured':True},8),'new_collection':pick({'new_collection':True},8),'products':pick({},12)}
 
 @app.get('/api/v1/site-content')
+@pub_cached(60)
 def site_content():
     home=db.homepage.find_one({'key':'home'},{'_id':0}) or {}
     cfg=db.settings.find_one({'key':'commerce'},{'_id':0,'dealer_tiers':1,'bulk_threshold_qty':1,'digital_payment_discount_percent':1,'retail_max_qty_per_product':1}) or {}
@@ -255,6 +259,7 @@ def site_content():
     return {k:home.get(k,{}) for k in ('branding','links','trust','policies','dealer_benefits','announcement','footer','seo')}|{'tracking':tracking,'dealer_tiers':cfg.get('dealer_tiers') or [5,8,12,15],'bulk_threshold_qty':cfg.get('bulk_threshold_qty',20),'digital_payment_discount_percent':cfg.get('digital_payment_discount_percent',2),'retail_max_qty_per_product':cfg.get('retail_max_qty_per_product',5)}
 
 @app.get('/api/v1/feeds/products')
+@pub_cached(120)
 def product_feed():
     """Every active product with the fields the sitemap and the Facebook / Google catalog feed need (incl. description)."""
     brands={b['slug']:b.get('name') for b in db.brands.find({},{'slug':1,'name':1})}
@@ -267,8 +272,10 @@ def product_feed():
     return serialize(rows)
 
 @app.get('/api/v1/categories')
+@pub_cached(300)
 def categories(): return serialize(list(db.categories.find({'visible':True}).sort('order',1)))
 @app.get('/api/v1/brands')
+@pub_cached(300)
 def brands(category: str|None=None):
     q={'visible':True}
     if category:
@@ -301,6 +308,7 @@ def search_filter(q:str)->list:
     return out
 
 @app.get('/api/v1/products')
+@pub_cached(30)
 def products(category: str|None=None,brand: str|None=None,q: str|None=None,limit:int=50,camera: str|None=None,availability: str|None=None,min_price: float|None=None,max_price: float|None=None,sort: str='featured',ids: str|None=None,collection: str|None=None):
     f={'status':'active'}
     if ids:
@@ -333,6 +341,7 @@ def with_names(rows):
     return rows
 
 @app.get('/api/v1/products/{slug}')
+@pub_cached(30)
 def product(slug:str):
     p=db.products.find_one({'slug':slug,'status':'active'})
     if not p: raise HTTPException(404,'Product not found')
@@ -945,12 +954,22 @@ def track(order_id:str=Query(...),phone:str=Query(...)):
     except HTTPException: raise HTTPException(404,'Order not found')
     oid=order_id.strip().upper()
     o=db.orders.find_one({'order_id':oid,'phone':{'$in':[norm,phone]}})
+    if not o:  # the courier's number typed instead (the box always adds EMX-): tracking code or consignment ID
+        alt=oid.removeprefix('EMX-').strip()
+        if alt: o=db.orders.find_one({'$or':[{'courier_tracking_code':alt},{'courier_consignment_id':re.sub(r'\D','',alt) or '-'}],'phone':{'$in':[norm,phone]}})
     if not o:
         b=binned_orders({'order_id':oid},1); o=b[0] if b and b[0].get('phone') in (norm,phone) else None
     if not o: raise HTTPException(404,'No order found with this Order ID and phone number. Please check both.')
     cancel_view(o)
     keep={k:o.get(k) for k in ['order_id','order_status','payment_status','payment_method','coupon_code','pricing','courier','created_at','updated_at','items','district','cancelled_by','cancel_reason','cancelled_at']}
-    keep['tracking_code']=(o.get('courier_data') or {}).get('consignment',{}).get('tracking_code') if isinstance(o.get('courier_data'),dict) else None
+    keep['tracking_code']=o.get('courier_tracking_code') or ((o.get('courier_data') or {}).get('consignment',{}).get('tracking_code') if isinstance(o.get('courier_data'),dict) else None)
+    if o.get('courier'):  # what the courier says, for the customer (no internal notes)
+        from .courier import status_info, tracking_url, COURIER_NAMES
+        st=o.get('courier_status')
+        keep['courier_info']={'name':COURIER_NAMES.get(o['courier'],o['courier'].title()),'consignment_id':o.get('courier_consignment_id'),'tracking_code':keep['tracking_code'],
+            'tracking_url':tracking_url({**o,'courier_tracking_code':keep['tracking_code']}),'status':st,'status_label':status_info(st)['label'] if st else None,
+            'rider_phone':o.get('courier_rider_phone'),'updated_at':o.get('courier_updated_at'),
+            'events':[{'at':e.get('at'),'label':status_info(e.get('status'))['label'] if e.get('status') else '','message':(e.get('message') or '')[:300]} for e in reversed(o.get('courier_events') or [])][:20]}
     keep['timeline']=[{k:v for k,v in t.items() if k in ('at','order_status','payment_status')} for t in o.get('timeline',[]) if t.get('order_status') or t.get('payment_status')]
     return serialize(keep)
 
@@ -1033,7 +1052,7 @@ async def confirm_order(order_id:str,authorization: str|None=Header(None)):
     if o.get('payment_method')=='paystation' and o.get('payment_status') not in PAID_STATES:
         raise HTTPException(409,'The online payment is not done yet (COD would be ৳0). Use "Switch to Cash on Delivery" first, or wait for the payment.')
     db.orders.update_one({'_id':o['_id']},{'$set':{'order_status':'Confirmed','confirmed_at':now(),'updated_at':now()},'$push':{'timeline':{'at':now(),'order_status':'Confirmed','note':'Order confirmed by EMXIN'}}})
-    queue_sms('order-confirmed-'+order_id,o['phone'],t_order_confirmed(o),'order',order_id=order_id)
+    queue_sms('order-confirmed-'+order_id,o['phone'],t_order_confirmed(o),'order',order_id=order_id)  # the one order SMS (none again when sent to the courier)
     # The parcel is booked when Admin presses "Send to Steadfast" (Review & send: fix the address, add a rider note).
     # COURIER_AUTO_SEND=true brings back booking straight on "Customer confirmed".
     if settings.courier_auto_send and settings.courier_default=='steadfast' and settings.steadfast_enabled:
@@ -1269,6 +1288,9 @@ def ledger(type:str='',q:str='',start:str='',end:str='',limit:int=300,authorizat
 
 
 # ---------- Admin media / staff ----------
+import threading as _threading
+_MEDIA_NAME_LOCK=_threading.Lock()
+
 @app.post('/api/v1/admin/media/presign')
 def admin_media_presign(body: MediaPresign,authorization: str|None=Header(None)):
     admin(authorization)
@@ -1277,8 +1299,11 @@ def admin_media_presign(body: MediaPresign,authorization: str|None=Header(None))
     limit=(300 if body.content_type.startswith('video/') else 15)*1024*1024
     if body.size and body.size>limit: raise HTTPException(400,f'File too large (max {limit//1024//1024} MB)')
     ext=(body.filename.rsplit('.',1)[-1].lower() if '.' in body.filename else 'bin')
-    key=media_key(body.folder,ext,body.content_type.startswith('video/'),body.filename)
-    db.media_reserved.insert_one({'key':key,'created_at':now()})
+    # several files at once arrive in parallel: choosing the name and reserving it happen together, one request at a time,
+    # so two pictures can never get the same name (the second would overwrite the first in S3)
+    with _MEDIA_NAME_LOCK:
+        key=media_key(body.folder,ext,body.content_type.startswith('video/'),body.filename)
+        db.media_reserved.insert_one({'key':key,'created_at':now()})
     client=s3_client()
     post=client.generate_presigned_post(Bucket=settings.aws_s3_bucket,Key=key,Fields={'Content-Type':body.content_type},Conditions=[{'Content-Type':body.content_type},['content-length-range',1,limit]],ExpiresIn=settings.s3_presigned_upload_expire_seconds)
     return {'upload':post,'key':key,'public_url':media_public_url(key),'expires_in':settings.s3_presigned_upload_expire_seconds}

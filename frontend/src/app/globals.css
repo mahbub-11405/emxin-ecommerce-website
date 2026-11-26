@@ -1123,3 +1123,45 @@ button.pd-rate{border:0;background:none;padding:0;cursor:pointer;text-align:left
 .pay-opt>span{min-width:0}
 .co-nextstep{display:flex;gap:6px;align-items:flex-start;margin:8px 0 0;font-size:13px;color:var(--navy);background:var(--blue-50);border-radius:10px;padding:8px 10px}.co-nextstep>svg{color:var(--blue);flex:none;margin-top:2px}
 @media (max-width:620px){.pay-total{font-size:13.5px}.pay-opt:has(.pay-total)>span{padding-right:0}}
+
+/* product page v3: one-line savings, icon spec tiles, compact review card on the right */
+.pd-save{flex-wrap:wrap}.pd-save-more{font-style:normal;color:var(--green);font-weight:700}
+.pd-side-box h3{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pd-side-box h3 .pd-more{padding:0;font-size:13px}
+.pd-qs{padding:14px 16px}
+ul.pd-qspec{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+ul.pd-qspec li{display:flex;gap:8px;align-items:center;min-width:0;background:linear-gradient(135deg,var(--blue-50),#fff);border:1px solid var(--blue-100);border-radius:12px;padding:8px 10px}
+ul.pd-qspec i{width:30px;height:30px;flex:none;border-radius:9px;background:var(--blue);color:#fff;display:grid;place-items:center}
+ul.pd-qspec span{display:grid;min-width:0;line-height:1.2}ul.pd-qspec small{font-size:11px;color:var(--muted)}
+ul.pd-qspec b{font-size:13px;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-peek{border:1px solid #f6d58a;background:linear-gradient(135deg,#fffaf0,#fff);border-radius:14px;padding:12px 14px;margin-top:14px}
+.pd-peek header{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.pd-peek header small{color:var(--muted);font-size:13px}
+.pd-peek header .pd-more{margin-left:auto;padding:0;font-size:13px}
+.pd-peek-num{font-size:20px;color:var(--navy);line-height:1}
+.pd-peek-r{display:flex;gap:10px;align-items:flex-start;margin-top:8px}
+.pd-peek-r img{width:48px;height:48px;border-radius:10px;object-fit:cover;flex:none}
+.pd-peek-r p{margin:0;font-size:13.5px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pd-peek-r small{color:var(--muted)}
+.peek-mob{display:none}
+@media (max-width:980px){.peek-desk{display:none}.peek-mob{display:block;margin-top:0}}
+@media (max-width:620px){ul.pd-qspec{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.pd-info .pd-faqbox{margin-top:14px;padding:12px 16px}.pd-faqbox h3{margin-bottom:8px}.pd-faq{padding:8px 0}
+@media (max-width:620px){.pd-qty .short{display:inline}}
+.pd-save{display:flex;align-items:flex-start;width:fit-content;max-width:100%}.pd-save>svg{flex:none;margin-top:3px}.pd-save>span{min-width:0}
+.pd-save{flex-wrap:nowrap;gap:8px}
+
+/* track order: courier section */
+.tk-courier{border:1px solid var(--blue-100);background:linear-gradient(135deg,var(--blue-50),#fff);border-radius:14px;padding:14px;margin:14px 0;display:grid;gap:10px}
+.tk-c-head{display:flex;gap:10px;align-items:flex-start}.tk-c-head>svg{color:var(--blue);flex:none;margin-top:4px}.tk-c-head div{display:grid}.tk-c-head b{font-size:17px;color:var(--navy)}
+.tk-ids{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0}.tk-ids div{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.tk-ids dt{font-size:12px;color:var(--muted)}.tk-ids dd{margin:0;font-weight:700;color:var(--navy);overflow-wrap:anywhere}.tk-ids small{font-weight:500;color:var(--muted)}
+.tk-same{display:flex;gap:6px;align-items:flex-start;margin:0;font-size:13px;color:#137a36}.tk-same>svg{flex:none;margin-top:2px}
+.tk-rider{display:flex;gap:6px;align-items:center;margin:0;font-weight:600;color:var(--navy)}.tk-rider a{color:var(--blue)}
+.tk-events{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.tk-events li{display:flex;gap:10px;position:relative;padding:0 0 12px 0}
+.tk-events li i{width:12px;height:12px;border-radius:50%;background:#cbd5e1;flex:none;margin-top:4px;position:relative;z-index:1}
+.tk-events li:not(:last-child)::before{content:'';position:absolute;left:5px;top:14px;bottom:0;width:2px;background:#e2e8f0}
+.tk-events li.now i{background:var(--blue);box-shadow:0 0 0 4px rgba(31,92,255,.15)}
+.tk-events div{display:grid;min-width:0}.tk-events small{font-size:12px;color:var(--muted)}.tk-events b{font-size:14px;color:var(--navy)}.tk-events span{font-size:13px;color:var(--text);overflow-wrap:anywhere}
+.tk-sf{justify-self:start}
+@media (max-width:620px){.tk-ids{grid-template-columns:1fr}}

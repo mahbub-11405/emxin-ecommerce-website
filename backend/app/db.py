@@ -11,21 +11,29 @@ TRAFFIC = {'analytics_events'}  # visitors / product views / add to cart: live o
 WRITE_CMDS = {'insert', 'update', 'delete', 'findAndModify'}
 data_version = [0]   # business data changed (orders, payments, stock …)
 live_version = [0]   # anything the dashboard shows changed (business data + visitor traffic)
+# public_version goes up after any write to what the shop shows (products, stock, prices, categories, homepage, settings, coupons)
+PUBLIC = {'products', 'categories', 'brands', 'homepage', 'settings', 'coupons', 'orders'}
+public_version = [0]
 
 
 class _WriteWatcher(monitoring.CommandListener):
     def __init__(self):
         self.pending = {}  # request_id -> True (business write) / False (traffic)
+        self.public_pending = set()
 
     def started(self, e):
         if e.command_name in WRITE_CMDS:
             coll = e.command.get(e.command_name)
+            if coll in PUBLIC:
+                self.public_pending.add(e.request_id)
             if coll in WATCHED:
                 self.pending[e.request_id] = True
             elif coll in TRAFFIC:
                 self.pending[e.request_id] = False
 
     def succeeded(self, e):
+        if e.request_id in self.public_pending:
+            self.public_pending.discard(e.request_id); public_version[0] += 1
         business = self.pending.pop(e.request_id, None)
         if business is None:
             return
@@ -34,7 +42,7 @@ class _WriteWatcher(monitoring.CommandListener):
         live_version[0] += 1
 
     def failed(self, e):
-        self.pending.pop(e.request_id, None)
+        self.pending.pop(e.request_id, None); self.public_pending.discard(e.request_id)
 
 
 write_watcher = _WriteWatcher()
